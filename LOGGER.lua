@@ -5,9 +5,15 @@
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
 local staList=component.findComponent("GARE_TEST")
-if not staList or not staList[1] then print("ERREUR: GARE_TEST non trouvee - verifie le cable reseau") end
+if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) print("ERREUR: GARE_TEST non trouvee - verifie le cable reseau") end
 local sta=staList and staList[1] and component.proxy(staList[1])
 net:open(42)  -- port de broadcast vers DETAIL et autres scripts
+
+-- Fonction log : affiche localement ET diffuse sur port 43 (LOG_SCREEN)
+local function log(msg)
+    print(msg)
+    pcall(function()net:broadcast(43,"LOGGER",msg)end)
+end
 
 -- === DISQUE DUR ===
 local fs=filesystem
@@ -110,7 +116,7 @@ local function saveTrip(tn,fr,to,d,ts,it,nv)
     pcall(function()net:broadcast(42,tn,fr,to,d,ts,invStr)end)
     local invLog=""
     for item,cnt in pairs(it) do invLog=invLog.." | "..item.." x"..cnt end
-    print("LOG: "..tn.." "..seg.." d="..d.."s wagons="..nv..invLog)
+    log("LOG: "..tn.." "..seg.." d="..d.."s wagons="..nv..invLog)
 end
 
 -- === ÉTAT PAR TRAIN (mis à jour à chaque tick) ===
@@ -189,7 +195,7 @@ loadSaved()  -- restaure les données précédentes depuis le disque
 broadcastAll()  -- envoie immédiatement les données aux clients déjà connectés
 local trainCount=0
 if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
-print("LOGGER démarré - "..trainCount.." trains détectés")
+log("LOGGER démarré - "..trainCount.." trains détectés")
 
 -- === BOUCLE PRINCIPALE ===
 local ticks=0
