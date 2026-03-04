@@ -166,14 +166,39 @@ local function tick()
     end
 end
 
+-- Re-diffuse tous les derniers trajets connus sur le réseau
+-- Permet à DETAIL de se synchroniser même s'il a démarré après LOGGER
+local function broadcastAll()
+    for tn,segs in pairs(saved) do
+        for seg,trips in pairs(segs) do
+            if trips and trips[1] then
+                local trip=trips[1]
+                local fr,to=seg:match("^(.+)->(.+)$")
+                if fr and to then
+                    local ok,invs=pcall(function()return ser(trip.inv or {})end)
+                    local invStr=ok and invs or "{}"
+                    pcall(function()net:broadcast(42,tn,fr,to,trip.duration,trip.ts,invStr)end)
+                end
+            end
+        end
+    end
+end
+
 -- === DÉMARRAGE ===
 loadSaved()  -- restaure les données précédentes depuis le disque
+broadcastAll()  -- envoie immédiatement les données aux clients déjà connectés
 local trainCount=0
 if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
 print("LOGGER démarré - "..trainCount.." trains détectés")
 
 -- === BOUCLE PRINCIPALE ===
+local ticks=0
 while true do
     tick()
-    event.pull(2)  -- attend 2s (ou un événement réseau non utilisé ici)
+    ticks=ticks+1
+    if ticks>=30 then  -- toutes les 60s (30 × 2s), re-diffuse pour les nouveaux clients
+        ticks=0
+        broadcastAll()
+    end
+    event.pull(2)
 end

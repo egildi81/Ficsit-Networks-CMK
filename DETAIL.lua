@@ -109,9 +109,10 @@ local function draw()
     local now=computer.millis()/1000
 
     -- Mise à jour des stats ETA en temps réel (depuis les arrivées observées)
+    local dn=nil  -- prochaine gare (nil si pas de timetable)
     if ci and sn and #sn>0 then
         local ns=#sn
-        local dn=sn[(ci+1)%ns+1] or "???"  -- prochaine gare
+        dn=sn[(ci+1)%ns+1] or "???"
         if dk then
             local cur=sn[ci+1] or "???"
             local ls=la[tn]
@@ -154,8 +155,27 @@ local function draw()
     gpu:drawText({x=10,y=y},"Wagons",19,DI,false) gpu:drawText({x=130,y=y},tostring(nv),19,WH,false)
     y=y+32 sep(y) y=y+10
 
-    -- Section timetable : liste les gares avec marqueurs et ETA
-    gpu:drawText({x=10,y=y},"TIMETABLE",19,OR,false) y=y+26
+    -- Section timetable : titre + ETA vers prochaine gare sur la même ligne
+    gpu:drawText({x=10,y=y},"TIMETABLE",19,OR,false)
+    if not dk and dn then
+        -- Calcule l'ETA : countdown précis (dp) ou moyenne historique (~)
+        local etaStr,etaColor
+        local d=dp[tn]
+        if d and dn==d.to then
+            local rem=math.floor(d.av-(now-d.t))
+            etaColor=rem>=0 and GR or RE
+            etaStr=rem>=0 and fmt(rem) or "-"..fmt(-rem)
+        else
+            local pn=la[tn] and la[tn].from or "?"
+            local av=eta(tn,pn,dn)
+            if av then etaStr="~"..fmt(av) etaColor=YE end
+        end
+        if etaStr then
+            gpu:drawText({x=160,y=y},"→ "..dn,17,DI,false)
+            gpu:drawText({x=sw-80,y=y},etaStr,19,etaColor,false)
+        end
+    end
+    y=y+26
     if sn and #sn>0 then
         local ns=#sn
         for i,nm in ipairs(sn) do
@@ -165,21 +185,6 @@ local function draw()
             local px="  " local pc=DI
             if isc then px="→ " pc=GR elseif isp then px="✓ " pc={r=0.3,g=0.3,b=0.3,a=1} end
             gpu:drawText({x=10,y=y},px..nm,17,pc,false)
-            -- Affichage ETA : temps restant (depuis dp) ou durée moyenne (~)
-            local d=dp[tn]
-            if not dk and d and nm==d.to then
-                -- Temps restant calculé depuis le départ
-                local rem=math.floor(d.av-(now-d.t))
-                local ec=rem>=0 and GR or RE
-                local rs=rem>=0 and fmt(rem) or "-"..fmt(-rem)
-                gpu:drawText({x=sw-120,y=y},rs,17,ec,false)
-            elseif isc and not dk then
-                -- ETA moyen depuis les trajets historiques
-                local pn=la[tn] and la[tn].from or "?"
-                local av=eta(tn,pn,nm)
-                if av then gpu:drawText({x=sw-110,y=y},"~"..fmt(av),17,YE,false)
-                else gpu:drawText({x=sw-110,y=y},"ETA ?",17,DI,false) end
-            end
             y=y+21
         end
     else gpu:drawText({x=10,y=y},"Pas de timetable",17,DI,false) end
@@ -218,6 +223,7 @@ while true do
     local e,src,sender,port,tn,fr,to,d,ts,invStr=event.pull(2)
     if e=="Trigger" then
         -- Navigation entre les trains via les boutons
+        ref()  -- rafraîchit la liste des trains avant de naviguer
         if src==bN then idx=idx+1 end
         if src==bP then idx=idx-1 end
         if idx>#tl then idx=1 end
