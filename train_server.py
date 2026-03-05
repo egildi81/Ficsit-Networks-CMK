@@ -118,9 +118,14 @@ def build_embed():
         value=_field_value(groups["stopped"], "stopped"),
         inline=False
     )
+    moving_display = groups["moving"][:10]
+    moving_extra   = len(groups["moving"]) - len(moving_display)
+    moving_value   = _field_value(moving_display, "moving")
+    if moving_extra:
+        moving_value += f"\n*… et {moving_extra} autre{'s' if moving_extra > 1 else ''}*"
     embed.add_field(
         name=f"🟢 EN MOUVEMENT ({len(groups['moving'])})",
-        value=_field_value(groups["moving"], "moving"),
+        value=moving_value,
         inline=False
     )
     embed.add_field(
