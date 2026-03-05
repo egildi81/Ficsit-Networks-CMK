@@ -103,7 +103,8 @@ async def on_ready():
     print(f"Bot Discord connecté : {client.user}")
 
     # ── Purge des canaux configurés ──────────────────────────
-    for ch_id in config.CHANNELS_TO_CLEAN:
+    channels_to_clean = getattr(config, "CHANNELS_TO_CLEAN", [config.CHANNEL_ID])
+    for ch_id in channels_to_clean:
         ch = client.get_channel(ch_id)
         if ch:
             deleted = await ch.purge(limit=None)
