@@ -8,6 +8,7 @@ local staList=component.findComponent("GARE_TEST")
 if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) print("ERREUR: GARE_TEST non trouvee - verifie le cable reseau") end
 local sta=staList and staList[1] and component.proxy(staList[1])
 net:open(42)  -- port de broadcast vers DETAIL et autres scripts
+net:open(44)  -- port de broadcast snapshot état temps réel vers TRAIN_TAB
 
 -- Fonction log : affiche localement ET diffuse sur port 43 (LOG_SCREEN)
 local function log(msg)
@@ -213,6 +214,7 @@ local function tick()
         end
     end
     writeWeb()  -- écrit web.json après chaque tick
+    pcall(function()net:broadcast(44,ser(state))end)  -- envoie snapshot à TRAIN_TAB
 end
 
 -- Re-diffuse tous les derniers trajets connus sur le réseau
