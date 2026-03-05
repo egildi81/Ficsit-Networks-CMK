@@ -102,6 +102,16 @@ async def on_ready():
     global _monitor_msg
     print(f"Bot Discord connecté : {client.user}")
 
+    # ── Purge des canaux configurés ──────────────────────────
+    for ch_id in config.CHANNELS_TO_CLEAN:
+        ch = client.get_channel(ch_id)
+        if ch:
+            deleted = await ch.purge(limit=None)
+            print(f"Canal {ch_id} purgé ({len(deleted)} message(s))")
+        else:
+            print(f"Avertissement : canal {ch_id} introuvable (purge ignorée)")
+
+    # ── Post initial de l'embed dans le canal principal ──────
     channel = client.get_channel(config.CHANNEL_ID)
     if not channel:
         print(f"ERREUR Discord : canal {config.CHANNEL_ID} introuvable — vérifie config.py")
