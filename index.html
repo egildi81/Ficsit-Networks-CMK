@@ -19,8 +19,9 @@ header {
 }
 header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight: 700; }
 #status { font-size: 0.82em; color: #444; transition: color .3s; }
-#status.ok  { color: #33cc55; }
-#status.err { color: #ff4444; }
+#status.ok      { color: #33cc55; }
+#status.late    { color: #ff4444; }
+#status.err     { color: #ff4444; }
 
 /* ── ONGLETS ── */
 .tabs { display: flex; gap: 4px; }
@@ -339,8 +340,14 @@ async function refresh() {
         errors = 0;
 
         const st = document.getElementById('status');
-        st.textContent = '● En direct';
-        st.className = 'ok';
+        const ageMs = data.logger_updated_at ? (Date.now() - data.logger_updated_at * 1000) : 0;
+        if (ageMs > 5 * 60 * 1000) {
+            st.textContent = '● Différé';
+            st.className = 'late';
+        } else {
+            st.textContent = '● En direct';
+            st.className = 'ok';
+        }
 
         renderTrains(data.trains || []);
         renderTrips(data.trips || {});

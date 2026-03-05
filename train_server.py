@@ -8,7 +8,7 @@ Config  : renseigner config.py (token, channel_id)
 """
 
 from flask import Flask, jsonify, send_from_directory
-import json, os, threading
+import json, os, threading, time
 from datetime import datetime
 
 import discord
@@ -22,16 +22,18 @@ WEB_JSON = os.path.join(DISK, "web.json")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ── Cache partagé (Flask + Discord lisent le même) ───────────
-_cache = {"trains": [], "trips": {}}
+_cache            = {"trains": [], "trips": {}}
+_cache_updated_at = 0.0   # timestamp (epoch) du dernier web.json valide de LOGGER
 
 
 def read_web_json():
     """Lit web.json et met à jour le cache si valide."""
-    global _cache
+    global _cache, _cache_updated_at
     try:
         with open(WEB_JSON, "r", encoding="utf-8") as f:
             data = json.load(f)
         _cache = data
+        _cache_updated_at = time.time()
         return data
     except (json.JSONDecodeError, ValueError):
         return _cache   # race condition : retourne le cache
@@ -50,7 +52,8 @@ app = Flask(__name__)
 
 @app.route("/api/data")
 def get_data():
-    return jsonify(read_web_json())
+    data = read_web_json()
+    return jsonify({**data, "logger_updated_at": _cache_updated_at})
 
 
 @app.route("/")
