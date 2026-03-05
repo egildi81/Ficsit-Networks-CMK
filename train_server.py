@@ -109,7 +109,7 @@ def build_embed():
             f"**{total}** train{'s' if total != 1 else ''} sur le réseau\n"
             f"🔴 **{len(groups['stopped'])}** arrêt"
             f"　🟢 **{len(groups['moving'])}** mouvement"
-            f"　🔵 **{len(groups['docked'])}** quai"
+            f"　🔵 **{len(groups['docked'])}** quai\n\u200b"
         ),
         color=0xff8800
     )
