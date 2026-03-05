@@ -74,27 +74,41 @@ client  = discord.Client(intents=intents)
 _monitor_msg = None  # message Discord à éditer
 
 
-def build_embed():
-    """Construit l'embed Discord depuis le cache actuel."""
+def build_message():
+    """Construit le message texte (code block monospace) depuis le cache actuel."""
     trains = _cache.get("trains", [])
-    groups = {"stopped": 0, "moving": 0, "docked": 0}
+    groups = {"moving": [], "docked": [], "stopped": []}
     for t in trains:
-        groups[t.get("status", "stopped")] = groups.get(t.get("status", "stopped"), 0) + 1
+        groups.get(t.get("status", "stopped"), groups["stopped"]).append(t)
+    groups["moving"].sort(key=lambda t: -t.get("speed", 0))
 
+    W = 18  # largeur colonne Train
+    lines = []
+
+    sections = [
+        ("moving",  "EN MOUVEMENT", f"({len(groups['moving'])})"),
+        ("docked",  "A QUAI",       f"({len(groups['docked'])})"),
+        ("stopped", "A L'ARRET",    f"({len(groups['stopped'])})"),
+    ]
+
+    for key, label, count in sections:
+        header = f"== {label} {count} "
+        lines.append(header.ljust(48, "="))
+        if groups[key]:
+            for t in groups[key]:
+                name    = t.get("name", "?")[:W].ljust(W)
+                speed   = f"{t.get('speed', 0)} km/h".rjust(8)
+                station = t.get("station", "?")
+                lines.append(f"  {name} {speed}   {station}")
+        else:
+            lines.append("  (aucun)")
+
+    now = datetime.now().strftime("%H:%M:%S")
     total = len(trains)
-    embed = discord.Embed(
-        title="🚂  TRAIN MONITOR — Satisfactory",
-        description=(
-            f"**{total}** train{'s' if total != 1 else ''} sur le réseau\n\n"
-            f"🔴  À l'arrêt **{groups['stopped']}**"
-            f"　　🟢  En mouvement **{groups['moving']}**"
-            f"　　🔵  À quai **{groups['docked']}**"
-        ),
-        color=0xff8800
-    )
-    embed.set_footer(text="Mis à jour")
-    embed.timestamp = datetime.utcnow()
-    return embed
+    lines.append("")
+    lines.append(f"  {total} train{'s' if total != 1 else ''} sur le reseau — {now}")
+
+    return "```\n" + "\n".join(lines) + "\n```"
 
 
 @client.event
@@ -119,8 +133,8 @@ async def on_ready():
         return
 
     read_web_json()
-    _monitor_msg = await channel.send(embed=build_embed())
-    print(f"Embed posté (id={_monitor_msg.id}), refresh toutes les {config.DISCORD_UPDATE_INTERVAL}s")
+    _monitor_msg = await channel.send(build_message())
+    print(f"Message posté (id={_monitor_msg.id}), refresh toutes les {config.DISCORD_UPDATE_INTERVAL}s")
     asyncio.create_task(discord_update_loop())
 
 
@@ -131,12 +145,12 @@ async def discord_update_loop():
         read_web_json()
         if _monitor_msg:
             try:
-                await _monitor_msg.edit(embed=build_embed())
+                await _monitor_msg.edit(content=build_message())
             except discord.NotFound:
                 # Message supprimé manuellement → on en reposte un
                 channel = client.get_channel(config.CHANNEL_ID)
                 if channel:
-                    _monitor_msg = await channel.send(embed=build_embed())
+                    _monitor_msg = await channel.send(build_message())
             except Exception as e:
                 print(f"Erreur Discord : {e}")
 
