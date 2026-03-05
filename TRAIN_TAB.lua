@@ -4,6 +4,7 @@
 -- Écran centre  (gpuC) : trains EN MOUVEMENT, triés par vitesse
 -- Écran droit   (gpuR) : trains À QUAI
 -- Prérequis : une NetworkCard installée dans le PC TRAIN_TAB
+-- Multi-thread : thread réseau (port 44) + thread dessin (2s timer)
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -55,8 +56,9 @@ local function drawRow(gpu,y,name,line2,color,altBg)
     end
 end
 
--- === ÉTAT COURANT (reçu de LOGGER) ===
+-- === ÉTAT COURANT (partagé entre les deux threads) ===
 local lastState={}
+local lastStateTime=0  -- computer.millis() du dernier snapshot reçu
 
 -- === RENDU DEPUIS L'ÉTAT REÇU ===
 local function drawAll(state)
@@ -111,7 +113,6 @@ local function drawAll(state)
     gpuR:flush()
 end
 
--- Affiche un écran d'attente si LOGGER n'a pas encore envoyé de données
 local function drawWaiting()
     local msg="En attente de LOGGER..."
     for _,gpu in ipairs({gpuL,gpuC,gpuR}) do
@@ -121,17 +122,78 @@ local function drawWaiting()
     end
 end
 
--- === BOUCLE PRINCIPALE ===
-drawWaiting()
-while true do
-    -- Attend max 3s un message réseau (LOGGER envoie toutes les 2s)
-    local e,_,_,port,stateStr=event.pull(3)
-    if e=="NetworkMessage" and port==44 and stateStr then
-        local ok,fn=pcall(load,"return "..stateStr)
-        if ok and fn then
-            local ok2,s=pcall(fn)
-            if ok2 and s then lastState=s end
-        end
-    end
-    drawAll(lastState)
+-- ════════════════════════════════════════════════════════════
+-- THREAD MANAGER
+-- ════════════════════════════════════════════════════════════
+local threads={}
+
+local function spawn(fn)
+    table.insert(threads,coroutine.create(fn))
 end
+
+local function runAll()
+    while true do
+        for i=#threads,1,-1 do
+            if coroutine.status(threads[i])~="dead" then
+                local ok,err=coroutine.resume(threads[i])
+                if not ok then
+                    print("Thread error: "..tostring(err))
+                    table.remove(threads,i)
+                end
+            else
+                table.remove(threads,i)
+            end
+        end
+        event.pull(0)  -- point de basculement entre threads
+    end
+end
+
+-- ════════════════════════════════════════════════════════════
+-- THREAD 1 : RÉSEAU — reçoit le snapshot de LOGGER (port 44)
+-- ════════════════════════════════════════════════════════════
+spawn(function()
+    while true do
+        local e,_,_,port,stateStr=event.pull(0)
+        if e=="NetworkMessage" and port==44 and stateStr then
+            local ok,fn=pcall(load,"return "..stateStr)
+            if ok and fn then
+                local ok2,s=pcall(fn)
+                if ok2 and s then
+                    lastState=s
+                    lastStateTime=computer.millis()
+                end
+            end
+        end
+        coroutine.yield()
+    end
+end)
+
+-- ════════════════════════════════════════════════════════════
+-- THREAD 2 : DESSIN — redraw toutes les 2s, indépendamment du réseau
+-- Affiche "(LOGGER inactif)" si aucun snapshot depuis 10s
+-- ════════════════════════════════════════════════════════════
+spawn(function()
+    local lastDraw=0
+    while true do
+        local now=computer.millis()
+        if now-lastDraw>=2000 then
+            local age=now-lastStateTime
+            if lastStateTime==0 then
+                drawWaiting()
+            elseif age>10000 then
+                -- LOGGER silencieux depuis >10s : affiche quand même les dernières données
+                drawHeader(gpuL,"A L'ARRET (LOGGER ?)",0,RE,{r=0.1,g=0,b=0,a=1})
+                gpuL:flush()
+                drawAll(lastState)
+            else
+                drawAll(lastState)
+            end
+            lastDraw=now
+        end
+        coroutine.yield()
+    end
+end)
+
+-- === DÉMARRAGE ===
+drawWaiting()
+runAll()
