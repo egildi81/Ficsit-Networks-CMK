@@ -59,8 +59,7 @@ local lastTrafLevel=nil
 local function setLed(led,on,r,g,b)
     if not led then return end
     pcall(function()
-        led.color={r=r,g=g,b=b,a=1}
-        led.enabled=on
+        if on then led:setColor(r,g,b,1) else led:setColor(0,0,0,0) end
     end)
 end
 
