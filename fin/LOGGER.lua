@@ -4,6 +4,8 @@
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
+local inet=computer.getPCIDevices(classes.InternetCard)[1]
+local WEB_URL="http://127.0.0.1:8081"  -- URL du serveur web Python
 local staList=component.findComponent("GARE_TEST")
 if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) print("ERREUR: GARE_TEST non trouvee - verifie le cable reseau") end
 local sta=staList and staList[1] and component.proxy(staList[1])
@@ -83,18 +85,20 @@ local function writeDisk()
     f:close()
 end
 
--- Écrit le snapshot temps réel + historique en JSON pour le serveur web Python
--- Fichier : /web.json (même disque que trips.json)
+-- Envoie le snapshot trains + historique trajets vers Python via HTTP POST
+-- Remplace l'écriture sur disque FIN (élimine le risque de corruption du save)
+-- Fréquence : toutes les 30s (TRAIN_TAB reçoit le broadcast réseau en temps réel)
 local state={}  -- {[tn]={name,speed,status,station,wagons}} — mis à jour chaque tick
-local function writeWeb()
+local function postState()
+    if not inet then return end
     local trainArr={} for _,s in pairs(state) do table.insert(trainArr,s) end
-    local ok,f=pcall(function()return fs.open("/web.json","w")end)
-    if not ok or not f then return end
-    local ok2,s=pcall(function()
+    local ok,body=pcall(function()
         return toJson({trains=trainArr,trips=saved})
     end)
-    if ok2 and s then f:write(s) end
-    f:close()
+    if not ok or not body then return end
+    pcall(function()
+        inet:request(WEB_URL.."/api/push","POST",body,"Content-Type","application/json")
+    end)
 end
 
 -- === LECTURE DE L'INVENTAIRE D'UN TRAIN ===
@@ -213,8 +217,7 @@ local function tick()
             dk_prev[tn]=dk
         end
     end
-    writeWeb()  -- écrit web.json après chaque tick
-    pcall(function()net:broadcast(44,ser(state))end)  -- envoie snapshot à TRAIN_TAB
+    pcall(function()net:broadcast(44,ser(state))end)  -- envoie snapshot à TRAIN_TAB (temps réel)
 end
 
 -- Re-diffuse tous les derniers trajets connus sur le réseau
@@ -243,13 +246,23 @@ if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
 log("LOGGER démarré - "..trainCount.." trains détectés")
 
 -- === BOUCLE PRINCIPALE ===
+-- Utilise computer.millis() pour le timing afin que les réponses HTTP
+-- (HTTPRequestCallback) ne décalent pas les ticks de 2s
 local ticks=0
+local nextTick=computer.millis()+2000
 while true do
-    tick()
-    ticks=ticks+1
-    if ticks>=30 then  -- toutes les 60s (30 × 2s), re-diffuse pour les nouveaux clients
-        ticks=0
-        broadcastAll()
+    local remaining=math.max(0.05,(nextTick-computer.millis())/1000)
+    event.pull(remaining)  -- attend le prochain tick OU une réponse HTTP (ignorée)
+    if computer.millis()>=nextTick then
+        nextTick=nextTick+2000
+        tick()
+        ticks=ticks+1
+        if ticks%15==0 then  -- toutes les 30s : envoie snapshot au serveur web
+            postState()
+        end
+        if ticks>=30 then    -- toutes les 60s : re-diffuse pour les nouveaux clients
+            ticks=0
+            broadcastAll()
+        end
     end
-    event.pull(2)
 end

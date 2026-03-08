@@ -7,7 +7,7 @@ Lancer : python train_server.py
 Config  : renseigner config.py (token, channel_id)
 """
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 import json, os, threading, time
 from datetime import datetime
 
@@ -17,30 +17,12 @@ import asyncio
 import config
 
 # ── Chemins ──────────────────────────────────────────────────
-DISK     = r"C:\Users\camak\AppData\Local\FactoryGame\Saved\SaveGames\Computers\6D014517486D381F93350594FFD39B23"
-WEB_JSON = os.path.join(DISK, "web.json")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ── Cache partagé (Flask + Discord lisent le même) ───────────
+# Alimenté par POST /api/push depuis LOGGER via InternetCard (plus de lecture fichier)
 _cache            = {"trains": [], "trips": {}}
-_cache_updated_at = 0.0   # timestamp (epoch) du dernier web.json valide de LOGGER
-
-
-def read_web_json():
-    """Lit web.json et met à jour le cache si valide."""
-    global _cache, _cache_updated_at
-    try:
-        with open(WEB_JSON, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        _cache = data
-        _cache_updated_at = time.time()
-        return data
-    except (json.JSONDecodeError, ValueError):
-        return _cache   # race condition : retourne le cache
-    except FileNotFoundError:
-        return _cache
-    except Exception:
-        return _cache
+_cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
 
 
 # ════════════════════════════════════════════════════════════
@@ -50,10 +32,21 @@ def read_web_json():
 app = Flask(__name__)
 
 
+@app.route("/api/push", methods=["POST"])
+def receive_push():
+    """Reçoit le snapshot de LOGGER via InternetCard (remplace la lecture de web.json)."""
+    global _cache, _cache_updated_at
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    _cache = body
+    _cache_updated_at = time.time()
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/data")
 def get_data():
-    data = read_web_json()
-    return jsonify({**data, "logger_updated_at": _cache_updated_at})
+    return jsonify({**_cache, "logger_updated_at": _cache_updated_at})
 
 
 @app.route("/")
@@ -163,7 +156,6 @@ async def on_ready():
         print(f"ERREUR Discord : canal {config.CHANNEL_ID} introuvable — vérifie config.py")
         return
 
-    read_web_json()
     _monitor_msg = await channel.send(embed=build_embed())
     print(f"Embed posté (id={_monitor_msg.id}), refresh toutes les {config.DISCORD_UPDATE_INTERVAL}s")
     asyncio.create_task(discord_update_loop())
@@ -173,7 +165,7 @@ async def discord_update_loop():
     global _monitor_msg
     while True:
         await asyncio.sleep(config.DISCORD_UPDATE_INTERVAL)
-        read_web_json()
+        # _cache est mis à jour par POST /api/push — pas besoin de lire un fichier
         if _monitor_msg:
             try:
                 await _monitor_msg.edit(embed=build_embed())
@@ -191,7 +183,7 @@ async def discord_update_loop():
 # ════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print(f"Lecture de : {WEB_JSON}")
+    print("En attente de données LOGGER via POST /api/push ...")
 
     # Flask dans un thread background
     flask_thread = threading.Thread(target=run_flask, daemon=True)
