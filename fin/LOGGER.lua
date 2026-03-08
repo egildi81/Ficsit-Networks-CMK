@@ -79,10 +79,13 @@ end
 -- Écrit la table `saved` sur le disque au format Lua (écrase le fichier existant)
 local function writeDisk()
     local ok,f=pcall(function()return fs.open(TRIPS_FILE,"w")end)
-    if not ok or not f then return end
+    if not ok or not f then log("writeDisk: impossible d'ouvrir "..TRIPS_FILE) return end
     local ok2,s=pcall(function()return ser(saved)end)
-    if ok2 and s then f:write(s) end
-    f:close()
+    if ok2 and s then
+        local ok3=pcall(function()f:write(s)end)
+        if not ok3 then log("writeDisk: erreur ecriture") end
+    end
+    pcall(function()f:close()end)
 end
 
 -- Envoie le snapshot trains + historique trajets vers Python via HTTP POST
