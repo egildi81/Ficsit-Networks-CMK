@@ -3,12 +3,16 @@
 -- Reçoit les données d'inventaire et de trajet depuis LOGGER via réseau (port 42)
 
 -- === INITIALISATION MATÉRIEL ===
-local gpu=computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
+local gpus=computer.getPCIDevices(classes.Build_GPU_T2_C)
+local gpu=gpus[1]   -- écran détail (droite)
+local gpu2=gpus[2]  -- écran liste  (gauche)
 local scr=component.proxy(component.findComponent("DETAIL_SCREEN_R")[1])
+local scrL=component.proxy(component.findComponent("DETAIL_SCREEN_L")[1])
 local sta=component.proxy(component.findComponent("GARE_TEST")[1])
 local pan=component.proxy(component.findComponent("DETAIL_PANEL")[1])
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
 gpu:bindScreen(scr)
+if gpu2 and scrL then gpu2:bindScreen(scrL) end
 
 -- === CONSTANTES AFFICHAGE ===
 local sw,sh=600,900          -- largeur, hauteur de l'écran en pixels
@@ -38,8 +42,23 @@ local dp={}       -- prédiction de départ: dp[tn]={t=now, to="GareY", av=duré
 local dk_prev={}  -- état isDocked du tick précédent (pour détecter les départs)
 local saved={}    -- derniers trajets reçus: saved[tn][1..5]={from,to,duration,ts,inventory}
 
--- Rafraîchit la liste des trains depuis le réseau ferroviaire
-local function ref() tl=sta:getTrackGraph():getTrains() end
+-- Rafraîchit la liste des trains : séquentielle, master valide, timetable avec gares
+local function ref()
+    local raw=sta:getTrackGraph():getTrains()
+    tl={}
+    for _,t in pairs(raw) do
+        local ok,m=pcall(function()return t:getMaster()end)
+        if ok and m then
+            local ok2,tt=pcall(function()return t:getTimeTable()end)
+            if ok2 and tt then
+                local ok3,stops=pcall(function()return tt:getStops()end)
+                if ok3 and stops and #stops>0 then
+                    table.insert(tl,t)
+                end
+            end
+        end
+    end
+end
 
 -- Récupère le timetable d'un train : retourne (indexGareCourante, {noms des gares})
 local function tti(t)
@@ -89,6 +108,44 @@ end
 local function fmt(s) return string.format("%d:%02d",math.floor(s/60),s%60) end
 -- Dessine une ligne séparatrice horizontale à la position y
 local function sep(y) gpu:drawRect({x=10,y=y},{x=sw-20,y=1},SP,SP,0) end
+
+-- === LISTE DES TRAINS (écran gauche, défile pour garder idx visible) ===
+local function drawList()
+    if not gpu2 then return end
+    gpu2:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
+    -- En-tête
+    gpu2:drawRect({x=0,y=0},{x=sw,y=60},BG,{r=0.08,g=0.08,b=0.08,a=1},0)
+    gpu2:drawText({x=10,y=16},"LISTE DES TRAINS",22,OR,false)
+    gpu2:drawText({x=sw-100,y=20},#tl.." trains",17,DI,false)
+    gpu2:drawRect({x=10,y=58},{x=sw-20,y=1},SP,SP,0)
+    -- Affichage circulaire : idx toujours en haut, boucle sur le début si fin de liste
+    local rowH=28
+    local maxRows=math.floor((sh-70)/rowH)
+    if #tl==0 then gpu2:flush() return end
+    local y=70
+    for r=0,maxRows-1 do
+        local i=((idx-1+r)%#tl)+1
+        local t=tl[i]
+        local tn=t:getName()
+        local isCur=(i==idx)
+        if isCur then gpu2:drawRect({x=0,y=y-2},{x=sw,y=rowH},{r=0.12,g=0.12,b=0.12,a=1},{r=0.18,g=0.18,b=0.18,a=1},0) end
+        gpu2:drawText({x=10,y=y},string.format("%2d",i),17,isCur and OR or DI,false)
+        gpu2:drawText({x=38,y=y},(isCur and "-> " or "   ")..tn,17,isCur and WH or DI,false)
+        local ok,m=pcall(function()return t:getMaster()end)
+        if ok and m then
+            local mv=m:getMovement()
+            local spd=math.abs(math.floor(mv.speed/100*3.6))
+            local dk=m.isDocked
+            local st,sc
+            if dk then st="quai" sc=BL
+            elseif spd>0 then st=spd.."km/h" sc=spd>100 and GR or YE
+            else st="arret" sc=RE end
+            gpu2:drawText({x=sw-90,y=y},st,15,sc,false)
+        end
+        y=y+rowH
+    end
+    gpu2:flush()
+end
 
 -- === FONCTION DE DESSIN PRINCIPAL ===
 local function draw()
@@ -220,15 +277,18 @@ end
 -- === BOUCLE PRINCIPALE ===
 while true do
     draw()
+    drawList()
     -- Attend max 2s : soit un bouton panel, soit un message réseau LOGGER
     local e,src,sender,port,a1,a2,a3,a4,a5,a6=event.pull(2)
     if e=="Trigger" then
-        -- Navigation entre les trains via les boutons
-        ref()  -- rafraîchit la liste des trains avant de naviguer
-        if src==bN then idx=idx+1 end
-        if src==bP then idx=idx-1 end
-        if idx>#tl then idx=1 end
-        if idx<1 then idx=#tl end
+        -- Mémorise le train courant, rafraîchit la liste, retrouve sa position
+        local curName=#tl>0 and tl[idx] and tl[idx]:getName() or nil
+        ref()
+        if curName then
+            for i,t in ipairs(tl) do if t:getName()==curName then idx=i break end end
+        end
+        if src==bN then idx=idx%#tl+1 end
+        if src==bP then idx=(idx-2)%#tl+1 end
     elseif e=="NetworkMessage" then
         if port==42 then
             -- Réception d'un trajet complet depuis LOGGER

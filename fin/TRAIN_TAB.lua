@@ -24,14 +24,18 @@ event.listen(net)
 net:open(44)  -- port snapshot LOGGER
 
 -- === INDICATOR POLE (optionnel) ===
--- 1. Nommer le panel en jeu : "TRAFFIC_POLE"
--- 2. Lancer PANELSCAN.lua (remplacer "PANEL_L" par "TRAFFIC_POLE") pour voir les positions
--- 3. Renseigner les positions ci-dessous (x, y sur le panel)
-local POLE_NAME   = "TRAFFIC_POLE"
-local POS_LED_G   = {x=0,y=0}   -- LED gauche  (verte)
-local POS_LED_Y   = {x=1,y=0}   -- LED milieu  (jaune)
-local POS_LED_O   = {x=2,y=0}   -- LED droite  (orange)
-local POS_SPEAKER = {x=3,y=0}   -- buzzer (x=3 sur le pole)
+-- Nommer le panel en jeu : "TRAFFIC_POLE"
+-- Nommer le Speaker Pole en jeu : "TRAFFIC_SPEAKER"
+local POLE_NAME    = "TRAFFIC_POLE"
+local SPEAKER_NAME = "TRAFFIC_SPEAKER"
+local POS_LED_G    = {x=0,y=0}   -- LED bas    (verte)
+local POS_LED_Y    = {x=1,y=0}   -- LED milieu (jaune)
+local POS_LED_O    = {x=2,y=0}   -- LED haut   (rouge)
+-- Sons custom (fichiers .ogg à placer dans %LOCALAPPDATA%\FactoryGame\Saved\SaveGames\Computers\Sounds\)
+local SOUNDS_BOOT   = {"RATP-Signal"}   -- au lancement du script
+local SOUND_GREEN   = "SNCF-Passage"   -- retour au vert
+local SOUND_YELLOW  = "RATP-Signal"    -- passage au jaune
+local SOUND_RED     = "SNCF-Panne"     -- passage au rouge (congestion)
 
 local function findOpt(name)
     local list=component.findComponent(name)
@@ -53,8 +57,8 @@ end
 local ledG=getModule(POS_LED_G)
 local ledY=getModule(POS_LED_Y)
 local ledO=getModule(POS_LED_O)
-local trafSpeaker=getModule(POS_SPEAKER)
-local lastTrafLevel=nil
+local trafSpeaker=findOpt(SPEAKER_NAME)
+local lastTrafLevel="green"  -- init à green pour éviter le son au démarrage
 
 local function updateIndicator(nMoving,nStopped,nDocked)
     local idle=nStopped+nDocked
@@ -66,20 +70,25 @@ local function updateIndicator(nMoving,nStopped,nDocked)
         local ratio=nMoving/total
         if ratio>=0.6 then level="green"
         elseif ratio>=0.4 then level="yellow"
-        else level="orange"
+        else level="red"
         end
     end
-    -- Une seule couleur active sur toutes les LEDs (trafic toujours visible)
-    local r,g,b
-    if level=="green"  then r,g,b=0,1,0
-    elseif level=="yellow" then r,g,b=1,1,0
-    else r,g,b=1,0.5,0 end
-    pcall(function() if ledG then ledG:setColor(r,g,b,1) end end)
-    pcall(function() if ledY then ledY:setColor(r,g,b,1) end end)
-    pcall(function() if ledO then ledO:setColor(r,g,b,1) end end)
-    -- Alerte sonore uniquement lors du passage en orange
-    if trafSpeaker and level=="orange" and lastTrafLevel~="orange" then
-        pcall(function() trafSpeaker:beep(440,0.4) end)
+    -- Feu tricolore : une seule LED allumée à la fois
+    pcall(function() if ledG then
+        if level=="green"  then ledG:setColor(0,1,0,1) else ledG:setColor(0,0,0,0) end
+    end end)
+    pcall(function() if ledY then
+        if level=="yellow" then ledY:setColor(1,1,0,1) else ledY:setColor(0,0,0,0) end
+    end end)
+    pcall(function() if ledO then
+        if level=="red" then ledO:setColor(1,0,0,1) else ledO:setColor(0,0,0,0) end
+    end end)
+    -- Alertes sonores lors des changements d'état
+    if trafSpeaker and level~=lastTrafLevel then
+        if level=="green"  then pcall(function()trafSpeaker:playSound(SOUND_GREEN,0)end)
+        elseif level=="yellow" then pcall(function()trafSpeaker:playSound(SOUND_YELLOW,0)end)
+        elseif level=="red"    then pcall(function()trafSpeaker:playSound(SOUND_RED,0)end)
+        end
     end
     lastTrafLevel=level
 end
@@ -258,8 +267,9 @@ end)
 
 -- === DÉMARRAGE ===
 if trafSpeaker then
-    pcall(function() trafSpeaker:beep(880,0.15) end)
-    pcall(function() trafSpeaker:beep(880,0.15) end)
+    for _,s in ipairs(SOUNDS_BOOT) do
+        pcall(function() trafSpeaker:playSound(s,0) end)
+    end
 end
 drawWaiting()
 runAll()

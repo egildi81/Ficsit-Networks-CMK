@@ -176,12 +176,18 @@ local function tick()
 
             -- Récupère le nom de la gare courante via le timetable
             local cur="?"
+            local hasTT=false
             pcall(function()
                 local tt=t:getTimeTable()
-                local ci=tt:getCurrentStop()
-                local st=tt:getStop(ci)
-                cur=st.station.name
+                local stops=tt:getStops()
+                if stops and #stops>0 then
+                    hasTT=true
+                    local ci=tt:getCurrentStop()
+                    local st=tt:getStop(ci)
+                    cur=st.station.name
+                end
             end)
+            if not hasTT then goto continue end  -- ignore trains sans timetable
 
             -- Collecte l'état temps réel du train pour web.json
             local spd=0
@@ -214,6 +220,7 @@ local function tick()
 
             dk_prev[tn]=dk
         end
+        ::continue::
     end
     pcall(function()net:broadcast(44,ser(state))end)  -- envoie snapshot à TRAIN_TAB (temps réel)
     postState()  -- push HTTP vers le dashboard web (toutes les 2s)
