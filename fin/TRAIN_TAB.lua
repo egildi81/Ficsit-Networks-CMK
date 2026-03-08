@@ -28,10 +28,10 @@ net:open(44)  -- port snapshot LOGGER
 -- 2. Lancer PANELSCAN.lua (remplacer "PANEL_L" par "TRAFFIC_POLE") pour voir les positions
 -- 3. Renseigner les positions ci-dessous (x, y sur le panel)
 local POLE_NAME   = "TRAFFIC_POLE"
-local POS_LED_G   = {x=0,y=0}   -- LED verte   ← ajuster après PANELSCAN
-local POS_LED_Y   = {x=0,y=1}   -- LED jaune   ← ajuster après PANELSCAN
-local POS_LED_O   = {x=0,y=2}   -- LED orange  ← ajuster après PANELSCAN
-local POS_SPEAKER = nil          -- {x=0,y=3} si speaker présent, nil sinon
+local POS_LED_G   = {x=0,y=0}   -- LED gauche  (verte)
+local POS_LED_Y   = {x=1,y=0}   -- LED milieu  (jaune)
+local POS_LED_O   = {x=2,y=0}   -- LED droite  (orange)
+local POS_SPEAKER = {x=3,y=0}   -- buzzer (x=3 sur le pole)
 
 local function findOpt(name)
     local list=component.findComponent(name)
@@ -56,13 +56,6 @@ local ledO=getModule(POS_LED_O)
 local trafSpeaker=getModule(POS_SPEAKER)
 local lastTrafLevel=nil
 
-local function setLed(led,on,r,g,b)
-    if not led then return end
-    pcall(function()
-        if on then led:setColor(r,g,b,1) else led:setColor(0,0,0,0) end
-    end)
-end
-
 local function updateIndicator(nMoving,nStopped,nDocked)
     local idle=nStopped+nDocked
     local total=nMoving+idle
@@ -76,9 +69,14 @@ local function updateIndicator(nMoving,nStopped,nDocked)
         else level="orange"
         end
     end
-    setLed(ledG, level=="green",  0,   1,   0)
-    setLed(ledY, level=="yellow", 1,   1,   0)
-    setLed(ledO, level=="orange", 1,   0.5, 0)
+    -- Une seule couleur active sur toutes les LEDs (trafic toujours visible)
+    local r,g,b
+    if level=="green"  then r,g,b=0,1,0
+    elseif level=="yellow" then r,g,b=1,1,0
+    else r,g,b=1,0.5,0 end
+    pcall(function() if ledG then ledG:setColor(r,g,b,1) end end)
+    pcall(function() if ledY then ledY:setColor(r,g,b,1) end end)
+    pcall(function() if ledO then ledO:setColor(r,g,b,1) end end)
     -- Alerte sonore uniquement lors du passage en orange
     if trafSpeaker and level=="orange" and lastTrafLevel~="orange" then
         pcall(function() trafSpeaker:beep(440,0.4) end)
@@ -259,5 +257,9 @@ spawn(function()
 end)
 
 -- === DÉMARRAGE ===
+if trafSpeaker then
+    pcall(function() trafSpeaker:beep(880,0.15) end)
+    pcall(function() trafSpeaker:beep(880,0.15) end)
+end
 drawWaiting()
 runAll()
