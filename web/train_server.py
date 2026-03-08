@@ -8,7 +8,7 @@ Config  : renseigner config.py (token, channel_id)
 """
 
 from flask import Flask, jsonify, send_from_directory, request
-import json, os, threading, time
+import json, os, threading, time, logging
 from datetime import datetime, timezone
 
 import discord
@@ -119,6 +119,7 @@ def index():
 
 def run_flask():
     """Lance Flask dans un thread dédié (ne bloque pas le bot Discord)."""
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
     print("Dashboard disponible sur http://0.0.0.0:8081")
     app.run(host="0.0.0.0", port=8081, debug=False, use_reloader=False)
 
