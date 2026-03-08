@@ -81,6 +81,11 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .spd-none { color: #ff4444; }
 .clr-blue { color: #4499ff; }
 .empty-row { padding: 12px 14px; color: #333; font-size: 0.8em; font-style: italic; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: middle; flex-shrink: 0; }
+.dot-fast    { background: #33ff55; }
+.dot-slow    { background: #ffff33; }
+.dot-stopped { background: #ff4444; }
+.dot-docked  { background: #4499ff; }
 
 /* ── HISTORIQUE ── */
 .train-card { background: #111; border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
@@ -221,7 +226,7 @@ function esc(s) {
 function renderTrains(trains) {
     const groups = { moving: [], docked: [], stopped: [] };
     trains.forEach(t => (groups[t.status] || groups.stopped).push(t));
-    groups.moving.sort((a, b) => b.speed - a.speed);
+    groups.moving.sort((a, b) => a.speed - b.speed);  // plus lent en haut
 
     document.getElementById('cnt-moving').textContent  = groups.moving.length;
     document.getElementById('cnt-docked').textContent  = groups.docked.length;
@@ -232,7 +237,10 @@ function renderTrains(trains) {
     document.getElementById('col-moving').innerHTML = groups.moving.length
         ? groups.moving.map(t => `
             <div class="train-row">
-                <div class="train-name">${esc(t.name)}</div>
+                <div class="train-name">
+                    <span class="dot ${t.speed > 100 ? 'dot-fast' : 'dot-slow'}"></span>
+                    ${esc(t.name)}
+                </div>
                 <div class="train-sub">
                     <span class="${t.speed > 100 ? 'spd-fast' : 'spd-slow'}">${t.speed} km/h</span>
                     <span>→ ${esc(t.station)}</span>
@@ -243,9 +251,12 @@ function renderTrains(trains) {
     document.getElementById('col-docked').innerHTML = groups.docked.length
         ? groups.docked.map(t => `
             <div class="train-row">
-                <div class="train-name">${esc(t.name)}</div>
+                <div class="train-name">
+                    <span class="dot dot-docked"></span>
+                    ${esc(t.name)}
+                </div>
                 <div class="train-sub">
-                    <span class="clr-blue">${esc(t.station)}</span>
+                    <span class="clr-blue">→ ${esc(t.station)}</span>
                     <span>${t.wagons} wagon${t.wagons > 1 ? 's' : ''}</span>
                 </div>
             </div>`).join('') : empty;
@@ -253,7 +264,10 @@ function renderTrains(trains) {
     document.getElementById('col-stopped').innerHTML = groups.stopped.length
         ? groups.stopped.map(t => `
             <div class="train-row">
-                <div class="train-name">${esc(t.name)}</div>
+                <div class="train-name">
+                    <span class="dot dot-stopped"></span>
+                    ${esc(t.name)}
+                </div>
                 <div class="train-sub">
                     <span class="spd-none">Arrêté</span>
                     <span>${esc(t.station)}</span>
