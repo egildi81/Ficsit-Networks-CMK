@@ -26,7 +26,8 @@ local SP={r=0.15,g=0.15,b=0.15,a=1} -- gris foncé (séparateur)
 local bP=pan:getModule(0,0,0)  -- bouton précédent (slot 0,0)
 local bN=pan:getModule(0,1,0)  -- bouton suivant  (slot 0,1)
 event.listen(bP) event.listen(bN) event.listen(net)
-net:open(42)  -- écoute les broadcasts LOGGER sur port 42
+net:open(42)  -- écoute les broadcasts LOGGER sur port 42 (trajets)
+net:open(45)  -- écoute les stats ETA historiques de LOGGER (port 45)
 
 -- === ÉTAT GLOBAL ===
 local idx=1       -- index du train affiché dans la liste tl
@@ -220,7 +221,7 @@ end
 while true do
     draw()
     -- Attend max 2s : soit un bouton panel, soit un message réseau LOGGER
-    local e,src,sender,port,tn,fr,to,d,ts,invStr=event.pull(2)
+    local e,src,sender,port,a1,a2,a3,a4,a5,a6=event.pull(2)
     if e=="Trigger" then
         -- Navigation entre les trains via les boutons
         ref()  -- rafraîchit la liste des trains avant de naviguer
@@ -228,8 +229,18 @@ while true do
         if src==bP then idx=idx-1 end
         if idx>#tl then idx=1 end
         if idx<1 then idx=#tl end
-    elseif e=="NetworkMessage" and port==42 then
-        -- Réception d'un trajet complet depuis LOGGER
-        onTrip(tn,fr,to,d,ts,invStr)
+    elseif e=="NetworkMessage" then
+        if port==42 then
+            -- Réception d'un trajet complet depuis LOGGER
+            onTrip(a1,a2,a3,a4,a5,a6)
+        elseif port==45 then
+            -- Stats ETA historiques : (tn, seg, avg, count) → initialise tm directement
+            -- Remplace (pas accumule) pour éviter les doublons lors des re-broadcasts
+            local tn,seg,avg,cnt=a1,a2,a3,a4
+            if tn and seg and avg and cnt and cnt>0 then
+                if not tm[tn] then tm[tn]={} end
+                tm[tn][seg]={t=avg*cnt,c=cnt}
+            end
+        end
     end
 end

@@ -5,13 +5,14 @@
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
-local inet=computer.getPCIDevices(classes.InternetCard)[1]
+local inet=computer.getPCIDevices(classes.FINInternetCard)[1]
 local WEB_URL="http://127.0.0.1:8081"  -- URL du serveur web Python
 local staList=component.findComponent("GARE_TEST")
 if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) print("ERREUR: GARE_TEST non trouvee - verifie le cable reseau") end
 local sta=staList and staList[1] and component.proxy(staList[1])
 net:open(42)  -- port de broadcast vers DETAIL et autres scripts
 net:open(44)  -- port de broadcast snapshot état temps réel vers TRAIN_TAB
+net:open(45)  -- port stats historiques (avg+count par segment) → DETAIL
 
 -- Fonction log : affiche localement ET diffuse sur port 43 (LOG_SCREEN)
 local function log(msg)
@@ -215,6 +216,7 @@ local function tick()
         end
     end
     pcall(function()net:broadcast(44,ser(state))end)  -- envoie snapshot à TRAIN_TAB (temps réel)
+    postState()  -- push HTTP vers le dashboard web (toutes les 2s)
 end
 
 -- Re-diffuse tous les derniers trajets connus sur le réseau
@@ -235,9 +237,25 @@ local function broadcastAll()
     end
 end
 
+-- Diffuse les stats ETA agrégées (port 45) : avg + count par segment
+-- Permet à DETAIL d'avoir un ETA précis dès le démarrage sans accumuler de doublons
+local function broadcastStats()
+    for tn,segs in pairs(saved) do
+        for seg,trips in pairs(segs) do
+            if trips and #trips>0 then
+                local total=0
+                for _,trip in ipairs(trips) do total=total+trip.duration end
+                local avg=math.floor(total/#trips)
+                pcall(function()net:broadcast(45,tn,seg,avg,#trips)end)
+            end
+        end
+    end
+end
+
 -- === DÉMARRAGE ===
-fetchSaved()   -- restaure l'historique depuis Python (GET /api/trips-lua)
-broadcastAll() -- envoie immédiatement les données aux clients déjà connectés
+fetchSaved()      -- restaure l'historique depuis Python (GET /api/trips-lua)
+broadcastAll()    -- envoie immédiatement les données aux clients déjà connectés
+broadcastStats()  -- diffuse les stats ETA historiques (port 45) pour DETAIL
 local trainCount=0
 if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
 log("LOGGER démarré - "..trainCount.." trains détectés")
@@ -254,12 +272,10 @@ while true do
         nextTick=nextTick+2000
         tick()
         ticks=ticks+1
-        if ticks%15==0 then  -- toutes les 30s : envoie snapshot au serveur web
-            postState()
-        end
         if ticks>=30 then    -- toutes les 60s : re-diffuse pour les nouveaux clients
             ticks=0
             broadcastAll()
+            broadcastStats()  -- mise à jour des stats ETA pour DETAIL
         end
     end
 end

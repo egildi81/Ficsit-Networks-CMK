@@ -340,13 +340,22 @@ async function refresh() {
         errors = 0;
 
         const st = document.getElementById('status');
-        const ageMs = data.logger_updated_at ? (Date.now() - data.logger_updated_at * 1000) : 0;
-        if (ageMs > 5 * 60 * 1000) {
-            st.textContent = '● Différé';
-            st.className = 'late';
+        if (!data.logger_updated_at) {
+            st.textContent = '● En attente';
+            st.className = '';
         } else {
-            st.textContent = '● En direct';
-            st.className = 'ok';
+            const ageSec = Math.round((Date.now() / 1000) - data.logger_updated_at);
+            let ageStr = ageSec < 60 ? `${ageSec}s` : `${Math.floor(ageSec/60)}min${ageSec%60 ? ' '+ageSec%60+'s' : ''}`;
+            if (ageSec <= 10) {
+                st.textContent = `● En direct  (${ageStr})`;
+                st.className = 'ok';
+            } else if (ageSec <= 60) {
+                st.textContent = `● Retard  (${ageStr})`;
+                st.className = 'late';
+            } else {
+                st.textContent = `● Hors ligne  (${ageStr})`;
+                st.className = 'err';
+            }
         }
 
         renderTrains(data.trains || []);
