@@ -17,12 +17,53 @@ import asyncio
 import config
 
 # ── Chemins ──────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+TRIPS_FILE = os.path.join(BASE_DIR, "trips.json")  # persistence locale (hors disque FIN)
 
 # ── Cache partagé (Flask + Discord lisent le même) ───────────
 # Alimenté par POST /api/push depuis LOGGER via InternetCard (plus de lecture fichier)
 _cache            = {"trains": [], "trips": {}}
 _cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
+_trips            = {}    # historique des trajets persisté dans trips.json
+
+
+def _save_trips():
+    """Persiste _trips dans trips.json (fichier Python, pas sur disque FIN)."""
+    try:
+        with open(TRIPS_FILE, "w", encoding="utf-8") as f:
+            json.dump(_trips, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _load_trips():
+    """Charge trips.json au démarrage de Python."""
+    global _trips
+    try:
+        with open(TRIPS_FILE, "r", encoding="utf-8") as f:
+            _trips = json.load(f)
+        _cache["trips"] = _trips
+    except Exception:
+        _trips = {}
+
+
+def _lua_serialize(v):
+    """Convertit une valeur Python en Lua table (même format que ser() de LOGGER)."""
+    if isinstance(v, str):
+        return '"{}"'.format(v.replace("\\", "\\\\").replace('"', '\\"'))
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, list):
+        return "{" + ",".join(_lua_serialize(x) for x in v) + "}"
+    if isinstance(v, dict):
+        pairs = []
+        for k, val in v.items():
+            ks = '["{}"]'.format(k) if isinstance(k, str) else "[{}]".format(k)
+            pairs.append("{}={}".format(ks, _lua_serialize(val)))
+        return "{" + ",".join(pairs) + "}"
+    return "nil"
 
 
 # ════════════════════════════════════════════════════════════
@@ -34,14 +75,36 @@ app = Flask(__name__)
 
 @app.route("/api/push", methods=["POST"])
 def receive_push():
-    """Reçoit le snapshot de LOGGER via InternetCard (remplace la lecture de web.json)."""
-    global _cache, _cache_updated_at
+    """Reçoit le snapshot trains + trips de LOGGER (toutes les 30s)."""
+    global _cache, _cache_updated_at, _trips
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     _cache = body
     _cache_updated_at = time.time()
+    if isinstance(body.get("trips"), dict) and body["trips"]:
+        _trips = body["trips"]
+        _save_trips()
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/trips", methods=["POST"])
+def receive_trips():
+    """Reçoit l'historique complet des trajets (appelé immédiatement après chaque trajet)."""
+    global _trips
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    _trips = body
+    _cache["trips"] = _trips
+    _save_trips()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/trips-lua", methods=["GET"])
+def get_trips_lua():
+    """Retourne l'historique en format Lua table — utilisé par LOGGER au démarrage."""
+    return _lua_serialize(_trips), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 @app.route("/api/data")
@@ -183,6 +246,8 @@ async def discord_update_loop():
 # ════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    _load_trips()
+    print(f"Historique chargé : {len(_trips)} train(s) dans trips.json")
     print("En attente de données LOGGER via POST /api/push ...")
 
     # Flask dans un thread background

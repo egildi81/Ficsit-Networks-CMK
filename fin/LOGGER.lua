@@ -1,6 +1,7 @@
--- LOGGER.lua : surveille tous les trains, écrit sur disque + broadcast réseau
--- Tourne sur un PC dédié connecté à GARE_TEST, un disque dur et une NetworkCard
+-- LOGGER.lua : surveille tous les trains, broadcast réseau + push HTTP vers Python
+-- Tourne sur un PC dédié connecté à GARE_TEST, une NetworkCard et une InternetCard
 -- Détecte chaque arrivée/départ, enregistre durée + inventaire, diffuse sur port 42
+-- Historique persisté côté Python (trips.json) — aucun disque FIN nécessaire
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -18,16 +19,11 @@ local function log(msg)
     pcall(function()net:broadcast(43,"LOGGER",msg)end)
 end
 
--- === DISQUE DUR ===
-local fs=filesystem
-fs.initFileSystem("/dev")
-fs.mount("/dev/6D014517486D381F93350594FFD39B23","/")  -- UUID du disque dur
-local TRIPS_FILE="/trips.json"
-local saved={}  -- données en mémoire (miroir du disque)
+local saved={}  -- historique des trajets en mémoire (persisté côté Python)
 
 -- === SÉRIALISEURS ===
--- ser() : format Lua pour lecture/écriture interne (trips.json)
--- toJson() : format JSON valide pour lecture par Python (web.json)
+-- ser() : format Lua table pour broadcasts réseau (port 42/44)
+-- toJson() : format JSON pour HTTP vers Python
 local function ser(v)
     local t=type(v)
     if t=="string" then return string.format("%q",v)
@@ -63,34 +59,32 @@ local function toJson(v)
     return "null"
 end
 
--- Charge les données sauvegardées depuis le disque au démarrage
-local function loadSaved()
-    if not fs.exists(TRIPS_FILE) then return end
-    local ok,f=pcall(function()return fs.open(TRIPS_FILE,"r")end)
-    if not ok or not f then return end
-    local ok2,s=pcall(function()return f:read("*a")end)
-    f:close()
-    if not ok2 or not s or s=="" then return end
-    -- Désérialise : évalue la chaîne Lua comme expression de retour
-    local ok3,fn=pcall(load,"return "..s)
-    if ok3 and fn then local ok4,d=pcall(fn) if ok4 and d then saved=d end end
-end
-
--- Écrit la table `saved` sur le disque au format Lua (écrase le fichier existant)
-local function writeDisk()
-    local ok,f=pcall(function()return fs.open(TRIPS_FILE,"w")end)
-    if not ok or not f then log("writeDisk: impossible d'ouvrir "..TRIPS_FILE) return end
-    local ok2,s=pcall(function()return ser(saved)end)
-    if ok2 and s then
-        local ok3=pcall(function()f:write(s)end)
-        if not ok3 then log("writeDisk: erreur ecriture") end
+-- Récupère l'historique des trajets depuis Python au démarrage (bloquant, max 5s)
+local function fetchSaved()
+    if not inet then return end
+    pcall(function() inet:request(WEB_URL.."/api/trips-lua","GET","") end)
+    local e,_,_,code,body=event.pull(5)
+    if e=="HTTPRequestCallback" and code==200 and body and body~="" then
+        local ok,fn=pcall(load,"return "..body)
+        if ok and fn then
+            local ok2,d=pcall(fn)
+            if ok2 and type(d)=="table" then saved=d end
+        end
     end
-    pcall(function()f:close()end)
 end
 
--- Envoie le snapshot trains + historique trajets vers Python via HTTP POST
--- Remplace l'écriture sur disque FIN (élimine le risque de corruption du save)
--- Fréquence : toutes les 30s (TRAIN_TAB reçoit le broadcast réseau en temps réel)
+-- Envoie l'historique complet à Python (appelé immédiatement après chaque nouveau trajet)
+local function postTrips()
+    if not inet then return end
+    local ok,body=pcall(function()return toJson(saved)end)
+    if ok and body then
+        pcall(function()
+            inet:request(WEB_URL.."/api/trips","POST",body,"Content-Type","application/json")
+        end)
+    end
+end
+
+-- Envoie le snapshot trains + historique vers Python toutes les 30s
 local state={}  -- {[tn]={name,speed,status,station,wagons}} — mis à jour chaque tick
 local function postState()
     if not inet then return end
@@ -141,7 +135,7 @@ local function wagons(t)
 end
 
 -- === ENREGISTREMENT ET DIFFUSION D'UN TRAJET ===
--- Structure disque: saved[trainName][segKey] = { {duration,ts,inv,wagons}, ... } (10 max)
+-- Structure: saved[trainName][segKey] = { {duration,ts,inv,wagons}, ... } (10 max)
 -- segKey = "GareA->GareB"
 local MAX_PER_SEG=10
 local function saveTrip(tn,fr,to,d,ts,it,nv)
@@ -151,7 +145,7 @@ local function saveTrip(tn,fr,to,d,ts,it,nv)
     -- Insère en tête (le plus récent en [1])
     table.insert(saved[tn][seg],1,{duration=d,ts=ts,inv=it,wagons=nv})
     while #saved[tn][seg]>MAX_PER_SEG do table.remove(saved[tn][seg]) end
-    writeDisk()
+    postTrips()  -- persiste immédiatement côté Python
     -- Broadcast réseau vers DETAIL (et autres scripts abonnés au port 42)
     local ok,invs=pcall(function()return ser(it)end)
     local invStr=ok and invs or "{}"
@@ -242,8 +236,8 @@ local function broadcastAll()
 end
 
 -- === DÉMARRAGE ===
-loadSaved()  -- restaure les données précédentes depuis le disque
-broadcastAll()  -- envoie immédiatement les données aux clients déjà connectés
+fetchSaved()   -- restaure l'historique depuis Python (GET /api/trips-lua)
+broadcastAll() -- envoie immédiatement les données aux clients déjà connectés
 local trainCount=0
 if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
 log("LOGGER démarré - "..trainCount.." trains détectés")
