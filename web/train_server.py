@@ -109,7 +109,7 @@ def get_trips_lua():
 
 @app.route("/api/data")
 def get_data():
-    return jsonify({**_cache, "logger_updated_at": _cache_updated_at})
+    return jsonify({**_cache, "trips": _trips, "logger_updated_at": _cache_updated_at})
 
 
 @app.route("/")
