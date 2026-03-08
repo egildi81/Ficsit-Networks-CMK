@@ -23,6 +23,55 @@ gpuR:bindScreen(scrR)
 event.listen(net)
 net:open(44)  -- port snapshot LOGGER
 
+-- === INDICATOR POLE (optionnel) ===
+-- Nommer en jeu : TRAFFIC_LED_G (vert), TRAFFIC_LED_Y (jaune), TRAFFIC_LED_O (orange)
+-- Optionnel      : TRAFFIC_SPEAKER pour alerte sonore au passage en orange
+local function findOpt(name)
+    local list=component.findComponent(name)
+    if list and list[1] then
+        local ok,p=pcall(component.proxy,list[1])
+        return ok and p or nil
+    end
+    return nil
+end
+
+local ledG=findOpt("TRAFFIC_LED_G")
+local ledY=findOpt("TRAFFIC_LED_Y")
+local ledO=findOpt("TRAFFIC_LED_O")
+local trafSpeaker=findOpt("TRAFFIC_SPEAKER")
+local lastTrafLevel=nil
+
+local function setLed(led,on,r,g,b)
+    if not led then return end
+    pcall(function()
+        led.color={r=r,g=g,b=b,a=1}
+        led.enabled=on
+    end)
+end
+
+local function updateIndicator(nMoving,nStopped,nDocked)
+    local idle=nStopped+nDocked
+    local total=nMoving+idle
+    local level
+    if total==0 then
+        level="green"
+    else
+        local ratio=nMoving/total
+        if ratio>=0.6 then level="green"
+        elseif ratio>=0.4 then level="yellow"
+        else level="orange"
+        end
+    end
+    setLed(ledG, level=="green",  0,   1,   0)
+    setLed(ledY, level=="yellow", 1,   1,   0)
+    setLed(ledO, level=="orange", 1,   0.5, 0)
+    -- Alerte sonore uniquement lors du passage en orange
+    if trafSpeaker and level=="orange" and lastTrafLevel~="orange" then
+        pcall(function() trafSpeaker:beep(440,0.4) end)
+    end
+    lastTrafLevel=level
+end
+
 -- === CONSTANTES AFFICHAGE ===
 local sw,sh=900,1500
 local BG={r=0,g=0,b=0,a=1}
@@ -77,6 +126,7 @@ local function drawAll(state)
     end
 
     table.sort(moving,function(a,b)return a.speed>b.speed end)
+    updateIndicator(#moving,#stopped,#docked)
 
     local bottom=sh-20
 
