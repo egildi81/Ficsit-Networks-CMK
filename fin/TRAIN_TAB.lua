@@ -24,8 +24,15 @@ event.listen(net)
 net:open(44)  -- port snapshot LOGGER
 
 -- === INDICATOR POLE (optionnel) ===
--- Nommer en jeu : TRAFFIC_LED_G (vert), TRAFFIC_LED_Y (jaune), TRAFFIC_LED_O (orange)
--- Optionnel      : TRAFFIC_SPEAKER pour alerte sonore au passage en orange
+-- 1. Nommer le panel en jeu : "TRAFFIC_POLE"
+-- 2. Lancer PANELSCAN.lua (remplacer "PANEL_L" par "TRAFFIC_POLE") pour voir les positions
+-- 3. Renseigner les positions ci-dessous (x, y sur le panel)
+local POLE_NAME   = "TRAFFIC_POLE"
+local POS_LED_G   = {x=0,y=0}   -- LED verte   ← ajuster après PANELSCAN
+local POS_LED_Y   = {x=0,y=1}   -- LED jaune   ← ajuster après PANELSCAN
+local POS_LED_O   = {x=0,y=2}   -- LED orange  ← ajuster après PANELSCAN
+local POS_SPEAKER = nil          -- {x=0,y=3} si speaker présent, nil sinon
+
 local function findOpt(name)
     local list=component.findComponent(name)
     if list and list[1] then
@@ -35,10 +42,18 @@ local function findOpt(name)
     return nil
 end
 
-local ledG=findOpt("TRAFFIC_LED_G")
-local ledY=findOpt("TRAFFIC_LED_Y")
-local ledO=findOpt("TRAFFIC_LED_O")
-local trafSpeaker=findOpt("TRAFFIC_SPEAKER")
+local pole=findOpt(POLE_NAME)
+
+local function getModule(pos)
+    if not pole or not pos then return nil end
+    local ok,m=pcall(function()return pole:getModule(pos.x,pos.y,0)end)
+    return ok and m or nil
+end
+
+local ledG=getModule(POS_LED_G)
+local ledY=getModule(POS_LED_Y)
+local ledO=getModule(POS_LED_O)
+local trafSpeaker=getModule(POS_SPEAKER)
 local lastTrafLevel=nil
 
 local function setLed(led,on,r,g,b)
