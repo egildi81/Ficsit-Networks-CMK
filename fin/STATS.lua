@@ -174,7 +174,7 @@ local function drawScreen()
     -- === COL 2 : PERFORMANCE ===
     local x2,y2=COL+16,HDR+16
     gpu:drawText({x=x2,y=y2},"Vitesse moy",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2,y=y2},avgSpeed.." km/h",28,spdColor,false) y2=y2+42
+    gpu:drawText({x=x2,y=y2},avgSpeed.." km/h",28,spdColor,false) y2=y2+50
     -- barre vitesse
     local svw=COL-32
     gpu:drawRect({x=x2,y=y2},{x=svw,y=14},{r=0.08,g=0.08,b=0.08,a=1},{r=0.08,g=0.08,b=0.08,a=1},0)
