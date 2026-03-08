@@ -20,6 +20,12 @@ gpuL:bindScreen(scrL)
 gpuC:bindScreen(scrC)
 gpuR:bindScreen(scrR)
 
+-- === LOG (broadcast port 43 → GET_LOG) ===
+print=function(...)
+    local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
+    pcall(function()net:broadcast(43,"TRAIN_TAB",table.concat(t," "))end)
+end
+
 event.listen(net)
 net:open(44)  -- port snapshot LOGGER
 
@@ -266,6 +272,7 @@ spawn(function()
 end)
 
 -- === DÉMARRAGE ===
+print("TRAIN_TAB démarré")
 if trafSpeaker then
     for _,s in ipairs(SOUNDS_BOOT) do
         pcall(function() trafSpeaker:playSound(s,0) end)

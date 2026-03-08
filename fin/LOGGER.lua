@@ -8,16 +8,19 @@ local net=computer.getPCIDevices(classes.NetworkCard)[1]
 local inet=computer.getPCIDevices(classes.FINInternetCard)[1]
 local WEB_URL="http://127.0.0.1:8081"  -- URL du serveur web Python
 local staList=component.findComponent("GARE_TEST")
-if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) print("ERREUR: GARE_TEST non trouvee - verifie le cable reseau") end
+if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) end
 local sta=staList and staList[1] and component.proxy(staList[1])
 net:open(42)  -- port de broadcast vers DETAIL et autres scripts
 net:open(44)  -- port de broadcast snapshot état temps réel vers TRAIN_TAB
 net:open(45)  -- port stats historiques (avg+count par segment) → DETAIL
 
--- Fonction log : affiche localement ET diffuse sur port 43 (LOG_SCREEN)
+-- === LOG (broadcast port 43 → GET_LOG) ===
 local function log(msg)
-    print(msg)
-    pcall(function()net:broadcast(43,"LOGGER",msg)end)
+    pcall(function()net:broadcast(43,"LOGGER",tostring(msg))end)
+end
+print=function(...)
+    local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
+    log(table.concat(t," "))
 end
 
 local saved={}  -- historique des trajets en mémoire (persisté côté Python)

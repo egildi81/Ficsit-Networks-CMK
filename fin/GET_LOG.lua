@@ -1,6 +1,6 @@
--- LOG_SCREEN.lua : affiche les logs réseau de tous les scripts sur un écran dédié
--- Écoute le port 43 (broadcast de logs depuis LOGGER, DETAIL, etc.)
--- Composants requis : GPU T2, écran nommé "LOG_SCREEN", NetworkCard
+-- GET_LOG.lua : affiche les logs réseau de tous les scripts sur un écran dédié
+-- Écoute le port 43 (broadcast de logs depuis LOGGER, DETAIL, TRAIN_TAB, etc.)
+-- Composants requis : GPU T2, écran nommé "MAP_SCREEN", NetworkCard
 
 -- === INITIALISATION MATÉRIEL ===
 local gpu=computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
