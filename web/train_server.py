@@ -9,7 +9,7 @@ Config  : renseigner config.py (token, channel_id)
 
 from flask import Flask, jsonify, send_from_directory, request
 import json, os, threading, time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 import asyncio
@@ -194,7 +194,7 @@ def build_embed():
         inline=False
     )
     embed.set_footer(text="Mis à jour")
-    embed.timestamp = datetime.utcnow()
+    embed.timestamp = datetime.now(timezone.utc)
     return embed
 
 
