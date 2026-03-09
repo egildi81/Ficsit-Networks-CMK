@@ -62,7 +62,7 @@ local function scanInv(inv)
             used = used + 1
             local id = s.item.type.internalName
             if not items[id] then
-                items[id] = {name=s.item.type.name, count=0}
+                items[id] = {name=s.item.type.name, count=0, max=s.item.type.max or 1}
             end
             items[id].count = items[id].count + s.count
         end
@@ -83,7 +83,7 @@ local function computeStats(containers)
             slotsTotal = slotsTotal + total
             slotsUsed  = slotsUsed  + used
             for id, d in pairs(items) do
-                if not allItems[id] then allItems[id]={name=d.name,count=0} end
+                if not allItems[id] then allItems[id]={name=d.name,count=0,max=d.max} end
                 allItems[id].count = allItems[id].count + d.count
             end
         else
@@ -96,13 +96,19 @@ local function computeStats(containers)
 
     local fillRate = slotsTotal>0 and (slotsUsed/slotsTotal*100) or 0
 
-    -- % par type d'item (part du total items)
+    -- % par type d'item + capacité réelle (slots * max)
     local itemStats = {}
     for id, d in pairs(allItems) do
+        local slots    = math.ceil(d.count / d.max)          -- slots physiques occupés
+        local capacity = slots * d.max                        -- capacité max de ces slots
         itemStats[id] = {
-            name  = d.name,
-            count = d.count,
-            pct   = totalItems>0 and math.floor(d.count/totalItems*1000)/10 or 0,
+            name     = d.name,
+            count    = d.count,
+            max      = d.max,
+            slots    = slots,
+            capacity = capacity,
+            pct      = totalItems>0 and math.floor(d.count/totalItems*1000)/10 or 0,
+            slotFill = math.floor(d.count/capacity*1000)/10, -- % remplissage des slots utilisés
         }
     end
 
@@ -153,7 +159,8 @@ while true do
     for id, d in pairs(stats.items) do
         local spd = stats.speed[id]
         local spdStr = (spd and spd~=0) and string.format(" [%+.1f/min]",spd) or ""
-        print(string.format("  %s : %d (%.1f%%)%s", d.name, d.count, d.pct, spdStr))
+        print(string.format("  %s : %d/%d (slots: %d×%d, %.1f%% plein)%s",
+            d.name, d.count, d.capacity, d.slots, d.max, d.slotFill, spdStr))
     end
 
     -- Envoi vers LOGGER (port 48)

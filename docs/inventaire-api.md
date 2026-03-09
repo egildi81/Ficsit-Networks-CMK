@@ -29,11 +29,22 @@ end
 | `stack.count` | Int | Quantité (0 si slot vide) |
 | `stack.item.type.name` | String | Nom affiché (ex: `"Quartz brut"`) |
 | `stack.item.type.internalName` | String | ID interne (ex: `"Desc_RawQuartz_C"`) |
+| `stack.item.type.max` | Int | Taille de stack max (ex: 200 pour Silice, 100 pour Poutre) |
+| `stack.item.type.form` | Int | Forme (1=solide, 2=liquide…) |
+
+### Calcul du remplissage réel par type
+```lua
+local slots    = math.ceil(count / max)   -- slots physiques occupés
+local capacity = slots * max              -- capacité max de ces slots
+local fillPct  = count / capacity * 100   -- % de remplissage réel
+```
 
 ## Pièges
 
 - `findComponent()` retourne des **UUIDs** (strings), pas des proxies → toujours passer par `component.proxy()`
 - `inv:getSize()` n'existe pas → utiliser `inv.size` (propriété)
+- `inv.itemCount` = nombre total d'items, **pas** de slots → ne pas utiliser pour le taux de remplissage
 - `stack.amount` n'existe pas → utiliser `stack.count`
+- `stack.item.type.stackSize` n'existe pas → utiliser `stack.item.type.max`
 - `stack.item.name` est nil sur un slot vide → tester `stack.count > 0` avant
 - `getMethods()` ne fonctionne pas sur Inventory ni ItemStack → utiliser `getProperties()` pour explorer
