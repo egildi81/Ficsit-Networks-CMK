@@ -265,6 +265,13 @@ function fmt(sec) {
     return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function fmtNumMobile(n) {
+    n = Math.floor(n || 0);
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 10000)   return Math.floor(n / 1000) + 'k';
+    if (n >= 1000)    return (n / 1000).toFixed(1) + 'k';
+    return String(n);
+}
 function fmtUptime(sec) {
     sec = Math.floor(sec || 0);
     const h = Math.floor(sec / 3600);
@@ -416,9 +423,11 @@ function renderStats(trains, stats, updatedAt) {
     barEl.className = 'stats-bar ' + (avgSpeed > 150 ? 'bar-green' : avgSpeed > 80 ? 'bar-yellow' : 'bar-red');
 
     document.getElementById('st-dur').textContent = durCnt > 0 ? fmt(avgDur) : 'N/A';
-    document.getElementById('st-inv').textContent = avgInv > 0 ? avgInv + ' items' : '—';
+    const isMobile = window.innerWidth < 600;
+    const fmtI = n => isMobile ? fmtNumMobile(n) : String(n);
+    document.getElementById('st-inv').textContent = avgInv > 0 ? fmtI(avgInv) + ' items' : '—';
     const totalInv = s.totalInv || 0;
-    document.getElementById('st-inv-total').textContent = totalInv > 0 ? totalInv + ' items' : '—';
+    document.getElementById('st-inv-total').textContent = totalInv > 0 ? fmtI(totalInv) + ' items' : '—';
 
     // Score (calculé par LOGGER)
     const scoreHistory = s.scoreHistory || [];
