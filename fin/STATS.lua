@@ -125,7 +125,7 @@ local function drawScreen()
     gpu:drawText({x=x3,y=y3},"SCORE RESEAU",20,OR,false) y3=y3+34
     gpu:drawText({x=x3,y=y3},tostring(score),68,scoreColor,false)
     gpu:drawText({x=x3+140,y=y3+42},"/100",22,DI,false)
-    y3=y3+100
+    y3=y3+118
     gpu:drawText({x=x3,y=y3},"Confiance",18,DI,false) y3=y3+26
     gpu:drawText({x=x3,y=y3},cs.conf,26,confColor,false)
     gpu:drawText({x=x3,y=HDR+BODY-22},"UP: "..fmtUptime(computer.millis()-startTime),16,DI,false)
@@ -137,7 +137,7 @@ local function drawScreen()
     gpu:drawText({x=160,y=GRAPH_Y+6},"("..#hist.." mesures)",14,DI,false)
 
     -- === GRAPHIQUE HISTORIQUE ===
-    local gy=GRAPH_Y+24
+    local gy=GRAPH_Y+38
     local gh=math.min(sh-gy-8,80)
     if #hist>0 then
         local colW=math.floor((sw-32)/#hist)
