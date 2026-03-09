@@ -36,12 +36,11 @@ local OR={r=1,g=0.5,b=0,a=1}
 
 -- === ÉTAT : DONNÉES REÇUES DE LOGGER ===
 -- cs = computed stats, mis à jour à chaque réception port 47
-local startTime=computer.millis()  -- uptime STATS (local)
-local snapCount=0                  -- compteur réceptions port 44 (santé connexion)
-local cs={                         -- valeurs par défaut avant première réception
+local snapCount=0  -- compteur réceptions port 44 (santé connexion)
+local cs={         -- valeurs par défaut avant première réception
     movingCnt=0, stoppedCnt=0, dockedCnt=0, totalCnt=0,
     avgSpeed=0, avgDur=0, avgInv=0, durCnt=0, invN=0,
-    score=0, conf="INCONNUE", scoreHistory={}
+    score=0, conf="INCONNUE", scoreHistory={}, uptime=0
 }
 
 -- === UTILITAIRES ===
@@ -128,7 +127,7 @@ local function drawScreen()
     y3=y3+118
     gpu:drawText({x=x3,y=y3},"Confiance",18,DI,false) y3=y3+26
     gpu:drawText({x=x3,y=y3},cs.conf,26,confColor,false)
-    gpu:drawText({x=x3,y=HDR+BODY-22},"UP: "..fmtUptime(computer.millis()-startTime),16,DI,false)
+    gpu:drawText({x=x3,y=HDR+BODY-22},"UP: "..fmtUptime((cs.uptime or 0)*1000),16,DI,false)
 
     -- === LIGNE SÉPARATRICE CORPS/GRAPHIQUE ===
     local hist=cs.scoreHistory or {}
@@ -168,7 +167,7 @@ local function broadcastLog()
     end
     local score=hist and #hist>0 and hist[#hist] or cs.score or 0
     print("════════ STATS RESEAU ════════")
-    print("Uptime       : "..fmtUptime(computer.millis()-startTime))
+    print("Uptime       : "..fmtUptime((cs.uptime or 0)*1000))
     print("Trains       : "..cs.movingCnt.." mvt / "..cs.dockedCnt.." quai / "..cs.stoppedCnt.." arret  (total "..cs.totalCnt..")")
     print("Vitesse moy  : "..cs.avgSpeed.." km/h")
     print("Trajet moy   : "..(cs.durCnt>0 and fmt(cs.avgDur) or "N/A").."  ("..cs.durCnt.." trajets)")

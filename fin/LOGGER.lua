@@ -72,6 +72,7 @@ end
 local scoreHistory={}
 local MAX_SCORE_HISTORY=20
 local lastHistoryUpdate=0
+local loggerStartTime=computer.millis()
 local state={}
 
 local function computeStats()
@@ -145,7 +146,8 @@ local function computeStats()
     return {
         movingCnt=movingCnt, stoppedCnt=stoppedCnt, dockedCnt=dockedCnt, totalCnt=totalCnt,
         avgSpeed=avgSpeed, avgDur=avgDur, avgInv=avgInv, durCnt=durCnt, invN=invN,
-        score=score, conf=conf, scoreHistory=scoreHistory
+        score=score, conf=conf, scoreHistory=scoreHistory,
+        uptime=math.floor((computer.millis()-loggerStartTime)/1000)
     }
 end
 

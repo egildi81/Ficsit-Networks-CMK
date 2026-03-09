@@ -192,9 +192,6 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
             <div class="stats-row" style="border-top:1px solid #1e1e1e;padding-top:8px;margin-top:4px">
                 <span class="stats-label">Total</span><span class="stats-val" id="st-total">—</span>
             </div>
-            <div class="stats-row" style="margin-top:8px">
-                <span class="stats-label">Trajets enregistrés</span><span class="stats-val" id="st-trips-total">—</span>
-            </div>
         </div>
         <!-- Col 2 : PERFORMANCE -->
         <div class="stats-section">
@@ -236,6 +233,14 @@ function fmt(sec) {
     sec = Math.max(0, Math.round(sec));
     const m = Math.floor(sec / 60), s = sec % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function fmtUptime(sec) {
+    sec = Math.floor(sec || 0);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor(sec / 60) % 60;
+    const s = sec % 60;
+    return `${h}h${String(m).padStart(2,'0')}m${String(s).padStart(2,'0')}s`;
 }
 
 function esc(s) {
@@ -356,10 +361,7 @@ function toggleCard(el, name) {
 }
 
 // ── Stats réseau — données calculées par LOGGER, affichage uniquement ────────
-let statsStartTime = null;
-
 function renderStats(trains, stats, updatedAt) {
-    if (!statsStartTime && updatedAt) statsStartTime = Date.now();
     const s = stats || {};
 
     // Trains (compteurs depuis LOGGER via stats)
@@ -367,7 +369,6 @@ function renderStats(trains, stats, updatedAt) {
     document.getElementById('st-docked').textContent  = s.dockedCnt  ?? '—';
     document.getElementById('st-stopped').textContent = s.stoppedCnt ?? '—';
     document.getElementById('st-total').textContent   = s.totalCnt   ?? '—';
-    document.getElementById('st-trips-total').textContent = s.durCnt ?? '—';
 
     // Performance
     const avgSpeed = s.avgSpeed || 0;
@@ -403,9 +404,8 @@ function renderStats(trains, stats, updatedAt) {
     confEl.textContent = s.conf || 'INCONNUE';
     confEl.className = 'stats-bigval ' + (confLabels[s.conf] || '');
 
-    // Uptime (local page)
-    if (statsStartTime)
-        document.getElementById('st-uptime').textContent = 'UP: ' + fmt((Date.now() - statsStartTime) / 1000);
+    // Uptime (depuis LOGGER)
+    document.getElementById('st-uptime').textContent = 'UP: ' + fmtUptime(s.uptime);
 
     // Graphique historique (depuis LOGGER)
     document.getElementById('st-hist-cnt').textContent = `(${scoreHistory.length} mesures)`;
