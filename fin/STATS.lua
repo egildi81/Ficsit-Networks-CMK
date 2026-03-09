@@ -1,15 +1,14 @@
 -- STATS.lua : métriques du réseau ferroviaire
--- Écoute : port 42 (trajets complétés), port 44 (snapshot état), port 45 (stats ETA LOGGER)
+-- Écoute : port 42 (trajets complétés), port 44 (snapshot état trains)
 -- Affichage sur STATS_SCREEN + broadcast GET_LOG (port 43) toutes les 60s
--- Restaure l'historique depuis le serveur web au démarrage (InternetCard requise)
+-- Source de données : LOGGER uniquement (port 42/44)
+-- Au boot : demande de sync sur port 46 → LOGGER re-broadcast tout l'historique
 
 -- === INITIALISATION MATÉRIEL ===
-local net =computer.getPCIDevices(classes.NetworkCard)[1]
-local inet=computer.getPCIDevices(classes.FINInternetCard)[1]
+local net=computer.getPCIDevices(classes.NetworkCard)[1]
 local WEB_URL="http://127.0.0.1:8081"
 
 -- === LOG (broadcast port 43 → GET_LOG) ===
--- Défini en premier pour pouvoir logger les erreurs d'init
 print=function(...)
     if not net then return end
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
@@ -20,7 +19,6 @@ if not net then computer.stop() end
 event.listen(net)
 net:open(42)
 net:open(44)
-net:open(45)
 
 local gpu=computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
 local scr=component.proxy(component.findComponent("STATS_SCREEN")[1])
@@ -42,7 +40,8 @@ local startTime=computer.millis()
 local activeTrains={}
 local snapCount=0
 
-local trips={}  -- [{duration, inv_total}] — fenêtre glissante MAX_TRIPS
+local trips={}    -- [{duration, inv_total, ts}] — fenêtre glissante MAX_TRIPS
+local seenTs={}   -- {[ts_str]=true} — déduplication (LOGGER broadcastAll envoie tous les trips)
 
 local scoreHistory={}
 local MAX_HISTORY=20
@@ -66,7 +65,16 @@ local function bar(ratio,width)
     return string.rep("█",n)..string.rep("░",width-n)
 end
 
--- === CALCUL DES MÉTRIQUES (partagé écran + broadcast) ===
+-- Ajoute un trip si son ts n'est pas déjà connu (déduplication)
+local function addTrip(ts,dur,inv_total)
+    local k=tostring(ts)
+    if seenTs[k] then return end
+    seenTs[k]=true
+    table.insert(trips,1,{duration=dur,inv_total=inv_total or 0,ts=ts})
+    if #trips>MAX_TRIPS then table.remove(trips) end
+end
+
+-- === CALCUL DES MÉTRIQUES ===
 local function getMetrics()
     local speedSum,speedCnt=0,0
     local movingCnt,stoppedCnt,dockedCnt,totalCnt=0,0,0,0
@@ -127,22 +135,19 @@ end
 
 -- === RENDU ÉCRAN (1200x600, layout 3 colonnes + graphique en bas) ===
 -- Col1: x=0-400   TRAINS
--- Col2: x=400-800 PERFORMANCE
+-- Col2: x=400-800 PERFORMANCE (X trajets)
 -- Col3: x=800-1200 SCORE + CONFIANCE
 -- Bas:  y=400-600 HISTORIQUE
-local COL=400  -- largeur de chaque colonne
-local HDR=70   -- hauteur header
-local BODY=330 -- hauteur corps (HDR → HDR+BODY)
-local GRAPH_Y=HDR+BODY  -- y départ graphique = 400
-local GRAPH_H=sh-GRAPH_Y-20  -- hauteur graphique ≈ 180
+local COL=400
+local HDR=70
+local BODY=330
+local GRAPH_Y=HDR+BODY
 
 local function drawScreen()
     if not gpu or not scr then return end
     local movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv,invN=getMetrics()
     local score=#scoreHistory>0 and scoreHistory[#scoreHistory] or 0
     local scoreColor=score>=80 and GR or score>=60 and YE or RE
-    local mobRatio=totalCnt>0 and movingCnt/totalCnt or 0
-    local mobColor=mobRatio>=0.6 and GR or mobRatio>=0.4 and YE or RE
     local spdColor=avgSpeed>150 and GR or avgSpeed>80 and YE or RE
     local confStr,confColor=confidence(avgSpeed,avgDur,durCnt)
 
@@ -151,12 +156,12 @@ local function drawScreen()
     -- === EN-TÊTE (pleine largeur) ===
     gpu:drawRect({x=0,y=0},{x=sw,y=HDR},BG,{r=0.08,g=0.05,b=0,a=1},0)
     gpu:drawText({x=20,y=16},"STATS RESEAU",32,OR,false)
-    -- séparateurs verticaux dans le header
     gpu:drawRect({x=COL,y=0},{x=1,y=HDR},{r=0.15,g=0.1,b=0,a=1},{r=0.15,g=0.1,b=0,a=1},0)
     gpu:drawRect({x=COL*2,y=0},{x=1,y=HDR},{r=0.15,g=0.1,b=0,a=1},{r=0.15,g=0.1,b=0,a=1},0)
-    gpu:drawText({x=COL+20,y=16},"PERFORMANCE",22,OR,false)
+    -- "PERFORMANCE (X trajets)" — X = nombre de trajets utilisés pour les calculs
+    local perfLabel="PERFORMANCE"..(durCnt>0 and " ("..durCnt.." trajets)" or "")
+    gpu:drawText({x=COL+20,y=16},perfLabel,20,OR,false)
     gpu:drawText({x=COL*2+20,y=16},"SCORE RESEAU",22,OR,false)
-    -- ligne séparatrice header/body
     gpu:drawRect({x=0,y=HDR-2},{x=sw,y=2},OR,OR,0)
 
     -- séparateurs verticaux corps
@@ -185,14 +190,12 @@ local function drawScreen()
     gpu:drawRect({x=x2,y=y2},{x=math.floor(svw*math.min(avgSpeed/200,1)),y=14},spdColor,spdColor,0)
     y2=y2+30
     gpu:drawText({x=x2,y=y2},"Trajet moy",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2,y=y2},(durCnt>0 and fmt(avgDur) or "N/A"),28,YE,false)
-    gpu:drawText({x=x2+120,y=y2+6},"("..durCnt.." trajets)",16,DI,false) y2=y2+50
+    gpu:drawText({x=x2,y=y2},(durCnt>0 and fmt(avgDur) or "N/A"),28,YE,false) y2=y2+50
     gpu:drawText({x=x2,y=y2},"Qte/trajet",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2+160,y=y2+4},"("..invN.." trajets)",15,DI,false)
+    gpu:drawText({x=x2,y=y2},(invN>0 and tostring(avgInv).." items" or "N/A"),28,YE,false)
 
     -- === COL 3 : SCORE + CONFIANCE ===
     local x3,y3=COL*2+16,HDR+16
-    -- grand score
     gpu:drawText({x=x3,y=y3},tostring(score),68,scoreColor,false)
     gpu:drawText({x=x3+140,y=y3+42},"/100",22,DI,false)
     y3=y3+100
@@ -207,7 +210,7 @@ local function drawScreen()
 
     -- === GRAPHIQUE HISTORIQUE (barres verticales) ===
     local gy=GRAPH_Y+24
-    local gh=math.min(sh-gy-8, 80)
+    local gh=math.min(sh-gy-8,80)
     if #scoreHistory>0 then
         local colW=math.floor((sw-32)/#scoreHistory)
         for i,sc in ipairs(scoreHistory) do
@@ -251,39 +254,11 @@ local function broadcastStats()
     print("══════════════════════════════")
 end
 
--- === RESTAURATION HISTORIQUE AU DÉMARRAGE ===
-local function fetchHistory()
-    if not inet then print("STATS: pas d'InternetCard, historique non restauré") return end
-    local ok,_=pcall(function()
-        return inet:request(WEB_URL.."/api/recent-trips-lua","GET","")
-    end)
-    if not ok then print("STATS: fetchHistory echec requete") return end
-    -- attend la réponse (max 8s)
-    local e,body
-    local t0=computer.millis()
-    repeat
-        e,_,_,_,body=event.pull(1)
-    until e=="HTTPRequestSucceeded" or e=="HTTPRequestFailed" or computer.millis()-t0>8000
-    if e~="HTTPRequestSucceeded" then print("STATS: fetchHistory timeout/erreur") return end
-    local fn=load("return "..(body or "{}"))
-    if not fn then print("STATS: fetchHistory parse erreur") return end
-    local ok2,recent=pcall(fn)
-    if not ok2 or type(recent)~="table" then print("STATS: fetchHistory données invalides") return end
-    -- liste plate [{duration, inv_total, ts}] — même source que le site web
-    for _,t in ipairs(recent) do
-        if t.duration and t.duration>0 then
-            table.insert(trips,{duration=t.duration, inv_total=(t.inv_total or 0)})
-        end
-    end
-    local invCnt=0 for _,t in ipairs(trips) do if (t.inv_total or 0)>0 then invCnt=invCnt+1 end end
-    print("STATS: "..#trips.." trajets restaurés, "..invCnt.." avec inventaire")
-end
-
 -- === DÉMARRAGE ===
-event.pull(0)
-fetchHistory()
-print("STATS démarré - première diffusion dans 60s")
+-- Demande une sync à LOGGER via port 46 — LOGGER re-broadcast tout son historique sur port 42
+pcall(function() net:broadcast(46,"SYNC") end)
 drawScreen()
+print("STATS démarré — sync LOGGER demandée")
 
 -- === BOUCLE PRINCIPALE ===
 local lastBroadcast=0
@@ -296,18 +271,19 @@ while true do
 
     if e=="NetworkMessage" then
         if port==44 then
+            -- snapshot état trains depuis LOGGER (toutes les 2s)
             local ok,fn=pcall(load,"return "..(a1 or "{}"))
             if ok and fn then
                 local ok2,s=pcall(fn)
-                if ok2 and s then
-                    activeTrains=s
-                    snapCount=snapCount+1
-                end
+                if ok2 and s then activeTrains=s snapCount=snapCount+1 end
             end
 
         elseif port==42 then
+            -- trajet depuis LOGGER : a1=tn, a2=fr, a3=to, a4=dur, a5=ts, a6=invStr
+            -- seenTs garantit pas de doublon même si LOGGER broadcastAll renvoie les anciens
             local dur=tonumber(a4)
-            if a1 and dur and dur>0 then
+            local ts=tonumber(a5)
+            if dur and dur>0 and ts then
                 local inv_total=0
                 if a6 and a6~="{}" then
                     local ok,fn=pcall(load,"return "..a6)
@@ -318,16 +294,7 @@ while true do
                         end
                     end
                 end
-                table.insert(trips,1,{duration=dur,inv_total=inv_total})
-                if #trips>MAX_TRIPS then table.remove(trips) end
-            end
-
-        elseif port==45 then
-            local avg=tonumber(a3) local cnt=tonumber(a4)
-            if a2 and avg and cnt and cnt>0 and #trips<5 then
-                for _=1,math.min(cnt,3) do
-                    table.insert(trips,{duration=avg,inv_total=0})
-                end
+                addTrip(ts,dur,inv_total)
             end
         end
     end

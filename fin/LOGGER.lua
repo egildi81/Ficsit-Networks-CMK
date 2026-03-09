@@ -1,7 +1,8 @@
 -- LOGGER.lua : surveille tous les trains, broadcast réseau + push HTTP vers Python
 -- Tourne sur un PC dédié connecté à GARE_TEST, une NetworkCard et une InternetCard
 -- Détecte chaque arrivée/départ, enregistre durée + inventaire, diffuse sur port 42
--- Historique persisté côté Python (trips.json) — aucun disque FIN nécessaire
+-- LOGGER est la source primaire — pas de fetch web, historique en mémoire uniquement
+-- Port 46 : écoute les demandes de sync (STATS/DETAIL au démarrage)
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -10,9 +11,11 @@ local WEB_URL="http://127.0.0.1:8081"  -- URL du serveur web Python
 local staList=component.findComponent("GARE_TEST")
 if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) end
 local sta=staList and staList[1] and component.proxy(staList[1])
+event.listen(net)
 net:open(42)  -- port de broadcast vers DETAIL et autres scripts
 net:open(44)  -- port de broadcast snapshot état temps réel vers TRAIN_TAB
 net:open(45)  -- port stats historiques (avg+count par segment) → DETAIL
+net:open(46)  -- port sync : répond aux demandes de resync (STATS, DETAIL au boot)
 
 -- === LOG (broadcast port 43 → GET_LOG) ===
 local function log(msg)
@@ -23,7 +26,7 @@ print=function(...)
     log(table.concat(t," "))
 end
 
-local saved={}  -- historique des trajets en mémoire (persisté côté Python)
+local saved={}  -- historique des trajets en mémoire
 
 -- === SÉRIALISEURS ===
 -- ser() : format Lua table pour broadcasts réseau (port 42/44)
@@ -63,20 +66,6 @@ local function toJson(v)
     return "null"
 end
 
--- Récupère l'historique des trajets depuis Python au démarrage (bloquant, max 5s)
-local function fetchSaved()
-    if not inet then return end
-    pcall(function() inet:request(WEB_URL.."/api/trips-lua","GET","") end)
-    local e,_,_,code,body=event.pull(5)
-    if e=="HTTPRequestCallback" and code==200 and body and body~="" then
-        local ok,fn=pcall(load,"return "..body)
-        if ok and fn then
-            local ok2,d=pcall(fn)
-            if ok2 and type(d)=="table" then saved=d end
-        end
-    end
-end
-
 -- Envoie l'historique complet à Python (appelé immédiatement après chaque nouveau trajet)
 local function postTrips()
     if not inet then return end
@@ -88,7 +77,7 @@ local function postTrips()
     end
 end
 
--- Envoie le snapshot trains + historique vers Python toutes les 30s
+-- Envoie le snapshot trains + historique vers Python toutes les 2s
 local state={}  -- {[tn]={name,speed,status,station,wagons}} — mis à jour chaque tick
 local function postState()
     if not inet then return end
@@ -150,7 +139,7 @@ local function saveTrip(tn,fr,to,d,ts,it,nv)
     table.insert(saved[tn][seg],1,{duration=d,ts=ts,inv=it,wagons=nv})
     while #saved[tn][seg]>MAX_PER_SEG do table.remove(saved[tn][seg]) end
     postTrips()  -- persiste immédiatement côté Python
-    -- Broadcast réseau vers DETAIL (et autres scripts abonnés au port 42)
+    -- Broadcast réseau vers DETAIL et STATS (port 42)
     local ok,invs=pcall(function()return ser(it)end)
     local invStr=ok and invs or "{}"
     pcall(function()net:broadcast(42,tn,fr,to,d,ts,invStr)end)
@@ -229,18 +218,20 @@ local function tick()
     postState()  -- push HTTP vers le dashboard web (toutes les 2s)
 end
 
--- Re-diffuse tous les derniers trajets connus sur le réseau
--- Permet à DETAIL de se synchroniser même s'il a démarré après LOGGER
+-- Re-diffuse TOUS les trajets connus sur le réseau (port 42)
+-- Appelé au démarrage et sur demande de sync (port 46)
+-- Envoie tous les trips par segment (pas seulement [1]) pour que STATS ait l'historique complet
 local function broadcastAll()
     for tn,segs in pairs(saved) do
         for seg,trips in pairs(segs) do
-            if trips and trips[1] then
-                local trip=trips[1]
+            if trips then
                 local fr,to=seg:match("^(.+)->(.+)$")
                 if fr and to then
-                    local ok,invs=pcall(function()return ser(trip.inv or {})end)
-                    local invStr=ok and invs or "{}"
-                    pcall(function()net:broadcast(42,tn,fr,to,trip.duration,trip.ts,invStr)end)
+                    for _,trip in ipairs(trips) do
+                        local ok,invs=pcall(function()return ser(trip.inv or {})end)
+                        local invStr=ok and invs or "{}"
+                        pcall(function()net:broadcast(42,tn,fr,to,trip.duration,trip.ts,invStr)end)
+                    end
                 end
             end
         end
@@ -248,7 +239,7 @@ local function broadcastAll()
 end
 
 -- Diffuse les stats ETA agrégées (port 45) : avg + count par segment
--- Permet à DETAIL d'avoir un ETA précis dès le démarrage sans accumuler de doublons
+-- Permet à DETAIL d'avoir un ETA précis dès le démarrage
 local function broadcastStats()
     for tn,segs in pairs(saved) do
         for seg,trips in pairs(segs) do
@@ -263,8 +254,8 @@ local function broadcastStats()
 end
 
 -- === DÉMARRAGE ===
-fetchSaved()      -- restaure l'historique depuis Python (GET /api/trips-lua)
-broadcastAll()    -- envoie immédiatement les données aux clients déjà connectés
+-- LOGGER est la source primaire : pas de fetch web, historique vide au boot
+broadcastAll()    -- envoie immédiatement les données aux clients déjà connectés (vide au 1er boot)
 broadcastStats()  -- diffuse les stats ETA historiques (port 45) pour DETAIL
 local trainCount=0
 if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
@@ -277,7 +268,17 @@ local ticks=0
 local nextTick=computer.millis()+2000
 while true do
     local remaining=math.max(0.05,(nextTick-computer.millis())/1000)
-    event.pull(remaining)  -- attend le prochain tick OU une réponse HTTP (ignorée)
+    local e,_,_,port=event.pull(remaining)
+
+    -- Demande de sync depuis STATS ou DETAIL au démarrage
+    if e=="NetworkMessage" and port==46 then
+        broadcastAll()
+        broadcastStats()
+        local n=0
+        for _,segs in pairs(saved) do for _,t in pairs(segs) do n=n+#t end end
+        log("SYNC: "..n.." trips broadcast")
+    end
+
     if computer.millis()>=nextTick then
         nextTick=nextTick+2000
         tick()
@@ -285,7 +286,7 @@ while true do
         if ticks>=30 then    -- toutes les 60s : re-diffuse pour les nouveaux clients
             ticks=0
             broadcastAll()
-            broadcastStats()  -- mise à jour des stats ETA pour DETAIL
+            broadcastStats()
         end
     end
 end

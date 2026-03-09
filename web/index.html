@@ -198,16 +198,14 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
         </div>
         <!-- Col 2 : PERFORMANCE -->
         <div class="stats-section">
-            <div class="stats-section-title">PERFORMANCE</div>
+            <div class="stats-section-title" id="st-perf-title">PERFORMANCE</div>
             <div class="stats-label">Vitesse moy (trains en mvt)</div>
             <div class="stats-bigval" id="st-speed">—</div>
             <div class="stats-bar-bg"><div class="stats-bar" id="st-speed-bar"></div></div>
             <div class="stats-label">Trajet moyen</div>
             <div class="stats-bigval clr-yellow" id="st-dur">N/A</div>
-            <div class="stats-sub" id="st-dur-cnt"></div>
             <div class="stats-label" style="margin-top:12px">Qté / trajet</div>
             <div class="stats-bigval" id="st-inv">—</div>
-            <div class="stats-sub" id="st-inv-cnt"></div>
         </div>
         <!-- Col 3 : SCORE -->
         <div class="stats-section">
@@ -406,10 +404,9 @@ function renderStats(trains, recentTrips, updatedAt) {
     const avgInv = invCnt  > 0 ? Math.floor(invTotal / invCnt) : 0;
 
     document.getElementById('st-trips-total').textContent = recent.length;
+    document.getElementById('st-perf-title').textContent = 'PERFORMANCE' + (durCnt > 0 ? ' (' + durCnt + ' trajets)' : '');
     document.getElementById('st-dur').textContent = durCnt > 0 ? fmt(avgDur) : 'N/A';
-    document.getElementById('st-dur-cnt').textContent = durCnt > 0 ? `(${durCnt} trajets)` : '';
     document.getElementById('st-inv').textContent = avgInv > 0 ? avgInv + ' items' : '—';
-    document.getElementById('st-inv-cnt').textContent = invCnt > 0 ? `(${invCnt} trajets avec inv.)` : '';
 
     // Score (1 fois par minute)
     const now = Date.now();
