@@ -438,8 +438,8 @@ function renderStats(trains, stats, updatedAt) {
 
     // Confiance (calculée par LOGGER)
     const confLabels = {
-        'EXCELLENTE': 'clr-green', 'BONNE': 'clr-green',
-        'CORRECTE': 'clr-yellow', 'DEGRADEE': 'clr-yellow', 'MAUVAISE': 'clr-red'
+        'HAUTE': 'clr-green', 'BONNE': 'clr-green',
+        'FAIBLE': 'clr-yellow', 'INEXISTANTE': 'clr-red'
     };
     const confEl = document.getElementById('st-conf');
     confEl.textContent = s.conf || 'INCONNUE';

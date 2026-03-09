@@ -40,7 +40,7 @@ local snapCount=0  -- compteur réceptions port 44 (santé connexion)
 local cs={         -- valeurs par défaut avant première réception
     movingCnt=0, stoppedCnt=0, dockedCnt=0, totalCnt=0,
     avgSpeed=0, avgDur=0, avgInv=0, durCnt=0, invN=0,
-    score=0, conf="INCONNUE", scoreHistory={}, uptime=0, totalInv=0
+    score=0, conf="INEXISTANTE", scoreHistory={}, uptime=0, totalInv=0
 }
 
 -- === UTILITAIRES ===
@@ -83,8 +83,8 @@ local function drawScreen()
     local score=cs.scoreHistory and #cs.scoreHistory>0 and cs.scoreHistory[#cs.scoreHistory] or cs.score or 0
     local scoreColor=score>=80 and GR or score>=60 and YE or RE
     local spdColor=cs.avgSpeed>150 and GR or cs.avgSpeed>80 and YE or RE
-    local confColor=cs.conf=="EXCELLENTE" and GR or cs.conf=="BONNE" and GR
-        or cs.conf=="CORRECTE" and YE or cs.conf=="INCONNUE" and DI or RE
+    local confColor=cs.conf=="HAUTE" and GR or cs.conf=="BONNE" and GR
+        or cs.conf=="FAIBLE" and YE or cs.conf=="INEXISTANTE" and DI or DI
 
     gpu:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
 
