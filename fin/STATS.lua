@@ -59,8 +59,7 @@ end
 local function fmtNum(n)
     n=math.floor(n or 0)
     if     n>=1000000 then return string.format("%.1fM",n/1000000)
-    elseif n>=10000   then return string.format("%dk",math.floor(n/1000))
-    elseif n>=1000    then return string.format("%.1fk",n/1000)
+    elseif n>=100000  then return string.format("%dk",math.floor(n/1000))
     else                   return tostring(n) end
 end
 
