@@ -1,47 +1,53 @@
 # Score Réseau (0–100)
 
-Calculé toutes les 60s dans `broadcastStats()` via `calcScore()`.
+Calculé dans `computeStats()` de LOGGER.lua, mis à jour toutes les 60s dans `scoreHistory`.
 
-Composé de 3 facteurs pondérés :
+Composé de 2 facteurs pondérés :
 
-| Facteur      | Poids | Calcul                                                                 |
-|--------------|-------|------------------------------------------------------------------------|
-| Mobilité     | 40 %  | trains en mouvement / total trains                                     |
-| Régularité   | 35 %  | snapshots reçus / snapshots attendus depuis le boot                    |
-| Consistance  | 25 %  | Inverse du coefficient de variation des durées de trajets              |
+| Facteur      | Poids | Calcul                                                        |
+|--------------|-------|---------------------------------------------------------------|
+| Mobilité     | 60 %  | `movingCnt / totalCnt` (trains en mouvement / total)         |
+| Consistance  | 40 %  | `max(0, 1 - CV × 1.5)` (inverse du coef. de variation)      |
 
-**Mobilité** : si 3 trains sur 5 roulent → 0.60
+```lua
+local score = math.floor((mobility*0.60 + consistency*0.40)*100)
+```
 
-**Régularité** : STATS reçoit un snapshot port 44 toutes les 2s. Si l'uptime est 100s, on attend 50 snapshots. Si on en a reçu 45 → 0.90
+**Mobilité** : si 3 trains sur 5 roulent → 0.60 → contribue 36 pts
 
-**Consistance** : si tous les trajets durent ~3min → 1.0. Si certains durent 1min et d'autres 10min (CV élevé) → score bas
+**Consistance** : CV = écart-type / moyenne des durées de trajets.
+Si tous les trajets durent ~3min → CV≈0 → consistency=1.0.
+Si durées très variables → CV élevé → score bas. Capped à 0.
 
 ---
 
 # Confiance
 
-Calculée depuis les métriques de performance (vitesse + durée moyenne), **pas** depuis le score.
+**Mesure la fiabilité des données qui alimentent le Score.**
+Répond à : *"peut-on faire confiance au score affiché ?"*
 
-Indique à quel point les stats sont fiables compte tenu des conditions réseau :
+| Composant      | Poids | Logique                                          |
+|----------------|-------|--------------------------------------------------|
+| `mobilityConf` | 50 %  | `movingCnt / totalCnt` — réseau actif            |
+| `sampleConf`   | 30 %  | `min(durCnt / 80, 1.0)` — 80 trajets = fiable   |
+| `uptimeConf`   | 20 %  | `min(uptime / 300, 1.0)` — 5min de recul        |
 
-| Composant              | Logique                                                                 |
-|------------------------|-------------------------------------------------------------------------|
-| `sScore`               | Vitesse moy / 150 km/h (capped à 1.0)                                  |
-| `tScore`               | 1.0 si trajet ≤ 2min, 0.0 si ≥ 10min, linéaire entre les deux          |
-| `c = (sScore+tScore)/2`| Score combiné                                                           |
+```lua
+local c = mobilityConf*0.50 + sampleConf*0.30 + uptimeConf*0.20
+```
 
-| c       | Label                  |
-|---------|------------------------|
-| ≥ 0.80  | EXCELLENTE (vert)      |
-| ≥ 0.60  | BONNE (vert)           |
-| ≥ 0.40  | CORRECTE (jaune)       |
-| ≥ 0.20  | DÉGRADÉE (rouge)       |
-| < 0.20  | MAUVAISE (rouge)       |
+| c       | Label         |
+|---------|---------------|
+| ≥ 0.80  | HAUTE         |
+| ≥ 0.60  | BONNE         |
+| ≥ 0.40  | FAIBLE        |
+| < 0.40  | INEXISTANTE   |
 
-**Exemple** : vitesse moy 120 km/h → sScore=0.80, trajet moy 4min → tScore=0.77, c=0.78 → BONNE
+**Exemple** : 40 trajets + 3/5 trains en mouvement + 2min uptime
+→ `0.6*0.5 + 0.5*0.3 + 0.4*0.2 = 0.53` → **FAIBLE** (score à prendre avec recul)
 
 ---
 
 > **Note** : Score et Confiance mesurent des choses différentes.
-> Le **score** mesure l'activité du réseau.
-> La **confiance** mesure la qualité des trajets (trains rapides sur de courts segments = bonne confiance).
+> Le **score** mesure l'état du réseau (mobilité + régularité des trajets).
+> La **confiance** mesure si les données sont suffisantes pour que ce score soit représentatif.

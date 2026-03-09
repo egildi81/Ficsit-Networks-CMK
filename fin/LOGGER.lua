@@ -133,18 +133,20 @@ local function computeStats()
         lastHistoryUpdate=now
     end
 
-    -- Confiance
-    local conf="INCONNUE"
-    if durCnt>0 and avgSpeed>0 then
-        local sScore=math.min(avgSpeed/150,1.0)
-        local tScore=avgDur<=120 and 1.0 or avgDur>=600 and 0.0 or 1.0-(avgDur-120)/480
-        local c=(sScore+tScore)/2
-        if     c>=0.80 then conf="EXCELLENTE"
-        elseif c>=0.60 then conf="BONNE"
-        elseif c>=0.40 then conf="CORRECTE"
-        elseif c>=0.20 then conf="DEGRADEE"
-        else                conf="MAUVAISE"
-        end
+    -- Confiance = fiabilité des données (peut-on faire confiance au score ?)
+    -- mobilityConf 50% : % trains en mouvement
+    -- sampleConf   30% : min(trajets enregistrés / 80, 1.0)
+    -- uptimeConf   20% : min(uptime / 300s, 1.0)
+    local uptime=math.floor((computer.millis()-loggerStartTime)/1000)
+    local mobilityConf=totalCnt>0 and (movingCnt/totalCnt) or 0
+    local sampleConf=math.min(durCnt/80,1.0)
+    local uptimeConf=math.min(uptime/300,1.0)
+    local c=mobilityConf*0.50+sampleConf*0.30+uptimeConf*0.20
+    local conf
+    if     c>=0.80 then conf="HAUTE"
+    elseif c>=0.60 then conf="BONNE"
+    elseif c>=0.40 then conf="FAIBLE"
+    else                conf="INEXISTANTE"
     end
 
     return {
@@ -152,7 +154,7 @@ local function computeStats()
         avgSpeed=avgSpeed, avgDur=avgDur, avgInv=avgInv, invN=invN, durCnt=durCnt,
         totalInv=currentTotalInv,
         score=score, conf=conf, scoreHistory=scoreHistory,
-        uptime=math.floor((computer.millis()-loggerStartTime)/1000)
+        uptime=uptime
     }
 end
 
