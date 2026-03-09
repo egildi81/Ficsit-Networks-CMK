@@ -71,16 +71,6 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     .train-name { font-size: 0.85em; }
     .train-sub  { font-size: 0.72em; }
 
-    /* Stats → tout en colonne */
-    .stats-grid { grid-template-columns: 1fr; }
-    .stats-section { padding: 14px 16px; }
-    .stats-row { flex-direction: column; align-items: flex-start; gap: 2px; }
-    .stats-row .stats-label { margin-bottom: 0; }
-    .stats-bigval { font-size: 1.3em; }
-    .stats-score { font-size: 2.8em; }
-    .stats-uptime { position: static; margin-top: 12px; }
-    .stats-inv-row { flex-direction: column; gap: 10px; }
-
     /* Historique */
     .seg-stats, .seg-inv { white-space: normal; word-break: break-word; }
 }
@@ -134,10 +124,16 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .seg-inv span { margin-right: 10px; }
 
 /* ── STATISTIQUES ── */
-.stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+/* auto-fit : passe automatiquement en colonne unique quand < 260px par bloc */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px; margin-bottom: 16px;
+}
 .stats-section {
     background: #111; border-radius: 8px; padding: 18px 20px;
-    border: 1px solid #1a1a1a; position: relative;
+    border: 1px solid #1a1a1a;
+    display: flex; flex-direction: column; gap: 0;
 }
 .stats-section-title {
     color: #ff8800; font-size: 0.78em; letter-spacing: 1.5px; font-weight: 700;
@@ -152,9 +148,9 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stats-bar { height: 100%; border-radius: 4px; transition: width .5s; width: 0%; }
 .stats-score { font-size: 4em; font-weight: 700; line-height: 1; display: inline; }
 .stats-score-denom { font-size: 1.2em; color: #666; display: inline; margin-left: 6px; }
-.stats-uptime { position: absolute; bottom: 14px; left: 20px; color: #666; font-size: 0.72em; }
+.stats-uptime { margin-top: 16px; color: #666; font-size: 0.72em; }
 .stats-inv-row { display: flex; gap: 12px; margin-top: 12px; }
-.stats-inv-cell { flex: 1; }
+.stats-inv-cell { flex: 1; min-width: 0; }
 .clr-orange { color: #ff8800; }
 .stats-hist-header { color: #ff8800; font-size: 0.78em; letter-spacing: 1.5px; font-weight: 700; margin: 4px 0 8px; }
 .clr-green  { color: #22ee22; }
