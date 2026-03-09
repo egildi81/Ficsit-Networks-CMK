@@ -6,7 +6,8 @@
 <title>Train Monitor — Satisfactory</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #080808; color: #ddd; font-family: 'Segoe UI', 'Consolas', monospace; min-height: 100vh; }
+html { overflow-x: hidden; }
+body { background: #080808; color: #ddd; font-family: 'Segoe UI', 'Consolas', monospace; min-height: 100vh; overflow-x: hidden; max-width: 100vw; }
 
 /* ── HEADER ── */
 header {
@@ -52,15 +53,32 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .col-label-icon { display: none; font-size: 1.3em; line-height: 1; }
 
 @media (max-width: 600px) {
-    .columns { gap: 6px; }
-    .col-header { padding: 10px 8px; justify-content: center; gap: 6px; letter-spacing: 0; }
-    .col-label-full { display: none; }
-    .col-label-icon { display: inline; }
-    .train-row { padding: 7px 8px; }
-    .train-name { font-size: 0.82em; }
-    .train-sub  { font-size: 0.7em; }
+    /* Header */
+    header { padding: 10px 12px 0; }
+    header h1 { font-size: 1em; letter-spacing: 1px; }
+    .tabs { gap: 2px; }
+    .tab { padding: 8px 12px; letter-spacing: 0; font-size: 0.76em; }
+
+    /* Pages */
     .page { padding: 8px; }
+
+    /* Colonnes trains → empilées */
+    .columns { grid-template-columns: 1fr; gap: 8px; }
+    .col-header { padding: 10px 14px; justify-content: space-between; }
+    .col-label-full { display: inline; }
+    .col-label-icon { display: none; }
+    .train-row { padding: 7px 10px; }
+    .train-name { font-size: 0.85em; }
+    .train-sub  { font-size: 0.72em; }
+
+    /* Stats → empilées */
     .stats-grid { grid-template-columns: 1fr; }
+    .stats-score { font-size: 2.8em; }
+    .stats-uptime { position: static; margin-top: 12px; }
+    .stats-section { padding: 14px 16px; }
+
+    /* Historique */
+    .seg-stats, .seg-inv { white-space: normal; word-break: break-word; }
 }
 .col-header.moving  { background:#091209; color:#33ff55; border-bottom:2px solid #33ff55; }
 .col-header.docked  { background:#09090f; color:#4499ff; border-bottom:2px solid #4499ff; }
@@ -74,7 +92,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     display: flex; flex-direction: column; gap: 3px;
 }
 .train-row:last-child { border-bottom: none; }
-.train-name { color: #fff; font-size: 0.9em; font-weight: 600; }
+.train-name { color: #fff; font-size: 0.9em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .train-sub  { color: #999; font-size: 0.76em; }
 .train-sub span { margin-right: 10px; }
 .spd-fast { color: #33ff55; }
@@ -106,7 +124,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     margin-bottom: 6px; padding: 8px 12px;
     background: #0c0c0c; border-radius: 6px; border-left: 3px solid #2255aa;
 }
-.seg-title { color: #4499ff; font-size: 0.8em; font-weight: 600; margin-bottom: 3px; }
+.seg-title { color: #4499ff; font-size: 0.8em; font-weight: 600; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg-stats { color: #999; font-size: 0.74em; }
 .seg-inv   { color: #aaa; font-size: 0.74em; margin-top: 4px; }
 .seg-inv span { margin-right: 10px; }
