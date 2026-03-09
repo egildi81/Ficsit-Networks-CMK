@@ -1,4 +1,4 @@
--- STATS.lua : affichage des métriques du réseau ferroviaire
+-- TRAIN_STATS.lua : affichage des métriques du réseau ferroviaire
 -- Reçoit les stats pré-calculées de LOGGER (port 47) — aucun calcul local
 -- Port 47 : stats calculées par LOGGER (avgSpeed, score, conf, scoreHistory...)
 -- Port 44 : snapshot état trains (pour snapCount/santé connexion uniquement)

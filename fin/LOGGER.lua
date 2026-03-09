@@ -3,8 +3,8 @@
 -- Port 42 : trajets (tn,fr,to,dur,ts,invStr)
 -- Port 44 : snapshot état trains (ser(state))
 -- Port 45 : stats ETA par segment (avg,count) → DETAIL
--- Port 46 : réponse sync (demandes boot depuis STATS/DETAIL)
--- Port 47 : stats calculées (avgSpeed,avgDur,score,conf,scoreHistory...) → STATS
+-- Port 46 : réponse sync (demandes boot depuis TRAIN_STATS/DETAIL)
+-- Port 47 : stats calculées (avgSpeed,avgDur,score,conf,scoreHistory...) → TRAIN_STATS
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -66,7 +66,7 @@ local function toJson(v)
     return "null"
 end
 
--- === CALCUL CENTRALISÉ DES STATS (source unique pour STATS.lua et WEB) ===
+-- === CALCUL CENTRALISÉ DES STATS (source unique pour TRAIN_STATS.lua et WEB) ===
 -- Calculé depuis state[] (trains en temps réel) et saved[] (historique)
 -- scoreHistory mis à jour toutes les 60s
 local scoreHistory={}
