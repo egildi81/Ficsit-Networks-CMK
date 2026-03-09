@@ -182,38 +182,44 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 <!-- ── ONGLET STATISTIQUES ── -->
 <div id="page-stats" class="page">
-    <div class="stats-placeholder">
-        <div class="stat-card">
-            <div class="stat-card-title">TRAJETS TOTAUX</div>
-            <div class="stat-card-value" id="stat-total-trips">—</div>
-            <div class="stat-card-note">À venir</div>
+    <div class="stats-grid">
+        <!-- Col 1 : TRAINS -->
+        <div class="stats-section">
+            <div class="stats-section-title">TRAINS</div>
+            <div class="stats-row"><span class="stats-label">En mouvement</span><span class="stats-val clr-green" id="st-moving">—</span></div>
+            <div class="stats-row"><span class="stats-label">À quai</span><span class="stats-val clr-blue" id="st-docked">—</span></div>
+            <div class="stats-row"><span class="stats-label">À l'arrêt</span><span class="stats-val clr-red" id="st-stopped">—</span></div>
+            <div class="stats-row" style="border-top:1px solid #1e1e1e;padding-top:8px;margin-top:4px">
+                <span class="stats-label">Total</span><span class="stats-val" id="st-total">—</span>
+            </div>
+            <div class="stats-row" style="margin-top:8px">
+                <span class="stats-label">Trajets enregistrés</span><span class="stats-val" id="st-trips-total">—</span>
+            </div>
         </div>
-        <div class="stat-card">
-            <div class="stat-card-title">TRAINS ACTIFS</div>
-            <div class="stat-card-value" id="stat-active">—</div>
-            <div class="stat-card-note">À venir</div>
+        <!-- Col 2 : PERFORMANCE -->
+        <div class="stats-section">
+            <div class="stats-section-title">PERFORMANCE</div>
+            <div class="stats-label">Vitesse moy (trains en mvt)</div>
+            <div class="stats-bigval" id="st-speed">—</div>
+            <div class="stats-bar-bg"><div class="stats-bar" id="st-speed-bar"></div></div>
+            <div class="stats-label">Trajet moyen</div>
+            <div class="stats-bigval clr-yellow" id="st-dur">N/A</div>
+            <div class="stats-sub" id="st-dur-cnt"></div>
+            <div class="stats-label" style="margin-top:12px">Qté / trajet</div>
+            <div class="stats-bigval" id="st-inv">—</div>
+            <div class="stats-sub" id="st-inv-cnt"></div>
         </div>
-        <div class="stat-card">
-            <div class="stat-card-title">VITESSE MOYENNE</div>
-            <div class="stat-card-value" id="stat-avg-speed">—</div>
-            <div class="stat-card-note">À venir</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card-title">SEGMENT LE PLUS RAPIDE</div>
-            <div class="stat-card-value" id="stat-fastest">—</div>
-            <div class="stat-card-note">À venir</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card-title">SEGMENT LE PLUS LENT</div>
-            <div class="stat-card-value" id="stat-slowest">—</div>
-            <div class="stat-card-note">À venir</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card-title">UPTIME RÉSEAU</div>
-            <div class="stat-card-value" id="stat-uptime">—</div>
-            <div class="stat-card-note">À venir</div>
+        <!-- Col 3 : SCORE -->
+        <div class="stats-section">
+            <div class="stats-section-title">SCORE RÉSEAU</div>
+            <span class="stats-score" id="st-score">—</span><span class="stats-score-denom">/100</span>
+            <div class="stats-label" style="margin-top:18px">Confiance</div>
+            <div class="stats-bigval" id="st-conf">—</div>
+            <div class="stats-uptime" id="st-uptime">UP: —</div>
         </div>
     </div>
+    <div class="stats-hist-header">HISTORIQUE <span id="st-hist-cnt" style="color:#444;font-weight:400;letter-spacing:0;font-size:1.2em"></span></div>
+    <canvas id="st-hist-canvas" height="110" style="width:100%;display:block;border-radius:6px"></canvas>
 </div>
 
 <div id="footer">—</div>
@@ -291,13 +297,6 @@ function renderTrains(trains) {
                 </div>
             </div>`).join('') : empty;
 
-    // Stats rapides calculables maintenant
-    document.getElementById('stat-active').textContent = trains.length;
-    const moving = groups.moving;
-    if (moving.length) {
-        const avg = Math.round(moving.reduce((a, t) => a + t.speed, 0) / moving.length);
-        document.getElementById('stat-avg-speed').textContent = avg + ' km/h';
-    }
 }
 
 // ── Rendu historique ─────────────────────────────────────────
@@ -348,7 +347,6 @@ function renderTrips(trips) {
     }
 
     container.innerHTML = html;
-    document.getElementById('stat-total-trips').textContent = totalTrips;
 }
 
 function toggleCard(el, name) {
@@ -357,6 +355,127 @@ function toggleCard(el, name) {
     seg.classList.toggle('open', open);
     el.classList.toggle('open', open);
     open ? openCards.add(name) : openCards.delete(name);
+}
+
+// ── Stats réseau ─────────────────────────────────────────────
+let statsStartTime = null;
+let lastScoreTs    = 0;
+const scoreHistory = [];
+const MAX_SCORE_HISTORY = 20;
+
+function calcConfidence(avgSpeed, avgDur, durCnt) {
+    if (durCnt === 0 || avgSpeed === 0) return { label: 'INCONNUE', cls: '' };
+    const sScore = Math.min(avgSpeed / 150, 1.0);
+    const tScore = avgDur <= 120 ? 1.0 : avgDur >= 600 ? 0.0 : 1.0 - (avgDur - 120) / 480;
+    const c = (sScore + tScore) / 2;
+    if (c >= 0.80) return { label: 'EXCELLENTE', cls: 'clr-green' };
+    if (c >= 0.60) return { label: 'BONNE',      cls: 'clr-green' };
+    if (c >= 0.40) return { label: 'CORRECTE',   cls: 'clr-yellow' };
+    if (c >= 0.20) return { label: 'DÉGRADÉE',   cls: 'clr-yellow' };
+    return             { label: 'MAUVAISE',   cls: 'clr-red' };
+}
+
+function renderStats(trains, trips, updatedAt) {
+    if (!statsStartTime && updatedAt) statsStartTime = Date.now();
+
+    // Trains
+    const groups = { moving: [], docked: [], stopped: [] };
+    trains.forEach(t => (groups[t.status] || groups.stopped).push(t));
+    document.getElementById('st-moving').textContent  = groups.moving.length;
+    document.getElementById('st-docked').textContent  = groups.docked.length;
+    document.getElementById('st-stopped').textContent = groups.stopped.length;
+    document.getElementById('st-total').textContent   = trains.length;
+
+    // Vitesse
+    const avgSpeed = groups.moving.length
+        ? Math.round(groups.moving.reduce((a, t) => a + t.speed, 0) / groups.moving.length) : 0;
+    const speedEl = document.getElementById('st-speed');
+    speedEl.textContent = avgSpeed > 0 ? avgSpeed + ' km/h' : '—';
+    speedEl.className = 'stats-bigval ' + (avgSpeed > 150 ? 'clr-green' : avgSpeed > 80 ? 'clr-yellow' : 'clr-red');
+    const barEl = document.getElementById('st-speed-bar');
+    barEl.style.width = Math.min(avgSpeed / 200, 1) * 100 + '%';
+    barEl.className = 'stats-bar ' + (avgSpeed > 150 ? 'bar-green' : avgSpeed > 80 ? 'bar-yellow' : 'bar-red');
+
+    // Trajets
+    const allDur = []; let invTotal = 0, invCnt = 0, totalTrips = 0;
+    for (const segs of Object.values(trips || {})) {
+        for (const arr of Object.values(segs || {})) {
+            for (const t of (arr || [])) {
+                totalTrips++;
+                if (t.duration > 0) allDur.push(t.duration);
+                if (t.inv) {
+                    const tot = Object.values(t.inv).reduce((a, b) => a + b, 0);
+                    if (tot > 0) { invTotal += tot; invCnt++; }
+                }
+            }
+        }
+    }
+    const durCnt = allDur.length;
+    const avgDur = durCnt > 0 ? Math.floor(allDur.reduce((a, b) => a + b, 0) / durCnt) : 0;
+    const avgInv = invCnt  > 0 ? Math.floor(invTotal / invCnt) : 0;
+
+    document.getElementById('st-trips-total').textContent = totalTrips;
+    document.getElementById('st-dur').textContent = durCnt > 0 ? fmt(avgDur) : 'N/A';
+    document.getElementById('st-dur-cnt').textContent = durCnt > 0 ? `(${durCnt} trajets)` : '';
+    document.getElementById('st-inv').textContent = avgInv > 0 ? avgInv + ' items' : '—';
+    document.getElementById('st-inv-cnt').textContent = invCnt > 0 ? `(${invCnt} trajets avec inv.)` : '';
+
+    // Score (1 fois par minute)
+    const now = Date.now();
+    if (now - lastScoreTs >= 60000) {
+        const mobility = trains.length > 0 ? groups.moving.length / trains.length : 0.5;
+        let consistency = 1.0;
+        if (allDur.length >= 3) {
+            const avg = allDur.reduce((a, b) => a + b, 0) / allDur.length;
+            const cv  = avg > 0 ? Math.sqrt(allDur.reduce((a, b) => a + (b - avg) ** 2, 0) / allDur.length) / avg : 0;
+            consistency = Math.max(0, 1 - cv * 1.5);
+        }
+        scoreHistory.push(Math.round((mobility * 0.55 + consistency * 0.45) * 100));
+        if (scoreHistory.length > MAX_SCORE_HISTORY) scoreHistory.shift();
+        lastScoreTs = now;
+    }
+    const score = scoreHistory.length > 0 ? scoreHistory[scoreHistory.length - 1] : null;
+    const scoreEl = document.getElementById('st-score');
+    scoreEl.textContent = score !== null ? score : '—';
+    scoreEl.className = 'stats-score ' + (score >= 80 ? 'clr-green' : score >= 60 ? 'clr-yellow' : score !== null ? 'clr-red' : '');
+
+    // Confiance
+    const conf = calcConfidence(avgSpeed, avgDur, durCnt);
+    const confEl = document.getElementById('st-conf');
+    confEl.textContent = conf.label;
+    confEl.className = 'stats-bigval ' + conf.cls;
+
+    // Uptime
+    if (statsStartTime)
+        document.getElementById('st-uptime').textContent = 'UP: ' + fmt((Date.now() - statsStartTime) / 1000);
+
+    // Graphique historique
+    document.getElementById('st-hist-cnt').textContent = `(${scoreHistory.length} mesures)`;
+    const canvas = document.getElementById('st-hist-canvas');
+    canvas.width = canvas.offsetWidth || 900;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!scoreHistory.length) {
+        ctx.fillStyle = '#333'; ctx.font = '13px monospace';
+        ctx.fillText('En attente des données...', 16, h / 2 + 5);
+    } else {
+        const colW = Math.floor((w - 32) / scoreHistory.length);
+        scoreHistory.forEach((sc, i) => {
+            const bh = Math.floor((h - 4) * sc / 100);
+            const bx = 16 + i * colW;
+            ctx.fillStyle = '#0d0d0d';
+            ctx.fillRect(bx, 0, colW - 2, h - 4);
+            if (bh > 0) {
+                ctx.fillStyle = sc >= 80 ? '#22cc22' : sc >= 60 ? '#cccc22' : '#cc2222';
+                ctx.fillRect(bx, h - 4 - bh, colW - 2, bh);
+            }
+            if (colW >= 30 && bh > 14) {
+                ctx.fillStyle = '#000'; ctx.font = '10px monospace';
+                ctx.fillText(String(sc), bx + 2, h - 4 - bh + 12);
+            }
+        });
+    }
 }
 
 // ── Boucle de rafraîchissement ───────────────────────────────
@@ -390,6 +509,7 @@ async function refresh() {
 
         renderTrains(data.trains || []);
         renderTrips(data.trips || {});
+        renderStats(data.trains || [], data.trips || {}, data.logger_updated_at);
 
         document.getElementById('footer').textContent =
             'Dernière mise à jour : ' + new Date().toLocaleTimeString();
