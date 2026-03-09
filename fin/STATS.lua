@@ -40,7 +40,7 @@ local snapCount=0  -- compteur réceptions port 44 (santé connexion)
 local cs={         -- valeurs par défaut avant première réception
     movingCnt=0, stoppedCnt=0, dockedCnt=0, totalCnt=0,
     avgSpeed=0, avgDur=0, avgInv=0, durCnt=0, invN=0,
-    score=0, conf="INCONNUE", scoreHistory={}, uptime=0
+    score=0, conf="INCONNUE", scoreHistory={}, uptime=0, totalInv=0
 }
 
 -- === UTILITAIRES ===
@@ -116,8 +116,12 @@ local function drawScreen()
     y2=y2+30
     gpu:drawText({x=x2,y=y2},"Trajet moy",18,DI,false) y2=y2+26
     gpu:drawText({x=x2,y=y2},(cs.durCnt>0 and fmt(cs.avgDur) or "N/A"),28,YE,false) y2=y2+50
-    gpu:drawText({x=x2,y=y2},"Qte/trajet",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2,y=y2},(cs.invN>0 and tostring(cs.avgInv).." items" or "N/A"),28,YE,false)
+    -- Qté : moyenne/trajet (gauche) | total en circulation (droite)
+    local half=math.floor((COL-32)/2)
+    gpu:drawText({x=x2,y=y2},"Moy/trajet",16,DI,false)
+    gpu:drawText({x=x2+half,y=y2},"Total circ.",16,DI,false) y2=y2+22
+    gpu:drawText({x=x2,y=y2},(cs.invN>0 and tostring(cs.avgInv).." it." or "N/A"),24,YE,false)
+    gpu:drawText({x=x2+half,y=y2},((cs.totalInv or 0)>0 and tostring(cs.totalInv).." it." or "N/A"),24,OR,false)
 
     -- === COL 3 : SCORE + CONFIANCE ===
     local x3,y3=COL*2+16,HDR+16

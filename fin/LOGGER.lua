@@ -74,6 +74,9 @@ local MAX_SCORE_HISTORY=20
 local lastHistoryUpdate=0
 local loggerStartTime=computer.millis()
 local state={}
+local la={}
+local depart={}
+local dk_prev={}
 
 local function computeStats()
     -- Trains depuis state[]
@@ -143,9 +146,18 @@ local function computeStats()
         end
     end
 
+    -- Total items en circulation (somme des inventaires au dernier départ de chaque train actif)
+    local totalInv=0
+    for tn,it in pairs(depart) do
+        if state[tn] then
+            for _,cnt in pairs(it) do totalInv=totalInv+cnt end
+        end
+    end
+
     return {
         movingCnt=movingCnt, stoppedCnt=stoppedCnt, dockedCnt=dockedCnt, totalCnt=totalCnt,
-        avgSpeed=avgSpeed, avgDur=avgDur, avgInv=avgInv, durCnt=durCnt, invN=invN,
+        avgSpeed=avgSpeed, avgDur=avgDur, avgInv=avgInv, invN=invN, durCnt=durCnt,
+        totalInv=totalInv,
         score=score, conf=conf, scoreHistory=scoreHistory,
         uptime=math.floor((computer.millis()-loggerStartTime)/1000)
     }
@@ -224,10 +236,6 @@ local function saveTrip(tn,fr,to,d,ts,it,nv)
     log("LOG: "..tn.." "..seg.." d="..d.."s wagons="..nv..invLog)
 end
 
--- === ÉTAT PAR TRAIN ===
-local la={}
-local depart={}
-local dk_prev={}
 
 -- === BOUCLE DE SURVEILLANCE (toutes les 2s) ===
 local function tick()

@@ -201,8 +201,16 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
             <div class="stats-bar-bg"><div class="stats-bar" id="st-speed-bar"></div></div>
             <div class="stats-label">Trajet moyen</div>
             <div class="stats-bigval clr-yellow" id="st-dur">N/A</div>
-            <div class="stats-label" style="margin-top:12px">Qté / trajet</div>
-            <div class="stats-bigval" id="st-inv">—</div>
+            <div style="display:flex;gap:12px;margin-top:12px">
+                <div style="flex:1">
+                    <div class="stats-label">Moy / trajet</div>
+                    <div class="stats-bigval clr-yellow" id="st-inv">—</div>
+                </div>
+                <div style="flex:1">
+                    <div class="stats-label">Total circ.</div>
+                    <div class="stats-bigval" style="color:#ff8800" id="st-inv-total">—</div>
+                </div>
+            </div>
         </div>
         <!-- Col 3 : SCORE -->
         <div class="stats-section">
@@ -387,6 +395,8 @@ function renderStats(trains, stats, updatedAt) {
 
     document.getElementById('st-dur').textContent = durCnt > 0 ? fmt(avgDur) : 'N/A';
     document.getElementById('st-inv').textContent = avgInv > 0 ? avgInv + ' items' : '—';
+    const totalInv = s.totalInv || 0;
+    document.getElementById('st-inv-total').textContent = totalInv > 0 ? totalInv + ' items' : '—';
 
     // Score (calculé par LOGGER)
     const scoreHistory = s.scoreHistory || [];
