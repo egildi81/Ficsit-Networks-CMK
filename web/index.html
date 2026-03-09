@@ -18,7 +18,7 @@ header {
     margin-bottom: 12px;
 }
 header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight: 700; }
-#status { font-size: 0.82em; color: #444; transition: color .3s; }
+#status { font-size: 0.82em; color: #777; transition: color .3s; }
 #status.ok      { color: #33cc55; }
 #status.late    { color: #ff4444; }
 #status.err     { color: #ff4444; }
@@ -28,11 +28,11 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .tab {
     padding: 8px 20px; cursor: pointer; font-size: 0.82em; font-weight: 600;
     letter-spacing: 1px; border-radius: 6px 6px 0 0;
-    color: #555; background: transparent; border: none;
+    color: #888; background: transparent; border: none;
     border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
     user-select: none;
 }
-.tab:hover { color: #999; }
+.tab:hover { color: #bbb; }
 .tab.active { color: #ff8800; border-bottom: 2px solid #ff8800; }
 
 /* ── PAGES ── */
@@ -74,13 +74,13 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 .train-row:last-child { border-bottom: none; }
 .train-name { color: #fff; font-size: 0.9em; font-weight: 600; }
-.train-sub  { color: #666; font-size: 0.76em; }
+.train-sub  { color: #999; font-size: 0.76em; }
 .train-sub span { margin-right: 10px; }
 .spd-fast { color: #33ff55; }
 .spd-slow { color: #ffff33; }
 .spd-none { color: #ff4444; }
 .clr-blue { color: #4499ff; }
-.empty-row { padding: 12px 14px; color: #333; font-size: 0.8em; font-style: italic; }
+.empty-row { padding: 12px 14px; color: #666; font-size: 0.8em; font-style: italic; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: middle; flex-shrink: 0; }
 .dot-fast    { background: #33ff55; }
 .dot-slow    { background: #ffff33; }
@@ -96,8 +96,8 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 .train-card-header:hover { background: #1a1a1a; }
 .train-card-header .tname { color: #ccc; font-size: 0.88em; font-weight: 600; }
-.train-card-header .tmeta { color: #444; font-size: 0.78em; }
-.train-card-header .arrow { color: #444; font-size: 0.8em; transition: transform .2s; }
+.train-card-header .tmeta { color: #777; font-size: 0.78em; }
+.train-card-header .arrow { color: #777; font-size: 0.8em; transition: transform .2s; }
 .train-card-header.open .arrow { transform: rotate(90deg); }
 .segments { display: none; padding: 8px; }
 .segments.open { display: block; }
@@ -106,8 +106,8 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     background: #0c0c0c; border-radius: 6px; border-left: 3px solid #2255aa;
 }
 .seg-title { color: #4499ff; font-size: 0.8em; font-weight: 600; margin-bottom: 3px; }
-.seg-stats { color: #666; font-size: 0.74em; }
-.seg-inv   { color: #888; font-size: 0.74em; margin-top: 4px; }
+.seg-stats { color: #999; font-size: 0.74em; }
+.seg-inv   { color: #aaa; font-size: 0.74em; margin-top: 4px; }
 .seg-inv span { margin-right: 10px; }
 
 /* ── STATISTIQUES ── */
@@ -121,15 +121,15 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     margin-bottom: 14px; border-bottom: 1px solid #1e1e1e; padding-bottom: 8px;
 }
 .stats-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.stats-label { color: #555; font-size: 0.82em; margin-bottom: 2px; }
+.stats-label { color: #888; font-size: 0.82em; margin-bottom: 2px; }
 .stats-val { font-weight: 700; }
 .stats-bigval { font-size: 1.6em; font-weight: 700; color: #eee; }
-.stats-sub { font-size: 0.6em; color: #555; font-weight: 400; display: block; margin-top: 2px; }
+.stats-sub { font-size: 0.6em; color: #888; font-weight: 400; display: block; margin-top: 2px; }
 .stats-bar-bg { background: #0d0d0d; height: 8px; border-radius: 4px; overflow: hidden; margin: 6px 0 16px; }
 .stats-bar { height: 100%; border-radius: 4px; transition: width .5s; width: 0%; }
 .stats-score { font-size: 4em; font-weight: 700; line-height: 1; display: inline; }
-.stats-score-denom { font-size: 1.2em; color: #333; display: inline; margin-left: 6px; }
-.stats-uptime { position: absolute; bottom: 14px; left: 20px; color: #333; font-size: 0.72em; }
+.stats-score-denom { font-size: 1.2em; color: #666; display: inline; margin-left: 6px; }
+.stats-uptime { position: absolute; bottom: 14px; left: 20px; color: #666; font-size: 0.72em; }
 .stats-hist-header { color: #ff8800; font-size: 0.78em; letter-spacing: 1.5px; font-weight: 700; margin: 4px 0 8px; }
 .clr-green  { color: #22ee22; }
 .clr-yellow { color: #eeee22; }

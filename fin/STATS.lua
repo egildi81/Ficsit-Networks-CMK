@@ -87,9 +87,6 @@ local function drawScreen()
     gpu:drawText({x=20,y=16},"STATS RESEAU",32,OR,false)
     gpu:drawRect({x=COL,y=0},{x=1,y=HDR},{r=0.15,g=0.1,b=0,a=1},{r=0.15,g=0.1,b=0,a=1},0)
     gpu:drawRect({x=COL*2,y=0},{x=1,y=HDR},{r=0.15,g=0.1,b=0,a=1},{r=0.15,g=0.1,b=0,a=1},0)
-    local perfLabel="PERFORMANCE"..(cs.durCnt>0 and " ("..cs.durCnt.." trajets)" or "")
-    gpu:drawText({x=COL+20,y=16},perfLabel,20,OR,false)
-    gpu:drawText({x=COL*2+20,y=16},"SCORE RESEAU",22,OR,false)
     gpu:drawRect({x=0,y=HDR-2},{x=sw,y=2},OR,OR,0)
 
     -- séparateurs verticaux corps
@@ -110,6 +107,8 @@ local function drawScreen()
 
     -- === COL 2 : PERFORMANCE ===
     local x2,y2=COL+16,HDR+16
+    local perfLabel="PERFORMANCE"..(cs.durCnt>0 and " ("..cs.durCnt.." trajets)" or "")
+    gpu:drawText({x=x2,y=y2},perfLabel,20,OR,false) y2=y2+34
     gpu:drawText({x=x2,y=y2},"Vitesse moy",18,DI,false) y2=y2+26
     gpu:drawText({x=x2,y=y2},cs.avgSpeed.." km/h",28,spdColor,false) y2=y2+50
     local svw=COL-32
@@ -123,6 +122,7 @@ local function drawScreen()
 
     -- === COL 3 : SCORE + CONFIANCE ===
     local x3,y3=COL*2+16,HDR+16
+    gpu:drawText({x=x3,y=y3},"SCORE RESEAU",20,OR,false) y3=y3+34
     gpu:drawText({x=x3,y=y3},tostring(score),68,scoreColor,false)
     gpu:drawText({x=x3+140,y=y3+42},"/100",22,DI,false)
     y3=y3+100
