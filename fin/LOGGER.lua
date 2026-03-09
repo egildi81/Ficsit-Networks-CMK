@@ -138,7 +138,7 @@ local function computeStats()
     -- sampleConf   30% : min(trajets enregistrés / 80, 1.0)
     -- uptimeConf   20% : min(uptime / 300s, 1.0)
     local uptime=math.floor((computer.millis()-loggerStartTime)/1000)
-    local mobilityConf=totalCnt>0 and (movingCnt/totalCnt) or 0
+    local mobilityConf=totalCnt>0 and math.min(movingCnt/totalCnt/0.8,1.0) or 0
     local sampleConf=math.min(durCnt/80,1.0)
     local uptimeConf=math.min(uptime/300,1.0)
     local c=mobilityConf*0.50+sampleConf*0.30+uptimeConf*0.20

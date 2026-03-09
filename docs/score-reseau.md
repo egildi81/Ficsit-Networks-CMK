@@ -28,7 +28,7 @@ Répond à : *"peut-on faire confiance au score affiché ?"*
 
 | Composant      | Poids | Logique                                          |
 |----------------|-------|--------------------------------------------------|
-| `mobilityConf` | 50 %  | `movingCnt / totalCnt` — réseau actif            |
+| `mobilityConf` | 50 %  | `min(movingCnt/totalCnt / 0.8, 1.0)` — 80% en mouvement = max |
 | `sampleConf`   | 30 %  | `min(durCnt / 80, 1.0)` — 80 trajets = fiable   |
 | `uptimeConf`   | 20 %  | `min(uptime / 300, 1.0)` — 5min de recul        |
 
