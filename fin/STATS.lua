@@ -275,7 +275,8 @@ local function fetchHistory()
             table.insert(trips,{duration=t.duration, inv_total=(t.inv_total or 0)})
         end
     end
-    print("STATS: "..#trips.." trajets restaurés, "..invTripCount.." avec inventaire")
+    local invCnt=0 for _,t in ipairs(trips) do if (t.inv_total or 0)>0 then invCnt=invCnt+1 end end
+    print("STATS: "..#trips.." trajets restaurés, "..invCnt.." avec inventaire")
 end
 
 -- === DÉMARRAGE ===
