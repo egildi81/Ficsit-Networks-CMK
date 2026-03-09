@@ -1,12 +1,11 @@
--- STATS.lua : métriques du réseau ferroviaire
--- Écoute : port 42 (trajets complétés), port 44 (snapshot état trains)
+-- STATS.lua : affichage des métriques du réseau ferroviaire
+-- Reçoit les stats pré-calculées de LOGGER (port 47) — aucun calcul local
+-- Port 47 : stats calculées par LOGGER (avgSpeed, score, conf, scoreHistory...)
+-- Port 44 : snapshot état trains (pour snapCount/santé connexion uniquement)
 -- Affichage sur STATS_SCREEN + broadcast GET_LOG (port 43) toutes les 60s
--- Source de données : LOGGER uniquement (port 42/44)
--- Au boot : demande de sync sur port 46 → LOGGER re-broadcast tout l'historique
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
-local WEB_URL="http://127.0.0.1:8081"
 
 -- === LOG (broadcast port 43 → GET_LOG) ===
 print=function(...)
@@ -17,8 +16,8 @@ end
 
 if not net then computer.stop() end
 event.listen(net)
-net:open(42)
 net:open(44)
+net:open(47)
 
 local gpu=computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
 local scr=component.proxy(component.findComponent("STATS_SCREEN")[1])
@@ -35,17 +34,15 @@ local YE={r=1,g=1,b=0.2,a=1}
 local BL={r=0.2,g=0.6,b=1,a=1}
 local OR={r=1,g=0.5,b=0,a=1}
 
--- === ÉTAT ACCUMULÉ ===
-local startTime=computer.millis()
-local activeTrains={}
-local snapCount=0
-
-local trips={}    -- [{duration, inv_total, ts}] — fenêtre glissante MAX_TRIPS
-local seenTs={}   -- {[ts_str]=true} — déduplication (LOGGER broadcastAll envoie tous les trips)
-
-local scoreHistory={}
-local MAX_HISTORY=20
-local MAX_TRIPS=100
+-- === ÉTAT : DONNÉES REÇUES DE LOGGER ===
+-- cs = computed stats, mis à jour à chaque réception port 47
+local startTime=computer.millis()  -- uptime STATS (local)
+local snapCount=0                  -- compteur réceptions port 44 (santé connexion)
+local cs={                         -- valeurs par défaut avant première réception
+    movingCnt=0, stoppedCnt=0, dockedCnt=0, totalCnt=0,
+    avgSpeed=0, avgDur=0, avgInv=0, durCnt=0, invN=0,
+    score=0, conf="INCONNUE", scoreHistory={}
+}
 
 -- === UTILITAIRES ===
 local function fmt(s)
@@ -65,74 +62,6 @@ local function bar(ratio,width)
     return string.rep("█",n)..string.rep("░",width-n)
 end
 
--- Ajoute un trip si son ts n'est pas déjà connu (déduplication)
-local function addTrip(ts,dur,inv_total)
-    local k=tostring(ts)
-    if seenTs[k] then return end
-    seenTs[k]=true
-    table.insert(trips,1,{duration=dur,inv_total=inv_total or 0,ts=ts})
-    if #trips>MAX_TRIPS then table.remove(trips) end
-end
-
--- === CALCUL DES MÉTRIQUES ===
-local function getMetrics()
-    local speedSum,speedCnt=0,0
-    local movingCnt,stoppedCnt,dockedCnt,totalCnt=0,0,0,0
-    for _,s in pairs(activeTrains) do
-        totalCnt=totalCnt+1
-        if s.status=="moving" then
-            speedSum=speedSum+s.speed speedCnt=speedCnt+1 movingCnt=movingCnt+1
-        elseif s.status=="docked" then dockedCnt=dockedCnt+1
-        else stoppedCnt=stoppedCnt+1 end
-    end
-    local avgSpeed=speedCnt>0 and math.floor(speedSum/speedCnt) or 0
-    local durSum,invSum,invN=0,0,0
-    for _,d in ipairs(trips) do
-        durSum=durSum+d.duration
-        if d.inv_total and d.inv_total>0 then invSum=invSum+d.inv_total invN=invN+1 end
-    end
-    local durCnt=#trips
-    local avgDur=durCnt>0 and math.floor(durSum/durCnt) or 0
-    local avgInv=invN>0 and math.floor(invSum/invN) or 0
-    return movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv,invN
-end
-
--- === CALCUL DU SCORE RÉSEAU (0-100) ===
-local function calcScore(movingCnt,totalCnt)
-    local mobility=totalCnt>0 and (movingCnt/totalCnt) or 0.5
-    local elapsed=math.max(1,(computer.millis()-startTime)/1000)
-    local expected=math.floor(elapsed/2)
-    local regularity=expected>0 and math.min(1,snapCount/expected) or 0.5
-    local consistency=1.0
-    if #trips>=3 then
-        local sum=0
-        for _,d in ipairs(trips) do sum=sum+d.duration end
-        local avg=sum/#trips
-        local varSum=0
-        for _,d in ipairs(trips) do varSum=varSum+(d.duration-avg)^2 end
-        local cv=avg>0 and (math.sqrt(varSum/#trips)/avg) or 0
-        consistency=math.max(0,1-cv*1.5)
-    end
-    return math.floor((mobility*0.40+regularity*0.35+consistency*0.25)*100)
-end
-
--- === NIVEAU DE CONFIANCE ===
-local function confidence(avgSpeed,avgDur,durCnt)
-    if durCnt==0 or avgSpeed==0 then return "INCONNUE",DI end
-    local sScore=math.min(avgSpeed/150,1.0)
-    local tScore
-    if avgDur<=120 then tScore=1.0
-    elseif avgDur>=600 then tScore=0.0
-    else tScore=1.0-(avgDur-120)/480 end
-    local c=(sScore+tScore)/2
-    if     c>=0.80 then return "EXCELLENTE",GR
-    elseif c>=0.60 then return "BONNE",GR
-    elseif c>=0.40 then return "CORRECTE",YE
-    elseif c>=0.20 then return "DEGRADEE",RE
-    else                return "MAUVAISE",RE
-    end
-end
-
 -- === RENDU ÉCRAN (1200x600, layout 3 colonnes + graphique en bas) ===
 -- Col1: x=0-400   TRAINS
 -- Col2: x=400-800 PERFORMANCE (X trajets)
@@ -145,21 +74,20 @@ local GRAPH_Y=HDR+BODY
 
 local function drawScreen()
     if not gpu or not scr then return end
-    local movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv,invN=getMetrics()
-    local score=#scoreHistory>0 and scoreHistory[#scoreHistory] or 0
+    local score=cs.scoreHistory and #cs.scoreHistory>0 and cs.scoreHistory[#cs.scoreHistory] or cs.score or 0
     local scoreColor=score>=80 and GR or score>=60 and YE or RE
-    local spdColor=avgSpeed>150 and GR or avgSpeed>80 and YE or RE
-    local confStr,confColor=confidence(avgSpeed,avgDur,durCnt)
+    local spdColor=cs.avgSpeed>150 and GR or cs.avgSpeed>80 and YE or RE
+    local confColor=cs.conf=="EXCELLENTE" and GR or cs.conf=="BONNE" and GR
+        or cs.conf=="CORRECTE" and YE or cs.conf=="INCONNUE" and DI or RE
 
     gpu:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
 
-    -- === EN-TÊTE (pleine largeur) ===
+    -- === EN-TÊTE ===
     gpu:drawRect({x=0,y=0},{x=sw,y=HDR},BG,{r=0.08,g=0.05,b=0,a=1},0)
     gpu:drawText({x=20,y=16},"STATS RESEAU",32,OR,false)
     gpu:drawRect({x=COL,y=0},{x=1,y=HDR},{r=0.15,g=0.1,b=0,a=1},{r=0.15,g=0.1,b=0,a=1},0)
     gpu:drawRect({x=COL*2,y=0},{x=1,y=HDR},{r=0.15,g=0.1,b=0,a=1},{r=0.15,g=0.1,b=0,a=1},0)
-    -- "PERFORMANCE (X trajets)" — X = nombre de trajets utilisés pour les calculs
-    local perfLabel="PERFORMANCE"..(durCnt>0 and " ("..durCnt.." trajets)" or "")
+    local perfLabel="PERFORMANCE"..(cs.durCnt>0 and " ("..cs.durCnt.." trajets)" or "")
     gpu:drawText({x=COL+20,y=16},perfLabel,20,OR,false)
     gpu:drawText({x=COL*2+20,y=16},"SCORE RESEAU",22,OR,false)
     gpu:drawRect({x=0,y=HDR-2},{x=sw,y=2},OR,OR,0)
@@ -172,27 +100,26 @@ local function drawScreen()
     local x1,y1=16,HDR+16
     gpu:drawText({x=x1,y=y1},"TRAINS",20,OR,false) y1=y1+34
     gpu:drawText({x=x1,y=y1},"En mouvement",18,DI,false)
-    gpu:drawText({x=x1+220,y=y1},tostring(movingCnt),20,GR,false) y1=y1+26
+    gpu:drawText({x=x1+220,y=y1},tostring(cs.movingCnt),20,GR,false) y1=y1+26
     gpu:drawText({x=x1,y=y1},"A quai",18,DI,false)
-    gpu:drawText({x=x1+220,y=y1},tostring(dockedCnt),20,BL,false) y1=y1+26
+    gpu:drawText({x=x1+220,y=y1},tostring(cs.dockedCnt),20,BL,false) y1=y1+26
     gpu:drawText({x=x1,y=y1},"A l'arret",18,DI,false)
-    gpu:drawText({x=x1+220,y=y1},tostring(stoppedCnt),20,RE,false) y1=y1+26
+    gpu:drawText({x=x1+220,y=y1},tostring(cs.stoppedCnt),20,RE,false) y1=y1+26
     gpu:drawText({x=x1,y=y1},"Total",18,DI,false)
-    gpu:drawText({x=x1+220,y=y1},tostring(totalCnt),20,WH,false)
+    gpu:drawText({x=x1+220,y=y1},tostring(cs.totalCnt),20,WH,false)
 
     -- === COL 2 : PERFORMANCE ===
     local x2,y2=COL+16,HDR+16
     gpu:drawText({x=x2,y=y2},"Vitesse moy",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2,y=y2},avgSpeed.." km/h",28,spdColor,false) y2=y2+50
-    -- barre vitesse
+    gpu:drawText({x=x2,y=y2},cs.avgSpeed.." km/h",28,spdColor,false) y2=y2+50
     local svw=COL-32
     gpu:drawRect({x=x2,y=y2},{x=svw,y=14},{r=0.08,g=0.08,b=0.08,a=1},{r=0.08,g=0.08,b=0.08,a=1},0)
-    gpu:drawRect({x=x2,y=y2},{x=math.floor(svw*math.min(avgSpeed/200,1)),y=14},spdColor,spdColor,0)
+    gpu:drawRect({x=x2,y=y2},{x=math.floor(svw*math.min(cs.avgSpeed/200,1)),y=14},spdColor,spdColor,0)
     y2=y2+30
     gpu:drawText({x=x2,y=y2},"Trajet moy",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2,y=y2},(durCnt>0 and fmt(avgDur) or "N/A"),28,YE,false) y2=y2+50
+    gpu:drawText({x=x2,y=y2},(cs.durCnt>0 and fmt(cs.avgDur) or "N/A"),28,YE,false) y2=y2+50
     gpu:drawText({x=x2,y=y2},"Qte/trajet",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2,y=y2},(invN>0 and tostring(avgInv).." items" or "N/A"),28,YE,false)
+    gpu:drawText({x=x2,y=y2},(cs.invN>0 and tostring(cs.avgInv).." items" or "N/A"),28,YE,false)
 
     -- === COL 3 : SCORE + CONFIANCE ===
     local x3,y3=COL*2+16,HDR+16
@@ -200,20 +127,21 @@ local function drawScreen()
     gpu:drawText({x=x3+140,y=y3+42},"/100",22,DI,false)
     y3=y3+100
     gpu:drawText({x=x3,y=y3},"Confiance",18,DI,false) y3=y3+26
-    gpu:drawText({x=x3,y=y3},confStr,26,confColor,false)
+    gpu:drawText({x=x3,y=y3},cs.conf,26,confColor,false)
     gpu:drawText({x=x3,y=HDR+BODY-22},"UP: "..fmtUptime(computer.millis()-startTime),16,DI,false)
 
     -- === LIGNE SÉPARATRICE CORPS/GRAPHIQUE ===
+    local hist=cs.scoreHistory or {}
     gpu:drawRect({x=0,y=GRAPH_Y},{x=sw,y=1},{r=0.2,g=0.2,b=0.2,a=1},{r=0.2,g=0.2,b=0.2,a=1},0)
     gpu:drawText({x=16,y=GRAPH_Y+4},"HISTORIQUE",16,OR,false)
-    gpu:drawText({x=160,y=GRAPH_Y+6},"("..#scoreHistory.." mesures)",14,DI,false)
+    gpu:drawText({x=160,y=GRAPH_Y+6},"("..#hist.." mesures)",14,DI,false)
 
-    -- === GRAPHIQUE HISTORIQUE (barres verticales) ===
+    -- === GRAPHIQUE HISTORIQUE ===
     local gy=GRAPH_Y+24
     local gh=math.min(sh-gy-8,80)
-    if #scoreHistory>0 then
-        local colW=math.floor((sw-32)/#scoreHistory)
-        for i,sc in ipairs(scoreHistory) do
+    if #hist>0 then
+        local colW=math.floor((sw-32)/#hist)
+        for i,sc in ipairs(hist) do
             local bh=math.floor(gh*sc/100)
             local bc=sc>=80 and GR or sc>=60 and YE or RE
             local bx=16+(i-1)*colW
@@ -227,35 +155,32 @@ local function drawScreen()
     gpu:flush()
 end
 
--- === BROADCAST GET_LOG ===
-local function broadcastStats()
-    local movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv,invN=getMetrics()
-    local score=calcScore(movingCnt,totalCnt)
-    table.insert(scoreHistory,score)
-    if #scoreHistory>MAX_HISTORY then table.remove(scoreHistory,1) end
+-- === BROADCAST GET_LOG (toutes les 60s) ===
+local function broadcastLog()
+    local hist=cs.scoreHistory or {}
     local graphStr=""
-    for _,sc in ipairs(scoreHistory) do
+    for _,sc in ipairs(hist) do
         if     sc>=80 then graphStr=graphStr.."█"
         elseif sc>=60 then graphStr=graphStr.."▓"
         elseif sc>=40 then graphStr=graphStr.."▒"
         else               graphStr=graphStr.."░"
         end
     end
-    local confStr,_=confidence(avgSpeed,avgDur,durCnt)
+    local score=hist and #hist>0 and hist[#hist] or cs.score or 0
     print("════════ STATS RESEAU ════════")
     print("Uptime       : "..fmtUptime(computer.millis()-startTime))
-    print("Trains       : "..movingCnt.." mvt / "..dockedCnt.." quai / "..stoppedCnt.." arret  (total "..totalCnt..")")
-    print("Vitesse moy  : "..avgSpeed.." km/h")
-    print("Trajet moy   : "..(durCnt>0 and fmt(avgDur) or "N/A").."  ("..durCnt.." trajets)")
-    print("Qte moy/traj : "..avgInv.." items")
+    print("Trains       : "..cs.movingCnt.." mvt / "..cs.dockedCnt.." quai / "..cs.stoppedCnt.." arret  (total "..cs.totalCnt..")")
+    print("Vitesse moy  : "..cs.avgSpeed.." km/h")
+    print("Trajet moy   : "..(cs.durCnt>0 and fmt(cs.avgDur) or "N/A").."  ("..cs.durCnt.." trajets)")
+    print("Qte moy/traj : "..cs.avgInv.." items")
     print("Score reseau : "..score.."/100  ["..bar(score/100,15).."]")
     print("Historique   : ["..graphStr.."]")
-    print("Confiance    : "..confStr)
+    print("Confiance    : "..cs.conf)
     print("══════════════════════════════")
 end
 
 -- === DÉMARRAGE ===
--- Demande une sync à LOGGER via port 46 — LOGGER re-broadcast tout son historique sur port 42
+-- Demande une sync à LOGGER via port 46 → LOGGER répond avec historique + stats (port 47)
 pcall(function() net:broadcast(46,"SYNC") end)
 drawScreen()
 print("STATS démarré — sync LOGGER demandée")
@@ -267,48 +192,31 @@ local INTERVAL=60000
 
 while true do
     local remaining=math.max(0.1,(lastBroadcast+INTERVAL-computer.millis())/1000)
-    local e,_,_,port,a1,a2,a3,a4,a5,a6=event.pull(remaining)
+    local e,_,_,port,a1=event.pull(remaining)
 
     if e=="NetworkMessage" then
-        if port==44 then
-            -- snapshot état trains depuis LOGGER (toutes les 2s)
+        if port==47 then
+            -- Stats calculées par LOGGER — source unique de vérité
             local ok,fn=pcall(load,"return "..(a1 or "{}"))
             if ok and fn then
-                local ok2,s=pcall(fn)
-                if ok2 and s then activeTrains=s snapCount=snapCount+1 end
+                local ok2,data=pcall(fn)
+                if ok2 and type(data)=="table" then cs=data end
             end
 
-        elseif port==42 then
-            -- trajet depuis LOGGER : a1=tn, a2=fr, a3=to, a4=dur, a5=ts, a6=invStr
-            -- seenTs garantit pas de doublon même si LOGGER broadcastAll renvoie les anciens
-            local dur=tonumber(a4)
-            local ts=tonumber(a5)
-            if dur and dur>0 and ts then
-                local inv_total=0
-                if a6 and a6~="{}" then
-                    local ok,fn=pcall(load,"return "..a6)
-                    if ok and fn then
-                        local ok2,it=pcall(fn)
-                        if ok2 and it then
-                            for _,cnt in pairs(it) do inv_total=inv_total+cnt end
-                        end
-                    end
-                end
-                addTrip(ts,dur,inv_total)
-            end
+        elseif port==44 then
+            -- Snapshot état trains — utilisé uniquement pour compter les réceptions (santé connexion)
+            snapCount=snapCount+1
         end
     end
 
-    -- Redessine l'écran toutes les 2s
     local now=computer.millis()
     if now-lastDraw>=2000 then
         drawScreen()
         lastDraw=now
     end
 
-    -- Broadcast GET_LOG toutes les 60s
     if now-lastBroadcast>=INTERVAL then
-        broadcastStats()
+        broadcastLog()
         lastBroadcast=now
     end
 end

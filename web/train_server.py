@@ -21,24 +21,7 @@ import config
 _cache            = {"trains": [], "trips": {}}
 _cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
 _trips            = {}    # historique de la session courante (en mémoire uniquement — pas de persistence)
-_recent_trips     = []    # 100 derniers trajets (plat, trié par ts desc) — source de vérité des stats
-
-RECENT_TRIPS_MAX  = 100
-
-
-def _rebuild_recent():
-    """Reconstruit _recent_trips depuis _trips : liste plate des 100 derniers par timestamp."""
-    global _recent_trips
-    flat = []
-    for segs in _trips.values():
-        for arr in segs.values():
-            for t in (arr or []):
-                dur = t.get("duration", 0)
-                if dur and dur > 0:
-                    inv_total = sum(t.get("inv", {}).values()) if t.get("inv") else 0
-                    flat.append({"duration": dur, "inv_total": inv_total, "ts": t.get("ts", 0)})
-    flat.sort(key=lambda x: x["ts"], reverse=True)
-    _recent_trips = flat[:RECENT_TRIPS_MAX]
+_stats            = {}    # stats calculées par LOGGER (score, conf, avgSpeed, etc.)
 
 
 # ════════════════════════════════════════════════════════════
@@ -50,8 +33,8 @@ app = Flask(__name__)
 
 @app.route("/api/push", methods=["POST"])
 def receive_push():
-    """Reçoit le snapshot trains + trips de LOGGER (toutes les 2s)."""
-    global _cache, _cache_updated_at, _trips
+    """Reçoit le snapshot trains + trips + stats de LOGGER (toutes les 2s)."""
+    global _cache, _cache_updated_at, _trips, _stats
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
@@ -59,7 +42,8 @@ def receive_push():
     _cache_updated_at = time.time()
     if isinstance(body.get("trips"), dict) and body["trips"]:
         _trips = body["trips"]
-        _rebuild_recent()
+    if isinstance(body.get("stats"), dict):
+        _stats = body["stats"]
     return jsonify({"status": "ok"})
 
 
@@ -72,13 +56,12 @@ def receive_trips():
         return jsonify({"error": "Body JSON manquant"}), 400
     _trips = body
     _cache["trips"] = _trips
-    _rebuild_recent()
     return jsonify({"status": "ok"})
 
 
 @app.route("/api/data")
 def get_data():
-    return jsonify({**_cache, "trips": _trips, "recent_trips": _recent_trips, "logger_updated_at": _cache_updated_at})
+    return jsonify({**_cache, "trips": _trips, "stats": _stats, "logger_updated_at": _cache_updated_at})
 
 
 @app.route("/")

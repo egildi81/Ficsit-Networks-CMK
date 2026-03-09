@@ -355,38 +355,28 @@ function toggleCard(el, name) {
     open ? openCards.add(name) : openCards.delete(name);
 }
 
-// ── Stats réseau ─────────────────────────────────────────────
+// ── Stats réseau — données calculées par LOGGER, affichage uniquement ────────
 let statsStartTime = null;
-let lastScoreTs    = 0;
-const scoreHistory = [];
-const MAX_SCORE_HISTORY = 20;
 
-function calcConfidence(avgSpeed, avgDur, durCnt) {
-    if (durCnt === 0 || avgSpeed === 0) return { label: 'INCONNUE', cls: '' };
-    const sScore = Math.min(avgSpeed / 150, 1.0);
-    const tScore = avgDur <= 120 ? 1.0 : avgDur >= 600 ? 0.0 : 1.0 - (avgDur - 120) / 480;
-    const c = (sScore + tScore) / 2;
-    if (c >= 0.80) return { label: 'EXCELLENTE', cls: 'clr-green' };
-    if (c >= 0.60) return { label: 'BONNE',      cls: 'clr-green' };
-    if (c >= 0.40) return { label: 'CORRECTE',   cls: 'clr-yellow' };
-    if (c >= 0.20) return { label: 'DÉGRADÉE',   cls: 'clr-yellow' };
-    return             { label: 'MAUVAISE',   cls: 'clr-red' };
-}
-
-function renderStats(trains, recentTrips, updatedAt) {
+function renderStats(trains, stats, updatedAt) {
     if (!statsStartTime && updatedAt) statsStartTime = Date.now();
+    const s = stats || {};
 
-    // Trains
-    const groups = { moving: [], docked: [], stopped: [] };
-    trains.forEach(t => (groups[t.status] || groups.stopped).push(t));
-    document.getElementById('st-moving').textContent  = groups.moving.length;
-    document.getElementById('st-docked').textContent  = groups.docked.length;
-    document.getElementById('st-stopped').textContent = groups.stopped.length;
-    document.getElementById('st-total').textContent   = trains.length;
+    // Trains (compteurs depuis LOGGER via stats)
+    document.getElementById('st-moving').textContent  = s.movingCnt  ?? '—';
+    document.getElementById('st-docked').textContent  = s.dockedCnt  ?? '—';
+    document.getElementById('st-stopped').textContent = s.stoppedCnt ?? '—';
+    document.getElementById('st-total').textContent   = s.totalCnt   ?? '—';
+    document.getElementById('st-trips-total').textContent = s.durCnt ?? '—';
 
-    // Vitesse
-    const avgSpeed = groups.moving.length
-        ? Math.round(groups.moving.reduce((a, t) => a + t.speed, 0) / groups.moving.length) : 0;
+    // Performance
+    const avgSpeed = s.avgSpeed || 0;
+    const durCnt   = s.durCnt   || 0;
+    const avgDur   = s.avgDur   || 0;
+    const avgInv   = s.avgInv   || 0;
+
+    document.getElementById('st-perf-title').textContent = 'PERFORMANCE' + (durCnt > 0 ? ' (' + durCnt + ' trajets)' : '');
+
     const speedEl = document.getElementById('st-speed');
     speedEl.textContent = avgSpeed > 0 ? avgSpeed + ' km/h' : '—';
     speedEl.className = 'stats-bigval ' + (avgSpeed > 150 ? 'clr-green' : avgSpeed > 80 ? 'clr-yellow' : 'clr-red');
@@ -394,50 +384,30 @@ function renderStats(trains, recentTrips, updatedAt) {
     barEl.style.width = Math.min(avgSpeed / 200, 1) * 100 + '%';
     barEl.className = 'stats-bar ' + (avgSpeed > 150 ? 'bar-green' : avgSpeed > 80 ? 'bar-yellow' : 'bar-red');
 
-    // Trajets — depuis la liste plate des 100 derniers (même source que STATS.lua)
-    const recent = recentTrips || [];
-    const allDur = recent.map(t => t.duration).filter(d => d > 0);
-    const invCnt = recent.filter(t => t.inv_total > 0).length;
-    const invTotal = recent.reduce((a, t) => a + (t.inv_total || 0), 0);
-    const durCnt = allDur.length;
-    const avgDur = durCnt > 0 ? Math.floor(allDur.reduce((a, b) => a + b, 0) / durCnt) : 0;
-    const avgInv = invCnt  > 0 ? Math.floor(invTotal / invCnt) : 0;
-
-    document.getElementById('st-trips-total').textContent = recent.length;
-    document.getElementById('st-perf-title').textContent = 'PERFORMANCE' + (durCnt > 0 ? ' (' + durCnt + ' trajets)' : '');
     document.getElementById('st-dur').textContent = durCnt > 0 ? fmt(avgDur) : 'N/A';
     document.getElementById('st-inv').textContent = avgInv > 0 ? avgInv + ' items' : '—';
 
-    // Score (1 fois par minute)
-    const now = Date.now();
-    if (now - lastScoreTs >= 60000) {
-        const mobility = trains.length > 0 ? groups.moving.length / trains.length : 0.5;
-        let consistency = 1.0;
-        if (allDur.length >= 3) {
-            const avg = allDur.reduce((a, b) => a + b, 0) / allDur.length;
-            const cv  = avg > 0 ? Math.sqrt(allDur.reduce((a, b) => a + (b - avg) ** 2, 0) / allDur.length) / avg : 0;
-            consistency = Math.max(0, 1 - cv * 1.5);
-        }
-        scoreHistory.push(Math.round((mobility * 0.55 + consistency * 0.45) * 100));
-        if (scoreHistory.length > MAX_SCORE_HISTORY) scoreHistory.shift();
-        lastScoreTs = now;
-    }
-    const score = scoreHistory.length > 0 ? scoreHistory[scoreHistory.length - 1] : null;
+    // Score (calculé par LOGGER)
+    const scoreHistory = s.scoreHistory || [];
+    const score = scoreHistory.length > 0 ? scoreHistory[scoreHistory.length - 1] : (s.score ?? null);
     const scoreEl = document.getElementById('st-score');
     scoreEl.textContent = score !== null ? score : '—';
     scoreEl.className = 'stats-score ' + (score >= 80 ? 'clr-green' : score >= 60 ? 'clr-yellow' : score !== null ? 'clr-red' : '');
 
-    // Confiance
-    const conf = calcConfidence(avgSpeed, avgDur, durCnt);
+    // Confiance (calculée par LOGGER)
+    const confLabels = {
+        'EXCELLENTE': 'clr-green', 'BONNE': 'clr-green',
+        'CORRECTE': 'clr-yellow', 'DEGRADEE': 'clr-yellow', 'MAUVAISE': 'clr-red'
+    };
     const confEl = document.getElementById('st-conf');
-    confEl.textContent = conf.label;
-    confEl.className = 'stats-bigval ' + conf.cls;
+    confEl.textContent = s.conf || 'INCONNUE';
+    confEl.className = 'stats-bigval ' + (confLabels[s.conf] || '');
 
-    // Uptime
+    // Uptime (local page)
     if (statsStartTime)
         document.getElementById('st-uptime').textContent = 'UP: ' + fmt((Date.now() - statsStartTime) / 1000);
 
-    // Graphique historique
+    // Graphique historique (depuis LOGGER)
     document.getElementById('st-hist-cnt').textContent = `(${scoreHistory.length} mesures)`;
     const canvas = document.getElementById('st-hist-canvas');
     canvas.width = canvas.offsetWidth || 900;
@@ -493,7 +463,7 @@ async function refresh() {
 
         renderTrains(data.trains || []);
         renderTrips(data.trips || {});
-        renderStats(data.trains || [], data.recent_trips || [], data.logger_updated_at);
+        renderStats(data.trains || [], data.stats || {}, data.logger_updated_at);
 
         document.getElementById('footer').textContent =
             'Dernière mise à jour : ' + new Date().toLocaleTimeString();
