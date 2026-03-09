@@ -71,11 +71,15 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     .train-name { font-size: 0.85em; }
     .train-sub  { font-size: 0.72em; }
 
-    /* Stats → empilées */
+    /* Stats → tout en colonne */
     .stats-grid { grid-template-columns: 1fr; }
+    .stats-section { padding: 14px 16px; }
+    .stats-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .stats-row .stats-label { margin-bottom: 0; }
+    .stats-bigval { font-size: 1.3em; }
     .stats-score { font-size: 2.8em; }
     .stats-uptime { position: static; margin-top: 12px; }
-    .stats-section { padding: 14px 16px; }
+    .stats-inv-row { flex-direction: column; gap: 10px; }
 
     /* Historique */
     .seg-stats, .seg-inv { white-space: normal; word-break: break-word; }
@@ -149,6 +153,9 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stats-score { font-size: 4em; font-weight: 700; line-height: 1; display: inline; }
 .stats-score-denom { font-size: 1.2em; color: #666; display: inline; margin-left: 6px; }
 .stats-uptime { position: absolute; bottom: 14px; left: 20px; color: #666; font-size: 0.72em; }
+.stats-inv-row { display: flex; gap: 12px; margin-top: 12px; }
+.stats-inv-cell { flex: 1; }
+.clr-orange { color: #ff8800; }
 .stats-hist-header { color: #ff8800; font-size: 0.78em; letter-spacing: 1.5px; font-weight: 700; margin: 4px 0 8px; }
 .clr-green  { color: #22ee22; }
 .clr-yellow { color: #eeee22; }
@@ -220,14 +227,14 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
             <div class="stats-bar-bg"><div class="stats-bar" id="st-speed-bar"></div></div>
             <div class="stats-label">Trajet moyen</div>
             <div class="stats-bigval clr-yellow" id="st-dur">N/A</div>
-            <div style="display:flex;gap:12px;margin-top:12px">
-                <div style="flex:1">
+            <div class="stats-inv-row">
+                <div class="stats-inv-cell">
                     <div class="stats-label">Moy / trajet</div>
                     <div class="stats-bigval clr-yellow" id="st-inv">—</div>
                 </div>
-                <div style="flex:1">
+                <div class="stats-inv-cell">
                     <div class="stats-label">Total circ.</div>
-                    <div class="stats-bigval" style="color:#ff8800" id="st-inv-total">—</div>
+                    <div class="stats-bigval clr-orange" id="st-inv-total">—</div>
                 </div>
             </div>
         </div>
