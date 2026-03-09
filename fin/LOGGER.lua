@@ -77,6 +77,7 @@ local state={}
 local la={}
 local depart={}
 local dk_prev={}
+local currentTotalInv=0
 
 local function computeStats()
     -- Trains depuis state[]
@@ -146,18 +147,10 @@ local function computeStats()
         end
     end
 
-    -- Total items en circulation (somme des inventaires au dernier départ de chaque train actif)
-    local totalInv=0
-    for tn,it in pairs(depart) do
-        if state[tn] then
-            for _,cnt in pairs(it) do totalInv=totalInv+cnt end
-        end
-    end
-
     return {
         movingCnt=movingCnt, stoppedCnt=stoppedCnt, dockedCnt=dockedCnt, totalCnt=totalCnt,
         avgSpeed=avgSpeed, avgDur=avgDur, avgInv=avgInv, invN=invN, durCnt=durCnt,
-        totalInv=totalInv,
+        totalInv=currentTotalInv,
         score=score, conf=conf, scoreHistory=scoreHistory,
         uptime=math.floor((computer.millis()-loggerStartTime)/1000)
     }
@@ -244,6 +237,7 @@ local function tick()
     if not ok or not trains then return end
     local now=computer.millis()/1000
     state={}
+    currentTotalInv=0
     for _,t in pairs(trains) do
         local ok2,m=pcall(function()return t:getMaster()end)
         if ok2 and m then
@@ -267,6 +261,8 @@ local function tick()
             local nv=wagons(t)
             local st=dk and "docked" or (spd>10 and "moving" or "stopped")
             state[tn]={name=tn,speed=spd,status=st,station=cur,wagons=nv}
+            local it=inv(t)
+            for _,cnt in pairs(it) do currentTotalInv=currentTotalInv+cnt end
             if dk then
                 local ls=la[tn]
                 if ls and ls.from~=cur then
