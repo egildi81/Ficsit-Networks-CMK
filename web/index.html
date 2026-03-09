@@ -147,7 +147,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stats-bar-bg { background: #0d0d0d; height: 8px; border-radius: 4px; overflow: hidden; margin: 6px 0 16px; }
 .stats-bar { height: 100%; border-radius: 4px; transition: width .5s; width: 0%; }
 .stats-score { font-size: 4em; font-weight: 700; line-height: 1; display: inline; }
-.stats-score-denom { font-size: 1.2em; color: #666; display: inline; margin-left: 4px; vertical-align: sub; }
+.stats-score-denom { font-size: 1.2em; color: #666; }
 .stats-uptime { margin-top: 16px; color: #666; font-size: 0.72em; }
 .stats-inv-row { display: flex; gap: 12px; margin-top: 12px; }
 .stats-inv-cell { flex: 1; min-width: 0; }
@@ -237,7 +237,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
         <!-- Col 3 : SCORE -->
         <div class="stats-section">
             <div class="stats-section-title">SCORE RÉSEAU</div>
-            <span class="stats-score" id="st-score">—</span><span class="stats-score-denom">/100</span>
+            <div style="display:flex;align-items:baseline;gap:6px;white-space:nowrap"><span class="stats-score" id="st-score">—</span><span class="stats-score-denom">/100</span></div>
             <div class="stats-label" style="margin-top:18px">Confiance</div>
             <div class="stats-bigval" id="st-conf">—</div>
             <div class="stats-uptime" id="st-uptime">UP: —</div>
