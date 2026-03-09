@@ -56,6 +56,14 @@ local function fmtUptime(ms)
     return string.format("%dh%02dm%02ds",h,m,s)
 end
 
+local function fmtNum(n)
+    n=math.floor(n or 0)
+    if     n>=1000000 then return string.format("%.1fM",n/1000000)
+    elseif n>=10000   then return string.format("%dk",math.floor(n/1000))
+    elseif n>=1000    then return string.format("%.1fk",n/1000)
+    else                   return tostring(n) end
+end
+
 local function bar(ratio,width)
     local n=math.max(0,math.min(math.floor(ratio*width+0.5),width))
     return string.rep("█",n)..string.rep("░",width-n)
@@ -120,8 +128,8 @@ local function drawScreen()
     local half=math.floor((COL-32)/2)
     gpu:drawText({x=x2,y=y2},"Moy/trajet",16,DI,false)
     gpu:drawText({x=x2+half,y=y2},"Total circ.",16,DI,false) y2=y2+22
-    gpu:drawText({x=x2,y=y2},(cs.invN>0 and tostring(cs.avgInv).." it." or "N/A"),24,YE,false)
-    gpu:drawText({x=x2+half,y=y2},((cs.totalInv or 0)>0 and tostring(cs.totalInv).." it." or "N/A"),24,OR,false)
+    gpu:drawText({x=x2,y=y2},(cs.invN>0 and fmtNum(cs.avgInv).." it." or "N/A"),24,YE,false)
+    gpu:drawText({x=x2+half,y=y2},((cs.totalInv or 0)>0 and fmtNum(cs.totalInv).." it." or "N/A"),24,OR,false)
 
     -- === COL 3 : SCORE + CONFIANCE ===
     local x3,y3=COL*2+16,HDR+16
@@ -175,7 +183,7 @@ local function broadcastLog()
     print("Trains       : "..cs.movingCnt.." mvt / "..cs.dockedCnt.." quai / "..cs.stoppedCnt.." arret  (total "..cs.totalCnt..")")
     print("Vitesse moy  : "..cs.avgSpeed.." km/h")
     print("Trajet moy   : "..(cs.durCnt>0 and fmt(cs.avgDur) or "N/A").."  ("..cs.durCnt.." trajets)")
-    print("Qte moy/traj : "..cs.avgInv.." items")
+    print("Qte moy/traj : "..fmtNum(cs.avgInv).." items  |  Total circ. : "..fmtNum(cs.totalInv or 0).." items")
     print("Score reseau : "..score.."/100  ["..bar(score/100,15).."]")
     print("Historique   : ["..graphStr.."]")
     print("Confiance    : "..cs.conf)
