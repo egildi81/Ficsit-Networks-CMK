@@ -25,6 +25,24 @@ TRIPS_FILE = os.path.join(BASE_DIR, "trips.json")  # persistence locale (hors di
 _cache            = {"trains": [], "trips": {}}
 _cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
 _trips            = {}    # historique des trajets persisté dans trips.json
+_recent_trips     = []    # 100 derniers trajets (plat, trié par ts desc) — source de vérité des stats
+
+RECENT_TRIPS_MAX  = 100
+
+
+def _rebuild_recent():
+    """Reconstruit _recent_trips depuis _trips : liste plate des 100 derniers par timestamp."""
+    global _recent_trips
+    flat = []
+    for segs in _trips.values():
+        for arr in segs.values():
+            for t in (arr or []):
+                dur = t.get("duration", 0)
+                if dur and dur > 0:
+                    inv_total = sum(t.get("inv", {}).values()) if t.get("inv") else 0
+                    flat.append({"duration": dur, "inv_total": inv_total, "ts": t.get("ts", 0)})
+    flat.sort(key=lambda x: x["ts"], reverse=True)
+    _recent_trips = flat[:RECENT_TRIPS_MAX]
 
 
 def _save_trips():
@@ -85,6 +103,7 @@ def receive_push():
     if isinstance(body.get("trips"), dict) and body["trips"]:
         _trips = body["trips"]
         _save_trips()
+        _rebuild_recent()
     return jsonify({"status": "ok"})
 
 
@@ -98,6 +117,7 @@ def receive_trips():
     _trips = body
     _cache["trips"] = _trips
     _save_trips()
+    _rebuild_recent()
     return jsonify({"status": "ok"})
 
 
@@ -107,9 +127,15 @@ def get_trips_lua():
     return _lua_serialize(_trips), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
+@app.route("/api/recent-trips-lua", methods=["GET"])
+def get_recent_trips_lua():
+    """Retourne les 100 derniers trajets (plat) en Lua table — utilisé par STATS au démarrage."""
+    return _lua_serialize(_recent_trips), 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.route("/api/data")
 def get_data():
-    return jsonify({**_cache, "trips": _trips, "logger_updated_at": _cache_updated_at})
+    return jsonify({**_cache, "trips": _trips, "recent_trips": _recent_trips, "logger_updated_at": _cache_updated_at})
 
 
 @app.route("/")
@@ -248,7 +274,8 @@ async def discord_update_loop():
 
 if __name__ == "__main__":
     _load_trips()
-    print(f"Historique chargé : {len(_trips)} train(s) dans trips.json")
+    _rebuild_recent()
+    print(f"Historique chargé : {len(_trips)} train(s), {len(_recent_trips)} trajets récents")
     print("En attente de données LOGGER via POST /api/push ...")
 
     # Flask dans un thread background

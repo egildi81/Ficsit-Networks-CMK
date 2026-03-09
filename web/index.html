@@ -375,7 +375,7 @@ function calcConfidence(avgSpeed, avgDur, durCnt) {
     return             { label: 'MAUVAISE',   cls: 'clr-red' };
 }
 
-function renderStats(trains, trips, updatedAt) {
+function renderStats(trains, recentTrips, updatedAt) {
     if (!statsStartTime && updatedAt) statsStartTime = Date.now();
 
     // Trains
@@ -396,25 +396,16 @@ function renderStats(trains, trips, updatedAt) {
     barEl.style.width = Math.min(avgSpeed / 200, 1) * 100 + '%';
     barEl.className = 'stats-bar ' + (avgSpeed > 150 ? 'bar-green' : avgSpeed > 80 ? 'bar-yellow' : 'bar-red');
 
-    // Trajets
-    const allDur = []; let invTotal = 0, invCnt = 0, totalTrips = 0;
-    for (const segs of Object.values(trips || {})) {
-        for (const arr of Object.values(segs || {})) {
-            for (const t of (arr || [])) {
-                totalTrips++;
-                if (t.duration > 0) allDur.push(t.duration);
-                if (t.inv) {
-                    const tot = Object.values(t.inv).reduce((a, b) => a + b, 0);
-                    if (tot > 0) { invTotal += tot; invCnt++; }
-                }
-            }
-        }
-    }
+    // Trajets — depuis la liste plate des 100 derniers (même source que STATS.lua)
+    const recent = recentTrips || [];
+    const allDur = recent.map(t => t.duration).filter(d => d > 0);
+    const invCnt = recent.filter(t => t.inv_total > 0).length;
+    const invTotal = recent.reduce((a, t) => a + (t.inv_total || 0), 0);
     const durCnt = allDur.length;
     const avgDur = durCnt > 0 ? Math.floor(allDur.reduce((a, b) => a + b, 0) / durCnt) : 0;
     const avgInv = invCnt  > 0 ? Math.floor(invTotal / invCnt) : 0;
 
-    document.getElementById('st-trips-total').textContent = totalTrips;
+    document.getElementById('st-trips-total').textContent = recent.length;
     document.getElementById('st-dur').textContent = durCnt > 0 ? fmt(avgDur) : 'N/A';
     document.getElementById('st-dur-cnt').textContent = durCnt > 0 ? `(${durCnt} trajets)` : '';
     document.getElementById('st-inv').textContent = avgInv > 0 ? avgInv + ' items' : '—';
@@ -470,10 +461,6 @@ function renderStats(trains, trips, updatedAt) {
                 ctx.fillStyle = sc >= 80 ? '#22cc22' : sc >= 60 ? '#cccc22' : '#cc2222';
                 ctx.fillRect(bx, h - 4 - bh, colW - 2, bh);
             }
-            if (colW >= 30 && bh > 14) {
-                ctx.fillStyle = '#000'; ctx.font = '10px monospace';
-                ctx.fillText(String(sc), bx + 2, h - 4 - bh + 12);
-            }
         });
     }
 }
@@ -509,7 +496,7 @@ async function refresh() {
 
         renderTrains(data.trains || []);
         renderTrips(data.trips || {});
-        renderStats(data.trains || [], data.trips || {}, data.logger_updated_at);
+        renderStats(data.trains || [], data.recent_trips || [], data.logger_updated_at);
 
         document.getElementById('footer').textContent =
             'Dernière mise à jour : ' + new Date().toLocaleTimeString();

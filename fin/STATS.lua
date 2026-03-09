@@ -1,9 +1,12 @@
 -- STATS.lua : métriques du réseau ferroviaire
 -- Écoute : port 42 (trajets complétés), port 44 (snapshot état), port 45 (stats ETA LOGGER)
 -- Affichage sur STATS_SCREEN + broadcast GET_LOG (port 43) toutes les 60s
+-- Restaure l'historique depuis le serveur web au démarrage (InternetCard requise)
 
 -- === INITIALISATION MATÉRIEL ===
-local net=computer.getPCIDevices(classes.NetworkCard)[1]
+local net =computer.getPCIDevices(classes.NetworkCard)[1]
+local inet=computer.getPCIDevices(classes.FINInternetCard)[1]
+local WEB_URL="http://127.0.0.1:8081"
 
 -- === LOG (broadcast port 43 → GET_LOG) ===
 -- Défini en premier pour pouvoir logger les erreurs d'init
@@ -184,8 +187,7 @@ local function drawScreen()
     gpu:drawText({x=x2,y=y2},(durCnt>0 and fmt(avgDur) or "N/A"),28,YE,false)
     gpu:drawText({x=x2+120,y=y2+6},"("..durCnt.." trajets)",16,DI,false) y2=y2+50
     gpu:drawText({x=x2,y=y2},"Qte/trajet",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2,y=y2},avgInv.." items",22,WH,false)
-    gpu:drawText({x=x2+160,y=y2+4},"("..invTripCount.." avec inv)",15,DI,false)
+    gpu:drawText({x=x2+160,y=y2+4},"("..invTripCount.." trajets)",15,DI,false)
 
     -- === COL 3 : SCORE + CONFIANCE ===
     local x3,y3=COL*2+16,HDR+16
@@ -204,7 +206,7 @@ local function drawScreen()
 
     -- === GRAPHIQUE HISTORIQUE (barres verticales) ===
     local gy=GRAPH_Y+24
-    local gh=math.min(sh-gy-8, 120)
+    local gh=math.min(sh-gy-8, 80)
     if #scoreHistory>0 then
         local colW=math.floor((sw-32)/#scoreHistory)
         for i,sc in ipairs(scoreHistory) do
@@ -213,9 +215,6 @@ local function drawScreen()
             local bx=16+(i-1)*colW
             gpu:drawRect({x=bx,y=gy},{x=colW-2,y=gh},{r=0.06,g=0.06,b=0.06,a=1},{r=0.06,g=0.06,b=0.06,a=1},0)
             if bh>0 then gpu:drawRect({x=bx,y=gy+gh-bh},{x=colW-2,y=bh},bc,bc,0) end
-            if colW>=34 and bh>16 then
-                gpu:drawText({x=bx+2,y=gy+gh-bh+2},tostring(sc),11,BG,false)
-            end
         end
     else
         gpu:drawText({x=16,y=gy+gh/2-10},"En attente des donnees...",20,DI,false)
@@ -251,8 +250,40 @@ local function broadcastStats()
     print("══════════════════════════════")
 end
 
+-- === RESTAURATION HISTORIQUE AU DÉMARRAGE ===
+local function fetchHistory()
+    if not inet then print("STATS: pas d'InternetCard, historique non restauré") return end
+    local ok,_=pcall(function()
+        return inet:request(WEB_URL.."/api/recent-trips-lua","GET","")
+    end)
+    if not ok then print("STATS: fetchHistory echec requete") return end
+    -- attend la réponse (max 8s)
+    local e,body
+    local t0=computer.millis()
+    repeat
+        e,_,_,_,body=event.pull(1)
+    until e=="HTTPRequestSucceeded" or e=="HTTPRequestFailed" or computer.millis()-t0>8000
+    if e~="HTTPRequestSucceeded" then print("STATS: fetchHistory timeout/erreur") return end
+    local fn=load("return "..(body or "{}"))
+    if not fn then print("STATS: fetchHistory parse erreur") return end
+    local ok2,recent=pcall(fn)
+    if not ok2 or type(recent)~="table" then print("STATS: fetchHistory données invalides") return end
+    -- liste plate [{duration, inv_total, ts}] — même source que le site web
+    for _,t in ipairs(recent) do
+        if t.duration and t.duration>0 then
+            table.insert(trips,{duration=t.duration})
+        end
+        if t.inv_total and t.inv_total>0 then
+            invTotal=invTotal+t.inv_total
+            invTripCount=invTripCount+1
+        end
+    end
+    print("STATS: "..#trips.." trajets restaurés, "..invTripCount.." avec inventaire")
+end
+
 -- === DÉMARRAGE ===
 event.pull(0)
+fetchHistory()
 print("STATS démarré - première diffusion dans 60s")
 drawScreen()
 
