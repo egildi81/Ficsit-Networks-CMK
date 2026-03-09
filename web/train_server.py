@@ -86,66 +86,85 @@ client  = discord.Client(intents=intents)
 _monitor_msg = None  # message Discord à éditer
 
 
-def _field_value(trains_list, status):
-    """Formate la liste de trains pour un champ embed (max 1024 chars)."""
-    if not trains_list:
-        return "*(aucun)*"
-    lines = []
-    for t in trains_list:
-        name    = t.get("name", "?")
-        station = t.get("station", "?")
-        if status == "moving":
-            lines.append(f"`{t.get('speed', 0)} km/h`  **{name}**  →  {station}")
-        elif status == "docked":
-            lines.append(f"**{name}**  @  {station}")
-        else:
-            lines.append(f"**{name}**  —  {station}")
-    value = "\n".join(lines)
-    if len(value) > 1020:
-        value = value[:1017] + "…"
-    return value
+def _fmt_uptime(sec):
+    sec = int(sec or 0)
+    h, rem = divmod(sec, 3600)
+    m, s   = divmod(rem, 60)
+    return f"{h}h{m:02d}m{s:02d}s"
+
+
+def _fmt_dur(sec):
+    sec = int(sec or 0)
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+def _score_color(score):
+    if score >= 80: return 0x33cc55
+    if score >= 60: return 0xffcc00
+    return 0xff4444
 
 
 def build_embed():
-    """Construit l'embed Discord depuis le cache actuel."""
+    """Construit l'embed Discord — 3 champs inline (TRAINS / PERFORMANCE / SCORE)."""
     trains = _cache.get("trains", [])
-    groups = {"moving": [], "docked": [], "stopped": []}
-    for t in trains:
-        groups.get(t.get("status", "stopped"), groups["stopped"]).append(t)
-    groups["moving"].sort(key=lambda t: -t.get("speed", 0))
+    s      = _stats or {}
 
-    total = len(trains)
+    moving_cnt  = s.get("movingCnt",  len([t for t in trains if t.get("status") == "moving"]))
+    docked_cnt  = s.get("dockedCnt",  len([t for t in trains if t.get("status") == "docked"]))
+    stopped_cnt = s.get("stoppedCnt", len([t for t in trains if t.get("status") == "stopped"]))
+    total_cnt   = s.get("totalCnt",   len(trains))
+    score       = s.get("score", 0)
+
+    # Historique : dernier score connu
+    hist = s.get("scoreHistory") or []
+    if hist:
+        score = hist[-1]
+
     embed = discord.Embed(
         title="🚂  TRAIN MONITOR — Satisfactory",
-        description=(
-            f"**{total}** train{'s' if total != 1 else ''} sur le réseau\n\u200b"
-        ),
-        color=(
-            0x33cc55 if len(groups["moving"]) > len(groups["stopped"])
-            else 0xff4444 if len(groups["stopped"]) > len(groups["moving"])
-            else 0xff8800
-        )
+        color=_score_color(score)
     )
-    embed.add_field(
-        name=f"🔴 À L'ARRÊT ({len(groups['stopped'])})",
-        value=_field_value(groups["stopped"], "stopped"),
-        inline=False
+
+    # ── Champ 1 : TRAINS ─────────────────────────────────────
+    trains_val = (
+        f"🟢 En mouvement  **{moving_cnt}**\n"
+        f"🔵 À quai        **{docked_cnt}**\n"
+        f"🔴 À l'arrêt     **{stopped_cnt}**\n"
+        f"─────────────────\n"
+        f"⬜ Total          **{total_cnt}**"
     )
-    moving_display = groups["moving"][:10]
-    moving_extra   = len(groups["moving"]) - len(moving_display)
-    moving_value   = _field_value(moving_display, "moving")
-    if moving_extra:
-        moving_value += f"\n*… et {moving_extra} autre{'s' if moving_extra > 1 else ''}*"
-    embed.add_field(
-        name=f"🟢 EN MOUVEMENT ({len(groups['moving'])})",
-        value=moving_value,
-        inline=False
+    embed.add_field(name="🚂  TRAINS", value=trains_val, inline=True)
+
+    # ── Champ 2 : PERFORMANCE ────────────────────────────────
+    dur_cnt  = s.get("durCnt", 0)
+    avg_spd  = s.get("avgSpeed", 0)
+    avg_dur  = s.get("avgDur", 0)
+    avg_inv  = s.get("avgInv", 0)
+    total_inv = s.get("totalInv", 0)
+
+    perf_title = f"⚡  PERFORMANCE" + (f" ({dur_cnt} trajets)" if dur_cnt else "")
+    spd_str  = f"**{avg_spd} km/h**" if avg_spd else "*N/A*"
+    dur_str  = f"**{_fmt_dur(avg_dur)}**" if dur_cnt else "*N/A*"
+    inv_str  = f"**{avg_inv}** · {total_inv}" if avg_inv else "*N/A*"
+    perf_val = (
+        f"Vitesse moy\n{spd_str}\n"
+        f"Trajet moy\n{dur_str}\n"
+        f"Moy · Circ.\n{inv_str} items"
     )
-    embed.add_field(
-        name=f"🔵 À QUAI ({len(groups['docked'])})",
-        value=_field_value(groups["docked"], "docked"),
-        inline=False
+    embed.add_field(name=perf_title, value=perf_val, inline=True)
+
+    # ── Champ 3 : SCORE ──────────────────────────────────────
+    conf    = s.get("conf", "INCONNUE")
+    uptime  = s.get("uptime", 0)
+
+    score_emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+    score_val = (
+        f"{score_emoji} **{score} / 100**\n\n"
+        f"Confiance\n**{conf}**\n\n"
+        f"UP: {_fmt_uptime(uptime)}"
     )
+    embed.add_field(name="📊  SCORE RÉSEAU", value=score_val, inline=True)
+
     embed.set_footer(text="Mis à jour")
     embed.timestamp = datetime.now(timezone.utc)
     return embed
