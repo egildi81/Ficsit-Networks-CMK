@@ -42,9 +42,7 @@ local startTime=computer.millis()
 local activeTrains={}
 local snapCount=0
 
-local trips={}
-local invTotal=0
-local invTripCount=0
+local trips={}  -- [{duration, inv_total}] — fenêtre glissante MAX_TRIPS
 
 local scoreHistory={}
 local MAX_HISTORY=20
@@ -80,12 +78,15 @@ local function getMetrics()
         else stoppedCnt=stoppedCnt+1 end
     end
     local avgSpeed=speedCnt>0 and math.floor(speedSum/speedCnt) or 0
-    local durSum=0
-    for _,d in ipairs(trips) do durSum=durSum+d.duration end
+    local durSum,invSum,invN=0,0,0
+    for _,d in ipairs(trips) do
+        durSum=durSum+d.duration
+        if d.inv_total and d.inv_total>0 then invSum=invSum+d.inv_total invN=invN+1 end
+    end
     local durCnt=#trips
     local avgDur=durCnt>0 and math.floor(durSum/durCnt) or 0
-    local avgInv=invTripCount>0 and math.floor(invTotal/invTripCount) or 0
-    return movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv
+    local avgInv=invN>0 and math.floor(invSum/invN) or 0
+    return movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv,invN
 end
 
 -- === CALCUL DU SCORE RÉSEAU (0-100) ===
@@ -137,7 +138,7 @@ local GRAPH_H=sh-GRAPH_Y-20  -- hauteur graphique ≈ 180
 
 local function drawScreen()
     if not gpu or not scr then return end
-    local movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv=getMetrics()
+    local movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv,invN=getMetrics()
     local score=#scoreHistory>0 and scoreHistory[#scoreHistory] or 0
     local scoreColor=score>=80 and GR or score>=60 and YE or RE
     local mobRatio=totalCnt>0 and movingCnt/totalCnt or 0
@@ -187,7 +188,7 @@ local function drawScreen()
     gpu:drawText({x=x2,y=y2},(durCnt>0 and fmt(avgDur) or "N/A"),28,YE,false)
     gpu:drawText({x=x2+120,y=y2+6},"("..durCnt.." trajets)",16,DI,false) y2=y2+50
     gpu:drawText({x=x2,y=y2},"Qte/trajet",18,DI,false) y2=y2+26
-    gpu:drawText({x=x2+160,y=y2+4},"("..invTripCount.." trajets)",15,DI,false)
+    gpu:drawText({x=x2+160,y=y2+4},"("..invN.." trajets)",15,DI,false)
 
     -- === COL 3 : SCORE + CONFIANCE ===
     local x3,y3=COL*2+16,HDR+16
@@ -225,7 +226,7 @@ end
 
 -- === BROADCAST GET_LOG ===
 local function broadcastStats()
-    local movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv=getMetrics()
+    local movingCnt,stoppedCnt,dockedCnt,totalCnt,avgSpeed,avgDur,durCnt,avgInv,invN=getMetrics()
     local score=calcScore(movingCnt,totalCnt)
     table.insert(scoreHistory,score)
     if #scoreHistory>MAX_HISTORY then table.remove(scoreHistory,1) end
@@ -271,11 +272,7 @@ local function fetchHistory()
     -- liste plate [{duration, inv_total, ts}] — même source que le site web
     for _,t in ipairs(recent) do
         if t.duration and t.duration>0 then
-            table.insert(trips,{duration=t.duration})
-        end
-        if t.inv_total and t.inv_total>0 then
-            invTotal=invTotal+t.inv_total
-            invTripCount=invTripCount+1
+            table.insert(trips,{duration=t.duration, inv_total=(t.inv_total or 0)})
         end
     end
     print("STATS: "..#trips.." trajets restaurés, "..invTripCount.." avec inventaire")
@@ -310,26 +307,25 @@ while true do
         elseif port==42 then
             local dur=tonumber(a4)
             if a1 and dur and dur>0 then
-                table.insert(trips,1,{seg=(a2 or "?").."->"..(a3 or "?"),duration=dur})
-                if #trips>MAX_TRIPS then table.remove(trips) end
+                local inv_total=0
                 if a6 and a6~="{}" then
                     local ok,fn=pcall(load,"return "..a6)
                     if ok and fn then
                         local ok2,it=pcall(fn)
                         if ok2 and it then
-                            local tot=0
-                            for _,cnt in pairs(it) do tot=tot+cnt end
-                            if tot>0 then invTotal=invTotal+tot invTripCount=invTripCount+1 end
+                            for _,cnt in pairs(it) do inv_total=inv_total+cnt end
                         end
                     end
                 end
+                table.insert(trips,1,{duration=dur,inv_total=inv_total})
+                if #trips>MAX_TRIPS then table.remove(trips) end
             end
 
         elseif port==45 then
             local avg=tonumber(a3) local cnt=tonumber(a4)
             if a2 and avg and cnt and cnt>0 and #trips<5 then
                 for _=1,math.min(cnt,3) do
-                    table.insert(trips,{seg=a2,duration=avg})
+                    table.insert(trips,{duration=avg,inv_total=0})
                 end
             end
         end
