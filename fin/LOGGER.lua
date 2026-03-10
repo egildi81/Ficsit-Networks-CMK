@@ -174,8 +174,29 @@ end
 local function postState(cs)
     if not inet then return end
     local trainArr={} for _,s in pairs(state) do table.insert(trainArr,s) end
+    local stockArr={}
+    for _,d in pairs(stockageData) do
+        local entry={zone=d.name,ts=d.ts}
+        if d.stats then
+            entry.fillRate=d.stats.fillRate
+            entry.slotsUsed=d.stats.slotsUsed
+            entry.slotsTotal=d.stats.slotsTotal
+            entry.totalItems=d.stats.totalItems
+            if d.stats.items then
+                local items={}
+                for _,item in pairs(d.stats.items) do
+                    table.insert(items,{name=item.name,count=item.count,pct=item.pct})
+                end
+                table.sort(items,function(a,b)return a.count>b.count end)
+                local top={}
+                for i=1,math.min(3,#items) do table.insert(top,items[i]) end
+                entry.topItems=top
+            end
+        end
+        table.insert(stockArr,entry)
+    end
     local ok,body=pcall(function()
-        return toJson({trains=trainArr,trips=saved,stats=cs})
+        return toJson({trains=trainArr,trips=saved,stats=cs,stockage=stockArr})
     end)
     if not ok or not body then return end
     pcall(function()
@@ -360,9 +381,9 @@ while true do
 
     -- Données stockage reçues de STOCKAGE.lua (net:send ciblé)
     elseif e=="NetworkMessage" and port==48 then
-        log("PKT48 reçu: name="..tostring(arg1).." sender="..tostring(sender))
         local isNew=stockageData[sender]==nil
-        stockageData[sender]={name=arg1,ts=computer.millis()/1000,raw=arg2}
+        local ok2,parsed=pcall(function()return (load("return "..arg2))()end)
+        stockageData[sender]={name=arg1,ts=computer.millis()/1000,stats=ok2 and parsed or nil}
         if isNew then
             local names={}
             for _,d in pairs(stockageData) do table.insert(names,d.name) end

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Train Monitor — Satisfactory</title>
+<title>FN-CMK Monitor — Satisfactory</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { overflow-x: hidden; }
@@ -24,7 +24,19 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 #status.late    { color: #ff4444; }
 #status.err     { color: #ff4444; }
 
-/* ── ONGLETS ── */
+/* ── SECTIONS (niveau supérieur) ── */
+.sections { display: flex; gap: 2px; margin-bottom: 6px; }
+.section-btn {
+    padding: 6px 18px; cursor: pointer; font-size: 0.78em; font-weight: 700;
+    letter-spacing: 1.5px; border-radius: 4px 4px 0 0;
+    color: #555; background: transparent; border: none;
+    border-bottom: 3px solid transparent; transition: color .15s, border-color .15s;
+    user-select: none; text-transform: uppercase;
+}
+.section-btn:hover { color: #999; }
+.section-btn.active { color: #ff8800; border-bottom: 3px solid #ff8800; }
+
+/* ── ONGLETS (niveau secondaire, sous TRAINS) ── */
 .tabs { display: flex; gap: 4px; }
 .tab {
     padding: 8px 20px; cursor: pointer; font-size: 0.82em; font-weight: 600;
@@ -161,6 +173,31 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .bar-yellow { background: #eeee22; }
 .bar-red    { background: #ee3333; }
 
+/* ── STOCKAGE ── */
+.stock-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+}
+.stock-card {
+    background: #111; border-radius: 8px; padding: 16px 18px;
+    border: 1px solid #1a1a1a;
+}
+.stock-card-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+}
+.stock-zone { color: #ff8800; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+.stock-fill { font-size: 1.4em; font-weight: 700; }
+.stock-bar-bg { background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; margin: 4px 0 12px; }
+.stock-bar { height: 100%; border-radius: 3px; transition: width .5s; }
+.stock-meta { color: #666; font-size: 0.76em; margin-bottom: 10px; }
+.stock-items { display: flex; flex-direction: column; gap: 3px; }
+.stock-item-row { display: flex; justify-content: space-between; font-size: 0.78em; }
+.stock-item-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+.stock-item-val { color: #ddd; font-weight: 600; flex-shrink: 0; }
+.stock-empty { color: #444; font-size: 0.82em; font-style: italic; padding: 8px 0; }
+.stock-stale { opacity: 0.45; }
+
 /* ── FOOTER ── */
 #footer { position: fixed; bottom: 8px; right: 14px; color: #282828; font-size: 0.72em; }
 </style>
@@ -169,10 +206,14 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 <header>
     <div class="header-top">
-        <h1>TRAIN MONITOR</h1>
+        <h1>FN-CMK MONITOR</h1>
         <span id="status">Connexion...</span>
     </div>
-    <nav class="tabs">
+    <div class="sections">
+        <button class="section-btn active" onclick="switchSection('trains', this)">TRAINS</button>
+        <button class="section-btn" onclick="switchSection('stockage', this)">STOCKAGE</button>
+    </div>
+    <nav class="tabs" id="trains-tabs">
         <button class="tab active" onclick="switchTab('monitor', this)">EN DIRECT</button>
         <button class="tab" onclick="switchTab('history', this)">HISTORIQUE</button>
         <button class="tab" onclick="switchTab('stats', this)">STATISTIQUES</button>
@@ -247,14 +288,39 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     <canvas id="st-hist-canvas" height="110" style="width:100%;display:block;border-radius:6px"></canvas>
 </div>
 
+<!-- ── SECTION STOCKAGE ── -->
+<div id="page-stockage" class="page">
+    <div id="stockage-grid" class="stock-grid"></div>
+</div>
+
 <div id="footer">—</div>
 
 <script>
-// ── Navigation onglets ───────────────────────────────────────
+// ── Navigation sections (TRAINS / STOCKAGE) ──────────────────
+const _trainPages = ['page-monitor', 'page-history', 'page-stats'];
+let _lastTrainPage = 'page-monitor';
+
+function switchSection(name, btn) {
+    document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const trainsTabs = document.getElementById('trains-tabs');
+    if (name === 'trains') {
+        trainsTabs.style.display = '';
+        document.getElementById('page-stockage').classList.remove('active');
+        document.getElementById(_lastTrainPage).classList.add('active');
+    } else {
+        trainsTabs.style.display = 'none';
+        _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
+        document.getElementById('page-stockage').classList.add('active');
+    }
+}
+
+// ── Navigation onglets (sous TRAINS) ─────────────────────────
 function switchTab(name, btn) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.getElementById('page-' + name).classList.add('active');
+    _lastTrainPage = 'page-' + name;
+    document.getElementById(_lastTrainPage).classList.add('active');
     btn.classList.add('active');
 }
 
@@ -473,6 +539,36 @@ function renderStats(trains, stats, updatedAt) {
     }
 }
 
+// ── Rendu stockage ───────────────────────────────────────────
+function renderStockage(stockage) {
+    const grid = document.getElementById('stockage-grid');
+    if (!grid) return;
+    if (!stockage || !stockage.length) {
+        grid.innerHTML = '<div class="stock-empty">Aucune zone de stockage connectée</div>';
+        return;
+    }
+    const now = Date.now() / 1000;
+    grid.innerHTML = stockage.map(z => {
+        const stale = z.ts && (now - z.ts) > 60;
+        const fill = z.fillRate ?? 0;
+        const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+        const topItems = z.topItems || [];
+        const itemsHtml = topItems.length
+            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-val">${it.count} <span style="color:#555">${it.pct}%</span></span></div>`).join('')
+            : '<div class="stock-empty">—</div>';
+        return `
+            <div class="stock-card${stale ? ' stock-stale' : ''}">
+                <div class="stock-card-header">
+                    <span class="stock-zone">${esc(z.zone || '?')}</span>
+                    <span class="stock-fill" style="color:${fillColor}">${fill}%</span>
+                </div>
+                <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
+                <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
+                <div class="stock-items">${itemsHtml}</div>
+            </div>`;
+    }).join('');
+}
+
 // ── Boucle de rafraîchissement ───────────────────────────────
 let errors = 0;
 
@@ -505,6 +601,7 @@ async function refresh() {
         renderTrains(data.trains || []);
         renderTrips(data.trips || {});
         renderStats(data.trains || [], data.stats || {}, data.logger_updated_at);
+        renderStockage(data.stockage || []);
 
         document.getElementById('footer').textContent =
             'Dernière mise à jour : ' + new Date().toLocaleTimeString();

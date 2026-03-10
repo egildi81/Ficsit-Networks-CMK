@@ -10,6 +10,7 @@ local CONTAINER_NAMES = {
     "STOCKAGE_2",
     -- ajouter ici les nicknames des conteneurs supplémentaires
 }
+local ZONE_NAME     = "ELECT"  -- nom de zone affiché dans le dashboard web (unique par instance)
 local SCAN_INTERVAL = 10  -- secondes entre chaque scan
 local PORT_OUT      = 48  -- port vers LOGGER
 
@@ -61,7 +62,7 @@ local function ser(v)
     if type(v)=="table" then
         local s="{"
         for k,vv in pairs(v) do
-            s=s..(type(k)=="string" and ('"'..k..'"') or tostring(k)).."="..ser(vv)..","
+            s=s..(type(k)=="string" and ('["'..k..'"]') or "["..tostring(k).."]").."="..ser(vv)..","
         end
         return s.."}"
     elseif type(v)=="number" then
@@ -202,11 +203,11 @@ while true do
     if net then
         if loggerAddr then
             print("send→LOGGER port "..PORT_OUT.." fill="..stats.fillRate.."%")
-            local ok,err=pcall(function() net:send(loggerAddr,PORT_OUT,"STOCKAGE",ser(stats)) end)
+            local ok,err=pcall(function() net:send(loggerAddr,PORT_OUT,ZONE_NAME,ser(stats)) end)
             if not ok then print("ERR send: "..tostring(err)) end
         else
             print("WARN: loggerAddr nil, broadcast fallback port "..PORT_OUT)
-            pcall(function() net:broadcast(PORT_OUT,"STOCKAGE",ser(stats)) end)
+            pcall(function() net:broadcast(PORT_OUT,ZONE_NAME,ser(stats)) end)
         end
     else
         print("ERR: pas de NetworkCard!")

@@ -22,6 +22,7 @@ _cache            = {"trains": [], "trips": {}}
 _cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
 _trips            = {}    # historique de la session courante (en mémoire uniquement — pas de persistence)
 _stats            = {}    # stats calculées par LOGGER (score, conf, avgSpeed, etc.)
+_stockage         = {}    # données stockage par zone : {zone: {...}}
 
 
 # ════════════════════════════════════════════════════════════
@@ -33,8 +34,8 @@ app = Flask(__name__)
 
 @app.route("/api/push", methods=["POST"])
 def receive_push():
-    """Reçoit le snapshot trains + trips + stats de LOGGER (toutes les 2s)."""
-    global _cache, _cache_updated_at, _trips, _stats
+    """Reçoit le snapshot trains + trips + stats + stockage de LOGGER (toutes les 2s)."""
+    global _cache, _cache_updated_at, _trips, _stats, _stockage
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
@@ -44,6 +45,10 @@ def receive_push():
         _trips = body["trips"]
     if isinstance(body.get("stats"), dict):
         _stats = body["stats"]
+    if isinstance(body.get("stockage"), list):
+        for zone in body["stockage"]:
+            name = zone.get("zone") or "?"
+            _stockage[name] = zone
     return jsonify({"status": "ok"})
 
 
@@ -61,7 +66,7 @@ def receive_trips():
 
 @app.route("/api/data")
 def get_data():
-    return jsonify({**_cache, "trips": _trips, "stats": _stats, "logger_updated_at": _cache_updated_at})
+    return jsonify({**_cache, "trips": _trips, "stats": _stats, "stockage": list(_stockage.values()), "logger_updated_at": _cache_updated_at})
 
 
 @app.route("/")
