@@ -45,7 +45,7 @@ html, body { background:transparent; overflow:hidden; }
 .ticker-copy:first-child { display:flex; align-items:center; height:100%; }
 .ticker-item {
   display:inline-flex; align-items:center; gap:7px;
-  padding:0 22px; font-size:15px;
+  padding:0 22px; font-size:16px;
   font-family:'Segoe UI', sans-serif; color:#b8b8c8;
 }
 .tk-lbl {
@@ -178,25 +178,25 @@ const SKINS = {
         `<span class="ticker-item">
           <span class="tk-lbl">Trains</span>
           <b style="color:#dde">${s.totalCnt||0}</b>
-          &nbsp;·&nbsp;<span class="cg">${s.movingCnt||0} mvt</span>
-          &nbsp;·&nbsp;<span style="color:#3399ff">${s.dockedCnt||0} quai</span>
-          &nbsp;·&nbsp;<span class="cr">${s.stoppedCnt||0} arrêt</span>
+          &nbsp;·&nbsp;<b class="cg">${s.movingCnt||0} mvt</b>
+          &nbsp;·&nbsp;<b style="color:#3399ff">${s.dockedCnt||0} quai</b>
+          &nbsp;·&nbsp;<b class="cr">${s.stoppedCnt||0} arrêt</b>
         </span>`,
         sep,
         `<span class="ticker-item"><span class="tk-lbl">Score réseau</span>
-          <span class="${scoreClr(sc)}">${sc}/100</span></span>`,
+          <b class="${scoreClr(sc)}">${sc}/100</b></span>`,
         sep,
         `<span class="ticker-item"><span class="tk-lbl">Confiance</span>
-          <span class="${confClr(s.conf)}">${s.conf||'—'}</span></span>`,
+          <b class="${confClr(s.conf)}">${s.conf||'—'}</b></span>`,
         sep,
         `<span class="ticker-item"><span class="tk-lbl">Vitesse moy.</span>
-          ${s.avgSpeed||0} km/h</span>`,
+          <b>${s.avgSpeed||0} km/h</b></span>`,
         sep,
         `<span class="ticker-item"><span class="tk-lbl">Durée moy.</span>
-          ${fmtDur(s.avgDur)}</span>`,
+          <b>${fmtDur(s.avgDur)}</b></span>`,
         sep,
         `<span class="ticker-item"><span class="tk-lbl">Uptime</span>
-          ${fmtUptime(s.uptime)}</span>`,
+          <b>${fmtUptime(s.uptime)}</b></span>`,
         sep,
       ].join('');
     },
