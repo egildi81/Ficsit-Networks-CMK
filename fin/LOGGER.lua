@@ -384,9 +384,6 @@ while true do
     elseif e=="NetworkMessage" and port==48 then
         local ok2,parsed=pcall(function()return (load("return "..arg2))()end)
         stockageData[sender]={name=arg1,ts=computer.millis()/1000,stats=ok2 and parsed or nil}
-        if ok2 and parsed then
-            log(tostring(arg1).." : "..(parsed.fillRate or "?").."%")
-        end
 
     -- Requête point-à-point : répondre uniquement à l'expéditeur
     elseif e=="NetworkMessage" and port==49 then

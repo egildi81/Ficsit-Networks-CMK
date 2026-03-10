@@ -189,28 +189,17 @@ while true do
     stats.speed = computeSpeed(stats, prevStats, dtSec)
     stats.ts    = now
 
-    -- Log lisible
-    print(string.format("Remplissage: %.1f%% (%d/%d slots) | %d items",
-        stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
-    for id, d in pairs(stats.items) do
-        local spd = stats.speed[id]
-        local spdStr = (spd and spd~=0) and string.format(" [%+.1f/min]",spd) or ""
-        print(string.format("  %s : %d/%d (slots: %d×%d, %.1f%% plein)%s",
-            d.name, d.count, d.capacity, d.slots, d.max, d.slotFill, spdStr))
-    end
+    print(string.format("%s : %.1f%% (%d/%d slots | %d items)",
+        ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
 
-    -- Envoi vers LOGGER (net:send ciblé, fallback broadcast si adresse inconnue)
+    -- Envoi vers LOGGER
     if net then
         if loggerAddr then
-            print("send→LOGGER port "..PORT_OUT.." fill="..stats.fillRate.."%")
             local ok,err=pcall(function() net:send(loggerAddr,PORT_OUT,ZONE_NAME,ser(stats)) end)
             if not ok then print("ERR send: "..tostring(err)) end
         else
-            print("WARN: loggerAddr nil, broadcast fallback port "..PORT_OUT)
             pcall(function() net:broadcast(PORT_OUT,ZONE_NAME,ser(stats)) end)
         end
-    else
-        print("ERR: pas de NetworkCard!")
     end
 
     prevStats = stats
