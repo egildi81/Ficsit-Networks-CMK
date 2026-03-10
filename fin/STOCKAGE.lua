@@ -11,7 +11,7 @@ local CONTAINER_NAMES = {
     -- ajouter ici les nicknames des conteneurs supplémentaires
 }
 local ZONE_NAME     = "ELECT"  -- nom de zone affiché dans le dashboard web (unique par instance)
-local SCAN_INTERVAL = 10  -- secondes entre chaque scan
+local SCAN_INTERVAL = 60  -- secondes entre chaque scan
 local PORT_OUT      = 48  -- port vers LOGGER
 
 -- === INIT RÉSEAU ===
