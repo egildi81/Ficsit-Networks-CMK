@@ -178,24 +178,26 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 12px;
 }
-.stock-card {
-    background: #111; border-radius: 8px; padding: 16px 18px;
-    border: 1px solid #1a1a1a;
-}
+.stock-card { background: #111; border-radius: 8px; overflow: hidden; }
 .stock-card-header {
+    padding: 12px 16px; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px;
     display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 12px;
+    background: #0f0c08; color: #ff8800; border-bottom: 2px solid #ff8800;
 }
-.stock-zone { color: #ff8800; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
-.stock-fill { font-size: 1.4em; font-weight: 700; }
-.stock-bar-bg { background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; margin: 4px 0 12px; }
+.stock-body { padding: 12px 14px; }
+.stock-bar-bg { background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; margin: 0 0 10px; }
 .stock-bar { height: 100%; border-radius: 3px; transition: width .5s; }
 .stock-meta { color: #888; font-size: 0.76em; margin-bottom: 10px; }
-.stock-items { display: flex; flex-direction: column; gap: 3px; }
-.stock-item-row { display: flex; justify-content: space-between; font-size: 0.78em; }
-.stock-item-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
-.stock-item-val { color: #ddd; font-weight: 600; flex-shrink: 0; }
-.stock-empty { color: #888; font-size: 0.82em; font-style: italic; padding: 8px 0; }
+.stock-items { display: flex; flex-direction: column; gap: 4px; }
+.stock-item-row {
+    padding: 5px 0; border-bottom: 1px solid #161616;
+    display: flex; justify-content: space-between; font-size: 0.8em;
+}
+.stock-item-row:last-child { border-bottom: none; }
+.stock-item-name { color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+.stock-item-val { color: #fff; font-weight: 600; flex-shrink: 0; }
+.stock-item-pct { color: #666; font-weight: 400; margin-left: 6px; }
+.stock-empty { color: #666; font-size: 0.82em; font-style: italic; padding: 6px 0; }
 .stock-stale { opacity: 0.45; }
 
 /* ── FOOTER ── */
@@ -554,17 +556,19 @@ function renderStockage(stockage) {
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
         const topItems = z.topItems || [];
         const itemsHtml = topItems.length
-            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-val">${it.count} <span style="color:#555">${it.pct}%</span></span></div>`).join('')
-            : '<div class="stock-empty">—</div>';
+            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-val">${it.count}<span class="stock-item-pct">${it.pct}%</span></span></div>`).join('')
+            : '<div class="stock-empty">Aucun item</div>';
         return `
             <div class="stock-card${stale ? ' stock-stale' : ''}">
                 <div class="stock-card-header">
-                    <span class="stock-zone">${esc(z.zone || '?')}</span>
-                    <span class="stock-fill" style="color:${fillColor}">${fill}%</span>
+                    <span>${esc(z.zone || '?')}</span>
+                    <span class="badge" style="color:${fillColor}">${fill}%</span>
                 </div>
-                <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
-                <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
-                <div class="stock-items">${itemsHtml}</div>
+                <div class="stock-body">
+                    <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
+                    <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
+                    <div class="stock-items">${itemsHtml}</div>
+                </div>
             </div>`;
     }).join('');
 }
