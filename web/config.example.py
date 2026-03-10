@@ -11,3 +11,5 @@ CHANNELS_TO_CLEAN = [
 ]
 
 DISCORD_UPDATE_INTERVAL = 60  # secondes entre chaque édition du message
+
+SITE_TITLE = "Monitor Ficsit Network by CMK"  # Titre affiché dans le dashboard web
