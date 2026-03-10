@@ -1,4 +1,4 @@
-# FN-CMK Monitor — Satisfactory Train & Storage Network
+# Monitor Ficsit Network by CMK — Satisfactory Train & Storage Network
 
 Système de supervision en temps réel d'un réseau ferroviaire Satisfactory, conçu avec **Ficsit-Networks (FIN)**.
 Architecture distribuée : plusieurs ordinateurs FIN communiquent par réseau local, publient leurs données vers un serveur Python, et exposent un dashboard web + overlay OBS.
