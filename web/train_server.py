@@ -91,8 +91,25 @@ def set_stockage_order():
     return jsonify({"status": "ok"})
 
 
+_STOCKAGE_TTL = 600  # secondes — zone non mise à jour depuis plus de 10 min → supprimée
+
+@app.route("/api/stockage-purge", methods=["POST"])
+def purge_stockage():
+    """Supprime manuellement toutes les zones inactives (server_ts > 120s)."""
+    global _stockage
+    now = time.time()
+    before = len(_stockage)
+    _stockage = {k: v for k, v in _stockage.items() if (now - v.get("server_ts", 0)) <= 120}
+    removed = before - len(_stockage)
+    return jsonify({"status": "ok", "removed": removed})
+
+
 @app.route("/api/data")
 def get_data():
+    # Auto-nettoyage TTL : zones sans update depuis > 10 min
+    global _stockage
+    now = time.time()
+    _stockage = {k: v for k, v in _stockage.items() if (now - v.get("server_ts", 0)) <= _STOCKAGE_TTL}
     return jsonify({**_cache, "trips": _trips, "stats": _stats, "stockage": list(_stockage.values()), "logger_updated_at": _cache_updated_at, "site_title": getattr(config, "SITE_TITLE", "FN Monitor"), "stockage_order": _stockage_order})
 
 

@@ -220,6 +220,19 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-modal-close { background: none; border: none; outline: none; color: #666; font-size: 1em; cursor: pointer; padding: 0 2px; line-height: 1; }
 .stock-modal-close:hover { color: #bbb; }
 
+/* ── BARRE SECTION STOCKAGE ── */
+.stock-section-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 4px 12px;
+}
+.stock-section-title { color: #ff8800; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
+.stock-purge-btn {
+    background: none; border: 1px solid #333; outline: none; cursor: pointer;
+    color: #888; font-size: 0.76em; font-weight: 600; letter-spacing: 0.5px;
+    padding: 4px 12px; border-radius: 4px; transition: color .15s, border-color .15s;
+}
+.stock-purge-btn:hover { color: #ff8800; border-color: #ff8800; }
+
 /* ── FOOTER ── */
 #footer { position: fixed; bottom: 8px; right: 14px; color: #282828; font-size: 0.72em; }
 </style>
@@ -312,6 +325,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 <!-- ── SECTION STOCKAGE ── -->
 <div id="page-stockage" class="page">
+    <div class="stock-section-bar">
+        <span class="stock-section-title">STOCKAGE</span>
+        <button class="stock-purge-btn" onclick="purgeStockage()" title="Supprime les zones inactives depuis plus de 2 minutes">Purger les inactives</button>
+    </div>
     <div id="stockage-grid" class="stock-grid"></div>
 </div>
 
@@ -609,6 +626,21 @@ function openStockModal(zoneName) {
 
 function closeStockModal() {
     document.getElementById('stock-modal').classList.remove('open');
+}
+
+// ── Purge manuelle des zones inactives ────────────────────────
+async function purgeStockage() {
+    const btn = document.querySelector('.stock-purge-btn');
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+        const r = await fetch('/api/stockage-purge', { method: 'POST' });
+        const d = await r.json();
+        btn.textContent = d.removed > 0 ? `${d.removed} supprimée(s)` : 'Rien à purger';
+    } catch(e) {
+        btn.textContent = 'Erreur';
+    }
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Purger les inactives'; }, 2500);
 }
 
 // ── Ordre des cards stockage (persisté côté serveur) ─────────

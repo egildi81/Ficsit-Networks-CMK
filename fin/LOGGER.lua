@@ -32,6 +32,7 @@ end
 
 local saved={}         -- historique des trajets en mémoire (source primaire)
 local stockageData={}  -- données STOCKAGE par adresse : [addr]={name,ts,raw}
+local _knownDups={}    -- zones déjà signalées comme dupliquées (évite spam GET_LOG)
 
 -- === SÉRIALISEURS ===
 local function ser(v)
@@ -181,13 +182,18 @@ local function postState(cs)
         local zname=d.name or addr
         if byZone[zname] then
             dupZones[zname]=true
-            if d.ts > byZone[zname].ts then
+            if not _knownDups[zname] then
+                _knownDups[zname]=true
                 log("WARN: zone '"..zname.."' dupliquee (2 adresses), gardee la plus recente")
-                byZone[zname]=d
             end
+            if d.ts > byZone[zname].ts then byZone[zname]=d end
         else
             byZone[zname]=d
         end
+    end
+    -- Retirer du suivi les zones qui ne sont plus dupliquées
+    for zname in pairs(_knownDups) do
+        if not dupZones[zname] then _knownDups[zname]=nil end
     end
     local stockArr={}
     for zname,d in pairs(byZone) do

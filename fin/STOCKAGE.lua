@@ -206,9 +206,15 @@ while true do
     prevTime  = now
 
     -- Écoute pendant SCAN_INTERVAL : mise à jour loggerAddr si LOGGER redémarre
-    local e,_,sndr,prt,a1 = event.pull(SCAN_INTERVAL)
-    if e=="NetworkMessage" and prt==46 and a1=="LOGGER_ADDR" then
-        loggerAddr = sndr
-        print("LOGGER mis à jour: "..sndr)
-    end
+    -- On boucle sur event.pull pour consommer tous les messages sans relancer le scan
+    local deadline = computer.millis() + SCAN_INTERVAL * 1000
+    repeat
+        local remaining = (deadline - computer.millis()) / 1000
+        if remaining <= 0 then break end
+        local e,_,sndr,prt,a1 = event.pull(remaining)
+        if e=="NetworkMessage" and prt==46 and a1=="LOGGER_ADDR" and sndr~=loggerAddr then
+            loggerAddr = sndr
+            print("LOGGER mis à jour: "..sndr)
+        end
+    until computer.millis() >= deadline
 end
