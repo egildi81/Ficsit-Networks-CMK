@@ -39,7 +39,6 @@ html, body { background:transparent; overflow:hidden; }
 #ticker-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
-  opacity:var(--oa);
 }
 .ticker-copy { display:none; }
 .ticker-copy:first-child { display:flex; align-items:center; height:100%; }
@@ -49,10 +48,11 @@ html, body { background:transparent; overflow:hidden; }
   font-family:'Segoe UI', sans-serif; color:#b8b8c8;
 }
 .tk-lbl {
-  color:rgba(228,147,68,0.75); font-size:10px;
+  color:#e49344; font-size:10px;
   text-transform:uppercase; letter-spacing:0.09em;
 }
 .ticker-sep { color:rgba(228,147,68,0.40); padding:0 4px; font-size:14px; }
+.ticker-item b { opacity:var(--oa); }
 
 /* ══════════════════════════════════════════════════════════════
    SKIN : TICKER TOP
@@ -69,7 +69,6 @@ html, body { background:transparent; overflow:hidden; }
 #ticker-top-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
-  opacity:var(--oa);
 }
 
 /* ══════════════════════════════════════════════════════════════
