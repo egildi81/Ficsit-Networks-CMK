@@ -1,7 +1,8 @@
 -- STOCKAGE.lua : monitore plusieurs conteneurs MK2, calcule taux de remplissage,
 -- répartition par type et vitesse de remplissage/vidage.
 -- Port 43 : logs → GET_LOG
--- Port 48 : données stockage → LOGGER (à implémenter côté LOGGER)
+-- Port 46 : découverte LOGGER (WHO_IS_LOGGER → LOGGER_ADDR)
+-- Port 48 : données stockage → LOGGER (net:send ciblé)
 
 -- === CONFIGURATION ===
 local CONTAINER_NAMES = {
@@ -14,12 +15,39 @@ local PORT_OUT      = 48  -- port vers LOGGER
 
 -- === INIT RÉSEAU ===
 local net = computer.getPCIDevices(classes.NetworkCard)[1]
-if net then event.listen(net) end
+if net then
+    event.listen(net)
+    net:open(46)
+    net:open(48)
+    net:broadcast(43,"STOCKAGE","[boot] NetworkCard OK")
+else
+    error("STOCKAGE: pas de NetworkCard")
+end
 
 print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
     pcall(function() net:broadcast(43,"STOCKAGE",table.concat(t," ")) end)
 end
+print("[boot] print OK")
+
+-- === DÉCOUVERTE LOGGER (adresse pour net:send ciblé) ===
+local loggerAddr = nil
+local function discoverLogger()
+    if not net then return end
+    print("Recherche LOGGER...")
+    pcall(function() net:broadcast(46,"WHO_IS_LOGGER") end)
+    local deadline = computer.millis() + 15000
+    while computer.millis() < deadline do
+        local e,_,sndr,prt,a1 = event.pull(1)
+        if e=="NetworkMessage" and prt==46 and a1=="LOGGER_ADDR" then
+            loggerAddr = sndr
+            print("LOGGER trouvé: "..sndr)
+            return
+        end
+    end
+    print("WARN: LOGGER introuvable, mode broadcast fallback")
+end
+discoverLogger()
 
 -- === SÉRIALISATION (pour envoi port 48) ===
 local function ser(v)
@@ -163,13 +191,27 @@ while true do
             d.name, d.count, d.capacity, d.slots, d.max, d.slotFill, spdStr))
     end
 
-    -- Envoi vers LOGGER (port 48)
+    -- Envoi vers LOGGER (net:send ciblé, fallback broadcast si adresse inconnue)
     if net then
-        pcall(function() net:broadcast(PORT_OUT, "STOCKAGE", ser(stats)) end)
+        if loggerAddr then
+            print("send→LOGGER port "..PORT_OUT.." fill="..stats.fillRate.."%")
+            local ok,err=pcall(function() net:send(loggerAddr,PORT_OUT,"STOCKAGE",ser(stats)) end)
+            if not ok then print("ERR send: "..tostring(err)) end
+        else
+            print("WARN: loggerAddr nil, broadcast fallback port "..PORT_OUT)
+            pcall(function() net:broadcast(PORT_OUT,"STOCKAGE",ser(stats)) end)
+        end
+    else
+        print("ERR: pas de NetworkCard!")
     end
 
     prevStats = stats
     prevTime  = now
 
-    event.pull(SCAN_INTERVAL)
+    -- Écoute pendant SCAN_INTERVAL : mise à jour loggerAddr si LOGGER redémarre
+    local e,_,sndr,prt,a1 = event.pull(SCAN_INTERVAL)
+    if e=="NetworkMessage" and prt==46 and a1=="LOGGER_ADDR" then
+        loggerAddr = sndr
+        print("LOGGER mis à jour: "..sndr)
+    end
 end

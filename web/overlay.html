@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>FN-CMK Overlay</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { background:transparent; overflow:hidden; }
+
+/* ── SKIN SELECTOR (masqué en mode ?obs=1) ─────────────────── */
+#skin-selector {
+  position:fixed; top:8px; left:8px; z-index:999;
+  display:flex; gap:6px;
+}
+#skin-selector button {
+  background:rgba(12,12,18,0.92); color:#ff8800;
+  border:1px solid rgba(255,136,0,0.45);
+  padding:4px 12px; font-size:11px; cursor:pointer;
+  font-family:monospace; border-radius:3px; letter-spacing:0.06em;
+  transition:background .15s;
+}
+#skin-selector button:hover  { background:rgba(255,136,0,0.12); }
+#skin-selector button.active { background:#ff8800; color:#000; font-weight:bold; }
+
+/* ══════════════════════════════════════════════════════════════
+   SKIN : TICKER
+   Bande fine en bas d'écran, contenu qui défile
+══════════════════════════════════════════════════════════════ */
+#skin-ticker {
+  display:none;
+  position:fixed; bottom:0; left:0; right:0; height:34px;
+  background:rgba(6,6,11,0.80);
+  border-top:1px solid rgba(255,136,0,0.18);
+  overflow:hidden;
+  align-items:center;
+}
+#ticker-track {
+  display:flex; align-items:center;
+  white-space:nowrap; height:100%;
+  position:absolute; left:0; top:0;
+  will-change:transform;
+}
+.ticker-copy { display:flex; align-items:center; height:100%; }
+.ticker-item {
+  display:inline-flex; align-items:center; gap:7px;
+  padding:0 22px; font-size:13px;
+  font-family:'Segoe UI', sans-serif; color:#b8b8c8;
+}
+.tk-lbl {
+  color:rgba(255,136,0,0.55); font-size:10px;
+  text-transform:uppercase; letter-spacing:0.09em;
+}
+.ticker-sep { color:rgba(255,136,0,0.25); padding:0 4px; font-size:14px; }
+
+/* ══════════════════════════════════════════════════════════════
+   SKIN : TERMINAL
+   Panel compact style monitoring industriel
+══════════════════════════════════════════════════════════════ */
+#skin-terminal {
+  display:none;
+  position:fixed; top:20px; right:20px;
+  width:198px;
+  background:rgba(3,7,3,0.85);
+  border:1px solid rgba(28,155,28,0.22);
+  font-family:'Consolas','Courier New',monospace;
+  font-size:11.5px; color:#4e7a4e; line-height:1.65;
+  padding:8px 10px;
+}
+.term-hdr {
+  color:#1ecc1e; font-size:10px; letter-spacing:0.16em;
+  text-align:center; text-transform:uppercase;
+  border-bottom:1px solid rgba(28,155,28,0.18);
+  padding-bottom:4px; margin-bottom:5px;
+}
+.term-row {
+  display:flex; justify-content:space-between; align-items:baseline;
+}
+.term-lbl { color:#3a5e3a; font-size:10px; text-transform:uppercase; letter-spacing:0.05em; }
+.term-val { color:#88bb88; font-size:11.5px; }
+.term-bar-wrap {
+  height:2px; background:rgba(28,155,28,0.12);
+  margin:2px 0 3px; border-radius:1px; overflow:hidden;
+}
+.term-bar-fill {
+  height:100%; background:#1a8a1a; border-radius:1px;
+  transition:width .6s ease;
+}
+.term-sep { border:none; border-top:1px solid rgba(28,155,28,0.10); margin:4px 0; }
+.term-foot {
+  font-size:9px; color:rgba(28,155,28,0.28);
+  text-align:right; padding-top:3px; margin-top:4px;
+  border-top:1px solid rgba(28,155,28,0.08);
+}
+
+/* ── Couleurs communes ─────────────────────────────────────── */
+.cg { color:#33ee55 !important; }
+.cy { color:#ddcc22 !important; }
+.cr { color:#ee4444 !important; }
+</style>
+</head>
+<body>
+
+<div id="skin-selector"></div>
+
+<!-- ═══ SKIN : TICKER ══════════════════════════════════════ -->
+<div id="skin-ticker">
+  <div id="ticker-track">
+    <div class="ticker-copy" id="ticker-a"></div>
+    <div class="ticker-copy" id="ticker-b"></div>
+  </div>
+</div>
+
+<!-- ═══ SKIN : TERMINAL ════════════════════════════════════ -->
+<div id="skin-terminal">
+  <div class="term-hdr">◈ RÉSEAU TRAINS ◈</div>
+  <div id="term-body"></div>
+  <div class="term-foot" id="term-foot">—</div>
+</div>
+
+<script>
+// ── Helpers ──────────────────────────────────────────────────
+const fmtDur = s => {
+  if (!s) return '—';
+  const m = Math.floor(s / 60), ss = s % 60;
+  return m + 'min' + (ss ? ss + 's' : '');
+};
+const fmtUptime = s => {
+  if (!s) return '—';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 0 ? h + 'h' + String(m).padStart(2, '0') + 'm' : m + 'm';
+};
+const scoreClr = v  => v >= 80 ? 'cg' : v >= 60 ? 'cy' : 'cr';
+const confClr  = c  => ({ HAUTE:'cg', BONNE:'cg', FAIBLE:'cy', INEXISTANTE:'cr' })[c] || '';
+
+// ══════════════════════════════════════════════════════════════
+// SYSTÈME DE SKINS
+// Pour ajouter un skin : créer l'élément HTML, puis l'objet dans SKINS
+// avec les méthodes init(), destroy(), render(data)
+// ══════════════════════════════════════════════════════════════
+const SKINS = {
+
+  // ── Skin : Ticker ──────────────────────────────────────────
+  ticker: {
+    name: 'Ticker',
+    el: null,
+    _raf: null, _x: 0, _last: null,
+    _speed: 72, // px/s
+
+    _html(s) {
+      const sep = '<span class="ticker-sep">◆</span>';
+      const sc  = s.score || 0;
+      return [
+        `<span class="ticker-item">
+          <span class="tk-lbl">Trains</span>
+          <b style="color:#dde">${s.totalCnt||0}</b>
+          &nbsp;·&nbsp;<span class="cg">${s.movingCnt||0} mvt</span>
+          &nbsp;·&nbsp;<span style="color:#3399ff">${s.dockedCnt||0} quai</span>
+          &nbsp;·&nbsp;<span class="cr">${s.stoppedCnt||0} arrêt</span>
+        </span>`,
+        sep,
+        `<span class="ticker-item"><span class="tk-lbl">Score réseau</span>
+          <span class="${scoreClr(sc)}">${sc}/100</span></span>`,
+        sep,
+        `<span class="ticker-item"><span class="tk-lbl">Confiance</span>
+          <span class="${confClr(s.conf)}">${s.conf||'—'}</span></span>`,
+        sep,
+        `<span class="ticker-item"><span class="tk-lbl">Vitesse moy.</span>
+          ${s.avgSpeed||0} km/h</span>`,
+        sep,
+        `<span class="ticker-item"><span class="tk-lbl">Durée moy.</span>
+          ${fmtDur(s.avgDur)}</span>`,
+        sep,
+        `<span class="ticker-item"><span class="tk-lbl">Uptime</span>
+          ${fmtUptime(s.uptime)}</span>`,
+        sep,
+      ].join('');
+    },
+
+    _tick(time) {
+      if (this._last !== null) {
+        const dt = (time - this._last) / 1000;
+        this._x -= this._speed * dt;
+        const a = document.getElementById('ticker-a');
+        if (a && this._x < -a.offsetWidth) this._x = 0;
+        document.getElementById('ticker-track').style.transform =
+          `translateX(${this._x}px)`;
+      }
+      this._last = time;
+      this._raf  = requestAnimationFrame(t => this._tick(t));
+    },
+
+    init() {
+      this.el = document.getElementById('skin-ticker');
+      this.el.style.display = 'flex';
+      this._x = 0; this._last = null;
+      this._raf = requestAnimationFrame(t => this._tick(t));
+    },
+    destroy() {
+      if (this.el) this.el.style.display = 'none';
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._last = null;
+    },
+    render(data) {
+      const html = this._html(data.stats || {});
+      document.getElementById('ticker-a').innerHTML = html;
+      document.getElementById('ticker-b').innerHTML = html;
+    },
+  },
+
+  // ── Skin : Terminal ────────────────────────────────────────
+  terminal: {
+    name: 'Terminal',
+    el: null,
+
+    _row(lbl, val, cls = '') {
+      return `<div class="term-row">
+        <span class="term-lbl">${lbl}</span>
+        <span class="term-val ${cls}">${val}</span>
+      </div>`;
+    },
+    _bar(pct) {
+      return `<div class="term-bar-wrap">
+        <div class="term-bar-fill" style="width:${Math.min(pct, 100)}%"></div>
+      </div>`;
+    },
+
+    init() {
+      this.el = document.getElementById('skin-terminal');
+      this.el.style.display = 'block';
+    },
+    destroy() {
+      if (this.el) this.el.style.display = 'none';
+    },
+    render(data) {
+      const s     = data.stats || {};
+      const sc    = s.score || 0;
+      const total = Math.max(s.totalCnt || 1, 1);
+      const movPct = Math.round((s.movingCnt || 0) / total * 100);
+      const spdPct = Math.min((s.avgSpeed || 0) / 200 * 100, 100);
+      const now    = new Date();
+      const ts     = [now.getHours(), now.getMinutes(), now.getSeconds()]
+                       .map(n => String(n).padStart(2, '0')).join(':');
+
+      document.getElementById('term-body').innerHTML = [
+        this._row('Trains',    `${s.totalCnt||0} total`),
+        this._row('Mvt / Quai', `${s.movingCnt||0} / ${s.dockedCnt||0}`),
+        this._bar(movPct),
+        this._row('Arrêtés',   `${s.stoppedCnt||0}`),
+        '<hr class="term-sep">',
+        this._row('Score',     `${sc}/100`, scoreClr(sc)),
+        this._bar(sc),
+        this._row('Confiance', s.conf || '—', confClr(s.conf)),
+        '<hr class="term-sep">',
+        this._row('Vitesse',   `${s.avgSpeed||0} km/h`),
+        this._bar(spdPct),
+        this._row('Durée moy.', fmtDur(s.avgDur)),
+        this._row('Uptime',    fmtUptime(s.uptime)),
+      ].join('');
+
+      document.getElementById('term-foot').textContent = `◈ ${ts}`;
+    },
+  },
+
+  // ── Ajouter un skin ici ────────────────────────────────────
+  // nomDuSkin: {
+  //   name: 'Nom affiché',
+  //   init()         { /* monter le DOM, démarrer animations */ },
+  //   destroy()      { /* cacher, arrêter animations */ },
+  //   render(data)   { /* data.stats, data.trains, data.trips */ },
+  // },
+
+};
+
+// ══════════════════════════════════════════════════════════════
+// SKIN MANAGER
+// URL : overlay.html?skin=ticker   → skin ticker
+//       overlay.html?skin=terminal → skin terminal
+//       overlay.html?obs=1         → masque le sélecteur (OBS)
+// ══════════════════════════════════════════════════════════════
+const params  = new URLSearchParams(location.search);
+const obsMode = params.get('obs') === '1';
+let   active  = params.get('skin') || 'ticker';
+
+function setSkin(name) {
+  if (!SKINS[name]) return;
+  SKINS[active]?.destroy();
+  active = name;
+  SKINS[active].init();
+  document.querySelectorAll('#skin-selector button').forEach(b =>
+    b.classList.toggle('active', b.dataset.skin === name)
+  );
+  const u = new URL(location.href);
+  u.searchParams.set('skin', name);
+  history.replaceState(null, '', u);
+}
+
+if (!obsMode) {
+  const sel = document.getElementById('skin-selector');
+  Object.keys(SKINS).forEach(name => {
+    const btn = document.createElement('button');
+    btn.textContent    = SKINS[name].name;
+    btn.dataset.skin   = name;
+    btn.onclick        = () => setSkin(name);
+    sel.appendChild(btn);
+  });
+}
+
+setSkin(active);
+
+// ── Fetch & refresh ──────────────────────────────────────────
+async function refresh() {
+  try {
+    const r = await fetch('/api/data');
+    if (r.ok) SKINS[active]?.render(await r.json());
+  } catch (_) {}
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

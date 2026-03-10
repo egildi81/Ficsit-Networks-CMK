@@ -3,8 +3,10 @@
 -- Port 42 : trajets (tn,fr,to,dur,ts,invStr)
 -- Port 44 : snapshot état trains (ser(state))
 -- Port 45 : stats ETA par segment (avg,count) → DETAIL
--- Port 46 : réponse sync (demandes boot depuis TRAIN_STATS/DETAIL)
+-- Port 46 : sync (TRAIN_STATS/DETAIL) + beacon LOGGER_ADDR (→ STOCKAGE) + réponse WHO_IS_LOGGER
 -- Port 47 : stats calculées (avgSpeed,avgDur,score,conf,scoreHistory...) → TRAIN_STATS
+-- Port 48 : réception données STOCKAGE (STOCKAGE → LOGGER)
+-- Port 49 : requêtes point-à-point → réponse via net:send(addr, 49, data)
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -14,11 +16,10 @@ local staList=component.findComponent("GARE_TEST")
 if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) end
 local sta=staList and staList[1] and component.proxy(staList[1])
 event.listen(net)
-net:open(42)
-net:open(44)
-net:open(45)
+-- ports 42/44/45/47 : émission uniquement, pas besoin de open()
 net:open(46)
--- port 47 : LOGGER émet uniquement, pas besoin de open()
+net:open(48)
+net:open(49)
 
 -- === LOG (broadcast port 43 → GET_LOG) ===
 local function log(msg)
@@ -29,7 +30,8 @@ print=function(...)
     log(table.concat(t," "))
 end
 
-local saved={}  -- historique des trajets en mémoire (source primaire)
+local saved={}         -- historique des trajets en mémoire (source primaire)
+local stockageData={}  -- données STOCKAGE par adresse : [addr]={name,ts,raw}
 
 -- === SÉRIALISEURS ===
 local function ser(v)
@@ -236,7 +238,8 @@ end
 local function tick()
     if not sta then return end
     local ok,trains=pcall(function()return sta:getTrackGraph():getTrains()end)
-    if not ok or not trains then return end
+    if not ok then log("ERR getTrains: "..tostring(trains)) return end
+    if not trains then return end
     local now=computer.millis()/1000
     state={}
     currentTotalInv=0
@@ -323,34 +326,75 @@ end
 -- === DÉMARRAGE ===
 local trainCount=0
 if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
-log("LOGGER démarré - "..trainCount.." trains détectés")
+log("LOGGER démarré - "..trainCount.." trains")
+-- Beacon : annonce à tous les STOCKAGE que LOGGER est prêt (sender = adresse LOGGER)
+pcall(function()net:broadcast(46,"LOGGER_ADDR")end)
 
 -- === BOUCLE PRINCIPALE ===
 local ticks=0
 local nextTick=computer.millis()+2000
 while true do
     local remaining=math.max(0.05,(nextTick-computer.millis())/1000)
-    local e,_,_,port=event.pull(remaining)
+    local e,_,sender,port,arg1,arg2=event.pull(remaining)
 
-    -- Demande de sync depuis STATS ou DETAIL au démarrage
     if e=="NetworkMessage" and port==46 then
-        broadcastAll()
-        broadcastStats()
-        local cs=computeStats()
-        pcall(function()net:broadcast(47,ser(cs))end)
-        local n=0
-        for _,segs in pairs(saved) do for _,t in pairs(segs) do n=n+#t end end
-        log("SYNC: "..n.." trips + stats broadcast")
+        if arg1=="WHO_IS_LOGGER" then
+            -- Un STOCKAGE cherche l'adresse de LOGGER → réponse directe
+            pcall(function()net:send(sender,46,"LOGGER_ADDR")end)
+        elseif arg1=="LOGGER_ADDR" then
+            -- Propre beacon reçu en retour → ignorer
+        else
+            -- Demande de sync depuis TRAIN_STATS ou DETAIL au démarrage
+            local ok2,err2=pcall(broadcastAll) if not ok2 then log("ERR broadcastAll: "..tostring(err2)) end
+            local ok3,err3=pcall(broadcastStats) if not ok3 then log("ERR broadcastStats: "..tostring(err3)) end
+            local ok4,cs=pcall(computeStats)
+            if not ok4 then log("ERR computeStats: "..tostring(cs)) else
+                pcall(function()net:broadcast(47,ser(cs))end)
+            end
+            -- Re-beacon : un STOCKAGE qui attendait peut en profiter
+            pcall(function()net:broadcast(46,"LOGGER_ADDR")end)
+            local n=0
+            for _,segs in pairs(saved) do for _,t in pairs(segs) do n=n+#t end end
+            log("SYNC: "..n.." trips + stats broadcast")
+        end
+
+    -- Données stockage reçues de STOCKAGE.lua (net:send ciblé)
+    elseif e=="NetworkMessage" and port==48 then
+        log("PKT48 reçu: name="..tostring(arg1).." sender="..tostring(sender))
+        local isNew=stockageData[sender]==nil
+        stockageData[sender]={name=arg1,ts=computer.millis()/1000,raw=arg2}
+        if isNew then
+            local names={}
+            for _,d in pairs(stockageData) do table.insert(names,d.name) end
+            table.sort(names)
+            log("STOCKAGE+"..tostring(arg1).." | connus: "..table.concat(names,", "))
+        end
+
+    -- Requête point-à-point : répondre uniquement à l'expéditeur
+    elseif e=="NetworkMessage" and port==49 then
+        local ok5,cs=pcall(computeStats)
+        if not ok5 then log("ERR computeStats: "..tostring(cs))
+        else
+            local stockSummary={}
+            for addr,d in pairs(stockageData) do
+                stockSummary[d.name or addr]={ts=d.ts,addr=addr}
+            end
+            local resp=ser({stats=cs,stockage=stockSummary})
+            pcall(function()net:send(sender,49,resp)end)
+        end
     end
 
     if computer.millis()>=nextTick then
         nextTick=nextTick+2000
-        tick()
+        local ok,err=pcall(tick)
+        if not ok then log("ERR tick: "..tostring(err)) end
         ticks=ticks+1
         if ticks>=30 then
             ticks=0
-            broadcastAll()
-            broadcastStats()
+            local ok2,err2=pcall(broadcastAll)
+            if not ok2 then log("ERR broadcastAll: "..tostring(err2)) end
+            local ok3,err3=pcall(broadcastStats)
+            if not ok3 then log("ERR broadcastStats: "..tostring(err3)) end
         end
     end
 end
