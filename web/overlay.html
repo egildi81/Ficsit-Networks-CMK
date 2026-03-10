@@ -24,7 +24,7 @@ html, body { background:transparent; overflow:hidden; }
 
 /* ══════════════════════════════════════════════════════════════
    SKIN : TICKER
-   Bande fine en bas d'écran, contenu qui défile
+   Bande fine en bas d'écran, infos centrées
 ══════════════════════════════════════════════════════════════ */
 #skin-ticker {
   display:none;
@@ -32,15 +32,14 @@ html, body { background:transparent; overflow:hidden; }
   background:rgba(6,6,11,0.80);
   border-top:1px solid rgba(255,136,0,0.18);
   overflow:hidden;
-  align-items:center;
+  align-items:center; justify-content:center;
 }
 #ticker-track {
-  display:flex; align-items:center;
-  white-space:nowrap; height:100%;
-  position:absolute; left:0; top:0;
-  will-change:transform;
+  display:flex; align-items:center; justify-content:center;
+  white-space:nowrap; height:100%; width:100%;
 }
-.ticker-copy { display:flex; align-items:center; height:100%; }
+.ticker-copy { display:none; }
+.ticker-copy:first-child { display:flex; align-items:center; height:100%; }
 .ticker-item {
   display:inline-flex; align-items:center; gap:7px;
   padding:0 22px; font-size:13px;
@@ -176,29 +175,12 @@ const SKINS = {
       ].join('');
     },
 
-    _tick(time) {
-      if (this._last !== null) {
-        const dt = (time - this._last) / 1000;
-        this._x -= this._speed * dt;
-        const a = document.getElementById('ticker-a');
-        if (a && this._x < -a.offsetWidth) this._x = 0;
-        document.getElementById('ticker-track').style.transform =
-          `translateX(${this._x}px)`;
-      }
-      this._last = time;
-      this._raf  = requestAnimationFrame(t => this._tick(t));
-    },
-
     init() {
       this.el = document.getElementById('skin-ticker');
       this.el.style.display = 'flex';
-      this._x = 0; this._last = null;
-      this._raf = requestAnimationFrame(t => this._tick(t));
     },
     destroy() {
       if (this.el) this.el.style.display = 'none';
-      if (this._raf) cancelAnimationFrame(this._raf);
-      this._last = null;
     },
     render(data) {
       const html = this._html(data.stats || {});
