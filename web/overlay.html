@@ -298,10 +298,16 @@ const SKINS = {
 //       overlay.html?skin=ticker-top → ticker haut
 //       overlay.html?skin=terminal   → terminal
 //       overlay.html?obs=1           → masque le sélecteur (OBS)
+//       overlay.html?alpha=0.8       → alpha bordure tickers (défaut: 0.45)
 // ══════════════════════════════════════════════════════════════
 const params  = new URLSearchParams(location.search);
 const obsMode = params.get('obs') === '1';
 let   active  = params.get('skin') || 'ticker';
+
+// Alpha bordure tickers
+const borderAlpha = Math.min(1, Math.max(0, parseFloat(params.get('alpha') ?? '0.45') || 0.45));
+document.getElementById('skin-ticker').style.borderTopColor     = `rgba(255,136,0,${borderAlpha})`;
+document.getElementById('skin-ticker-top').style.borderBottomColor = `rgba(255,136,0,${borderAlpha})`;
 
 function setSkin(name) {
   if (!SKINS[name]) return;
