@@ -52,6 +52,23 @@ html, body { background:transparent; overflow:hidden; }
 .ticker-sep { color:rgba(255,136,0,0.25); padding:0 4px; font-size:14px; }
 
 /* ══════════════════════════════════════════════════════════════
+   SKIN : TICKER TOP
+   Bande fine en haut d'écran, infos centrées
+══════════════════════════════════════════════════════════════ */
+#skin-ticker-top {
+  display:none;
+  position:fixed; top:0; left:0; right:0; height:34px;
+  background:rgba(6,6,11,0.80);
+  border-bottom:1px solid rgba(255,136,0,0.18);
+  overflow:hidden;
+  align-items:center; justify-content:center;
+}
+#ticker-top-track {
+  display:flex; align-items:center; justify-content:center;
+  white-space:nowrap; height:100%; width:100%;
+}
+
+/* ══════════════════════════════════════════════════════════════
    SKIN : TERMINAL
    Panel compact style monitoring industriel
 ══════════════════════════════════════════════════════════════ */
@@ -107,6 +124,11 @@ html, body { background:transparent; overflow:hidden; }
     <div class="ticker-copy" id="ticker-a"></div>
     <div class="ticker-copy" id="ticker-b"></div>
   </div>
+</div>
+
+<!-- ═══ SKIN : TICKER TOP ══════════════════════════════════ -->
+<div id="skin-ticker-top">
+  <div id="ticker-top-track"></div>
 </div>
 
 <!-- ═══ SKIN : TERMINAL ════════════════════════════════════ -->
@@ -189,6 +211,23 @@ const SKINS = {
     },
   },
 
+  // ── Skin : Ticker Top ──────────────────────────────────────
+  'ticker-top': {
+    name: 'Ticker Haut',
+    el: null,
+    init() {
+      this.el = document.getElementById('skin-ticker-top');
+      this.el.style.display = 'flex';
+    },
+    destroy() {
+      if (this.el) this.el.style.display = 'none';
+    },
+    render(data) {
+      document.getElementById('ticker-top-track').innerHTML =
+        SKINS.ticker._html(data.stats || {});
+    },
+  },
+
   // ── Skin : Terminal ────────────────────────────────────────
   terminal: {
     name: 'Terminal',
@@ -255,9 +294,10 @@ const SKINS = {
 
 // ══════════════════════════════════════════════════════════════
 // SKIN MANAGER
-// URL : overlay.html?skin=ticker   → skin ticker
-//       overlay.html?skin=terminal → skin terminal
-//       overlay.html?obs=1         → masque le sélecteur (OBS)
+// URL : overlay.html?skin=ticker     → ticker bas
+//       overlay.html?skin=ticker-top → ticker haut
+//       overlay.html?skin=terminal   → terminal
+//       overlay.html?obs=1           → masque le sélecteur (OBS)
 // ══════════════════════════════════════════════════════════════
 const params  = new URLSearchParams(location.search);
 const obsMode = params.get('obs') === '1';
