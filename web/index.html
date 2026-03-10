@@ -176,30 +176,24 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .bar-red    { background: #ee3333; }
 
 /* ── STOCKAGE ── */
-.stock-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
-}
+.stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .stock-card { background: #111; border-radius: 8px; overflow: hidden; }
 .stock-card-header {
     padding: 12px 16px; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px;
     display: flex; justify-content: space-between; align-items: center;
     background: #0f0c08; color: #ff8800; border-bottom: 2px solid #ff8800;
 }
-.stock-body { padding: 12px 14px; }
-.stock-bar-bg { background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; margin: 0 0 10px; }
-.stock-bar { height: 100%; border-radius: 3px; transition: width .5s; }
-.stock-meta { color: #888; font-size: 0.76em; margin-bottom: 10px; }
-.stock-items { display: flex; flex-direction: column; gap: 4px; }
+.stock-bar-bg { background: #0d0d0d; height: 5px; overflow: hidden; }
+.stock-bar { height: 100%; transition: width .5s; }
+.stock-meta { padding: 8px 14px 4px; color: #999; font-size: 0.76em; }
 .stock-item-row {
-    padding: 5px 0; border-bottom: 1px solid #161616;
-    display: flex; justify-content: space-between; font-size: 0.8em;
+    padding: 9px 14px; border-bottom: 1px solid #161616;
+    display: flex; justify-content: space-between; align-items: center;
 }
 .stock-item-row:last-child { border-bottom: none; }
-.stock-item-name { color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
-.stock-item-val { color: #fff; font-weight: 600; flex-shrink: 0; }
-.stock-item-pct { color: #666; font-weight: 400; margin-left: 6px; }
-.stock-empty { color: #666; font-size: 0.82em; font-style: italic; padding: 6px 0; }
+.stock-item-name { color: #fff; font-size: 0.9em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stock-item-sub { color: #999; font-size: 0.76em; flex-shrink: 0; margin-left: 8px; }
+.stock-empty { padding: 12px 14px; color: #666; font-size: 0.8em; font-style: italic; }
 .stock-stale { opacity: 0.45; }
 
 /* ── FOOTER ── */
@@ -210,7 +204,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 <header>
     <div class="header-top">
-        <h1>FN-CMK MONITOR</h1>
+        <h1>Monitor Ficsit Network by CMK</h1>
         <span id="status">Connexion...</span>
     </div>
     <div class="sections">
@@ -558,19 +552,17 @@ function renderStockage(stockage) {
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
         const topItems = z.topItems || [];
         const itemsHtml = topItems.length
-            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-val">${it.count}<span class="stock-item-pct">${it.pct}%</span></span></div>`).join('')
+            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-sub">${it.count} <span style="color:#555">${it.pct}%</span></span></div>`).join('')
             : '<div class="stock-empty">Aucun item</div>';
         return `
             <div class="stock-card${stale ? ' stock-stale' : ''}">
                 <div class="stock-card-header">
                     <span>${esc(z.zone || '?')}</span>
-                    <span style="color:${fillColor};font-size:1.1em;font-weight:700">${fill}%</span>
+                    <span class="badge" style="color:${fillColor}">${fill}%</span>
                 </div>
-                <div class="stock-body">
-                    <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
-                    <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
-                    <div class="stock-items">${itemsHtml}</div>
-                </div>
+                <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
+                <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
+                ${itemsHtml}
             </div>`;
     }).join('');
 }
