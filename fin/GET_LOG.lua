@@ -71,6 +71,7 @@ while true do
     local e,src,sender,port,script,msg=event.pull(30)
     if e=="NetworkMessage" and port==43 then
         addLine(tostring(script),tostring(msg))
+        print("["..tostring(script).."] "..tostring(msg))
         draw()
     else
         -- Timeout : redessine quand même (indicateur de vie)

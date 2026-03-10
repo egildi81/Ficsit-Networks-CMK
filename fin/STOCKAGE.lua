@@ -29,6 +29,13 @@ print = function(...)
     pcall(function() net:broadcast(43,"STOCKAGE",table.concat(t," ")) end)
 end
 print("[boot] print OK")
+print("=== STOCKAGE BOOT ===")
+print("Conteneurs configurés: "..#CONTAINER_NAMES)
+for i, n in ipairs(CONTAINER_NAMES) do
+    print("  ["..i.."] "..n)
+end
+print("Scan interval: "..SCAN_INTERVAL.."s | Port out: "..PORT_OUT)
+print("=====================")
 
 -- === DÉCOUVERTE LOGGER (adresse pour net:send ciblé) ===
 local loggerAddr = nil
@@ -115,7 +122,7 @@ local function computeStats(containers)
                 allItems[id].count = allItems[id].count + d.count
             end
         else
-            print("ERR: impossible de lire "..c.name)
+            print("ERR: impossible de lire "..c.name.." err="..tostring(inv))
         end
     end
 
