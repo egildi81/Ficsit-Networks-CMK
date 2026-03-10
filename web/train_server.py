@@ -24,6 +24,21 @@ _trips            = {}    # historique de la session courante (en mémoire uniqu
 _stats            = {}    # stats calculées par LOGGER (score, conf, avgSpeed, etc.)
 _stockage         = {}    # données stockage par zone : {zone: {...}}
 
+_ORDER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_order.json")
+def _load_order():
+    try:
+        with open(_ORDER_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+def _save_order(order):
+    try:
+        with open(_ORDER_FILE, "w", encoding="utf-8") as f:
+            json.dump(order, f)
+    except Exception:
+        pass
+_stockage_order = _load_order()
+
 
 # ════════════════════════════════════════════════════════════
 # FLASK — dashboard web
@@ -65,9 +80,20 @@ def receive_trips():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/stockage-order", methods=["POST"])
+def set_stockage_order():
+    global _stockage_order
+    body = request.get_json(silent=True)
+    if not isinstance(body, list):
+        return jsonify({"error": "Liste attendue"}), 400
+    _stockage_order = body
+    _save_order(_stockage_order)
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/data")
 def get_data():
-    return jsonify({**_cache, "trips": _trips, "stats": _stats, "stockage": list(_stockage.values()), "logger_updated_at": _cache_updated_at, "site_title": getattr(config, "SITE_TITLE", "FN Monitor")})
+    return jsonify({**_cache, "trips": _trips, "stats": _stats, "stockage": list(_stockage.values()), "logger_updated_at": _cache_updated_at, "site_title": getattr(config, "SITE_TITLE", "FN Monitor"), "stockage_order": _stockage_order})
 
 
 @app.route("/")

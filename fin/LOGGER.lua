@@ -174,9 +174,24 @@ end
 local function postState(cs)
     if not inet then return end
     local trainArr={} for _,s in pairs(state) do table.insert(trainArr,s) end
+    -- Déduplication par nom de zone : si même nom depuis 2 adresses, garder le plus récent
+    local byZone={}
+    local dupZones={}
+    for addr,d in pairs(stockageData) do
+        local zname=d.name or addr
+        if byZone[zname] then
+            dupZones[zname]=true
+            if d.ts > byZone[zname].ts then
+                log("WARN: zone '"..zname.."' dupliquee (2 adresses), gardee la plus recente")
+                byZone[zname]=d
+            end
+        else
+            byZone[zname]=d
+        end
+    end
     local stockArr={}
-    for _,d in pairs(stockageData) do
-        local entry={zone=d.name,ts=d.ts}
+    for zname,d in pairs(byZone) do
+        local entry={zone=d.name,ts=d.ts,duplicate=dupZones[zname] or false}
         if d.stats then
             entry.fillRate=d.stats.fillRate
             entry.slotsUsed=d.stats.slotsUsed

@@ -191,8 +191,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-item-pct  { color: #555; text-align: right; }
 .stock-empty { color: #888; font-size: 0.82em; font-style: italic; padding: 8px 0; }
 .stock-stale { opacity: 0.45; }
-.stock-card { cursor: pointer; transition: border-color .15s; }
+.stock-card { cursor: grab; transition: border-color .15s, opacity .15s; }
 .stock-card:hover { border-color: #333; }
+.stock-card.dragging { opacity: 0.35; cursor: grabbing; }
+.stock-card.drag-over { border-color: #ff8800; }
 
 /* ── MODAL STOCKAGE ── */
 #stock-modal {
@@ -208,7 +210,11 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 #stock-modal-panel .stock-card-header { padding: 12px 18px; margin-bottom: 0; flex-shrink: 0; border-bottom: 1px solid #1e1e1e; }
 #stock-modal-panel .stock-bar-bg { margin: 0; border-radius: 0; flex-shrink: 0; }
 #stock-modal-panel .stock-meta { padding: 8px 18px 4px; margin: 0; flex-shrink: 0; }
-#stock-modal-panel .stock-items { overflow-y: auto; flex: 1; padding: 4px 18px 12px; }
+#stock-modal-panel .stock-items { overflow-y: auto; flex: 1; padding: 4px 18px 12px; scrollbar-width: thin; scrollbar-color: #333 #111; }
+#stock-modal-panel .stock-items::-webkit-scrollbar { width: 6px; }
+#stock-modal-panel .stock-items::-webkit-scrollbar-track { background: #111; }
+#stock-modal-panel .stock-items::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+#stock-modal-panel .stock-items::-webkit-scrollbar-thumb:hover { background: #444; }
 #stock-modal-panel .stock-item-row { padding: 5px 0; border-bottom: 1px solid #161616; }
 #stock-modal-panel .stock-item-row:last-child { border-bottom: none; }
 .stock-modal-close { background: none; border: none; outline: none; color: #666; font-size: 1em; cursor: pointer; padding: 0 2px; line-height: 1; }
@@ -605,6 +611,67 @@ function closeStockModal() {
     document.getElementById('stock-modal').classList.remove('open');
 }
 
+// ── Ordre des cards stockage (persisté côté serveur) ─────────
+let _stockageOrder = [];
+
+function _sortByOrder(stockage) {
+    if (!_stockageOrder.length) return stockage;
+    const sorted = [];
+    _stockageOrder.forEach(name => {
+        const z = stockage.find(z => (z.zone || '?') === name);
+        if (z) sorted.push(z);
+    });
+    stockage.forEach(z => { if (!_stockageOrder.includes(z.zone || '?')) sorted.push(z); });
+    return sorted;
+}
+
+let _dragSetup = false;
+let _isDragging = false;
+function _setupStockageDrag() {
+    if (_dragSetup) return;
+    _dragSetup = true;
+    const grid = document.getElementById('stockage-grid');
+    let dragSrc = null;
+
+    grid.addEventListener('dragstart', e => {
+        const card = e.target.closest('.stock-card[draggable]');
+        if (!card) return;
+        dragSrc = card;
+        _isDragging = true;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    });
+    grid.addEventListener('dragend', () => {
+        _isDragging = false;
+        grid.querySelectorAll('.stock-card').forEach(c => {
+            c.classList.remove('dragging', 'drag-over');
+        });
+        dragSrc = null;
+    });
+    grid.addEventListener('dragover', e => {
+        e.preventDefault();
+        const card = e.target.closest('.stock-card[draggable]');
+        if (!card || card === dragSrc) return;
+        grid.querySelectorAll('.stock-card').forEach(c => c.classList.remove('drag-over'));
+        card.classList.add('drag-over');
+    });
+    grid.addEventListener('dragleave', e => {
+        const card = e.target.closest('.stock-card');
+        if (card) card.classList.remove('drag-over');
+    });
+    grid.addEventListener('drop', e => {
+        e.preventDefault();
+        const card = e.target.closest('.stock-card[draggable]');
+        if (!card || card === dragSrc) return;
+        const cards = [...grid.querySelectorAll('.stock-card[draggable]')];
+        const si = cards.indexOf(dragSrc), di = cards.indexOf(card);
+        grid.insertBefore(dragSrc, si < di ? card.nextSibling : card);
+        _stockageOrder = [...grid.querySelectorAll('.stock-card[draggable]')].map(c => c.dataset.zone);
+        fetch('/api/stockage-order', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_stockageOrder) });
+        grid.querySelectorAll('.stock-card').forEach(c => c.classList.remove('drag-over'));
+    });
+}
+
 // ── Rendu stockage ───────────────────────────────────────────
 function renderStockage(stockage) {
     const grid = document.getElementById('stockage-grid');
@@ -614,8 +681,10 @@ function renderStockage(stockage) {
         grid.innerHTML = '<div class="stock-empty">Aucune zone de stockage connectée</div>';
         return;
     }
+    if (_isDragging) return;  // ne pas re-render pendant un drag en cours
+    const sorted = _sortByOrder(stockage);
     const now = Date.now() / 1000;
-    grid.innerHTML = stockage.map(z => {
+    grid.innerHTML = sorted.map(z => {
         const stale = z.server_ts && (now - z.server_ts) > 120;
         const fill = z.fillRate ?? 0;
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
@@ -624,9 +693,9 @@ function renderStockage(stockage) {
             ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
             : '<div class="stock-empty">Aucun item</div>';
         return `
-            <div class="stock-card${stale ? ' stock-stale' : ''}" onclick="openStockModal('${esc(z.zone || '?')}')"  title="Voir tous les items">
+            <div class="stock-card${stale ? ' stock-stale' : ''}" draggable="true" data-zone="${esc(z.zone || '?')}" onclick="openStockModal('${esc(z.zone || '?')}')" title="Voir tous les items">
                 <div class="stock-card-header">
-                    <span class="stock-zone">${esc(z.zone || '?')}</span>
+                    <span class="stock-zone">${esc(z.zone || '?')}${z.duplicate ? ' ⚠️' : ''}</span>
                     <span class="stock-fill" style="color:${fillColor}">${fill}%</span>
                 </div>
                 <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
@@ -634,6 +703,7 @@ function renderStockage(stockage) {
                 <div class="stock-items">${itemsHtml}</div>
             </div>`;
     }).join('');
+    _setupStockageDrag();
 }
 
 // ── Boucle de rafraîchissement ───────────────────────────────
@@ -669,6 +739,7 @@ async function refresh() {
             document.title = data.site_title;
             document.querySelector('header h1').textContent = data.site_title;
         }
+        if (Array.isArray(data.stockage_order) && !_isDragging) _stockageOrder = data.stockage_order;
         renderTrains(data.trains || []);
         renderTrips(data.trips || {});
         renderStats(data.trains || [], data.stats || {}, data.logger_updated_at);
