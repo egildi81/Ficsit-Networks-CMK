@@ -5,12 +5,16 @@
 -- Port 48 : données stockage → LOGGER (net:send ciblé)
 
 -- === CONFIGURATION ===
+-- Chaque entrée = une sous-zone : { name="NOM", containers={"NICK1","NICK2",...} }
+-- Avec 1 seule sous-zone  → comportement identique à l'ancien mode flat
+-- Avec 2+ sous-zones      → affichage global + détail par sous-zone dans le dashboard
 local CONTAINER_NAMES = {
-    "STOCKAGE_1",
-    "STOCKAGE_2",
-    -- ajouter ici les nicknames des conteneurs supplémentaires
+    { name = "PRINCIPAL", containers = { "STOCKAGE_1", "STOCKAGE_2" } },
+    -- { name = "SORTIE", containers = { "STOCKAGE_OUT_1" } },
 }
-local ZONE_NAME     = "ELECT"  -- nom de zone affiché dans le dashboard web (unique par instance)
+-- Nom de zone : nick du computer (champ Nick dans l'interface FIN), ou ID en fallback
+local _inst = computer.getInstance()
+local ZONE_NAME     = (_inst and _inst.nick ~= "" and _inst.nick) or (_inst and _inst.id) or "STOCKAGE"
 local SCAN_INTERVAL = 60  -- secondes entre chaque scan
 local PORT_OUT      = 48  -- port vers LOGGER
 
@@ -31,11 +35,13 @@ print = function(...)
 end
 print("[boot] print OK")
 print("=== STOCKAGE BOOT ===")
-print("Conteneurs configurés: "..#CONTAINER_NAMES)
-for i, n in ipairs(CONTAINER_NAMES) do
-    print("  ["..i.."] "..n)
+local _totalConf = 0
+for _, sz in ipairs(CONTAINER_NAMES) do _totalConf = _totalConf + #sz.containers end
+print("Zone: "..ZONE_NAME.." | Sous-zones: "..#CONTAINER_NAMES.." | Conteneurs: ".._totalConf.." | Scan: "..SCAN_INTERVAL.."s")
+for _, sz in ipairs(CONTAINER_NAMES) do
+    print("  ["..sz.name.."] "..#sz.containers.." conteneur(s)")
+    for _, n in ipairs(sz.containers) do print("    - "..n) end
 end
-print("Scan interval: "..SCAN_INTERVAL.."s | Port out: "..PORT_OUT)
 print("=====================")
 
 -- === DÉCOUVERTE LOGGER (adresse pour net:send ciblé) ===
@@ -73,22 +79,26 @@ local function ser(v)
 end
 
 -- === DÉCOUVERTE DES CONTENEURS ===
-local function findContainers()
-    local list = {}
-    for _, name in ipairs(CONTAINER_NAMES) do
-        local found = component.findComponent(name)
-        if #found > 0 then
-            table.insert(list, {name=name, box=component.proxy(found[1])})
-            print("Conteneur trouvé: "..name)
-        else
-            print("WARN: conteneur introuvable: "..name)
+local function buildZones()
+    local zones = {}
+    for _, sz in ipairs(CONTAINER_NAMES) do
+        local containers = {}
+        for _, name in ipairs(sz.containers) do
+            local found = component.findComponent(name)
+            if #found > 0 then
+                table.insert(containers, {name=name, box=component.proxy(found[1])})
+                print("Conteneur trouvé: "..name.." → ["..sz.name.."]")
+            else
+                print("WARN: conteneur introuvable: "..name)
+            end
         end
+        table.insert(zones, {name=sz.name, containers=containers})
     end
-    return list
+    return zones
 end
 
 -- === SCAN D'UN INVENTAIRE ===
--- Retourne : items{[id]={name,count}}, slotsUsed, slotsTotal
+-- Retourne : items{[id]={name,count,max}}, slotsUsed, slotsTotal
 local function scanInv(inv)
     local items = {}
     local used  = 0
@@ -106,13 +116,11 @@ local function scanInv(inv)
     return items, used, inv.size
 end
 
--- === CALCUL STATS GLOBALES ===
-local function computeStats(containers)
-    local slotsTotal = 0
-    local slotsUsed  = 0
-    local allItems   = {}
-
-    for _, c in ipairs(containers) do
+-- === STATS D'UNE LISTE DE CONTENEURS ===
+local function computeContainerStats(containerList)
+    local slotsTotal, slotsUsed = 0, 0
+    local allItems = {}
+    for _, c in ipairs(containerList) do
         local ok, inv = pcall(function() return c.box:getInventories()[1] end)
         if ok and inv then
             local items, used, total = scanInv(inv)
@@ -126,30 +134,20 @@ local function computeStats(containers)
             print("ERR: impossible de lire "..c.name.." err="..tostring(inv))
         end
     end
-
     local totalItems = 0
     for _, d in pairs(allItems) do totalItems = totalItems + d.count end
-
-    local fillRate = slotsTotal>0 and (slotsUsed/slotsTotal*100) or 0
-
-    -- % par type d'item + capacité réelle (slots * max)
     local itemStats = {}
     for id, d in pairs(allItems) do
-        local slots    = math.ceil(d.count / d.max)          -- slots physiques occupés
-        local capacity = slots * d.max                        -- capacité max de ces slots
+        local slots    = math.ceil(d.count / d.max)
+        local capacity = slots * d.max
         itemStats[id] = {
-            name     = d.name,
-            count    = d.count,
-            max      = d.max,
-            slots    = slots,
-            capacity = capacity,
-            pct      = totalItems>0 and math.floor(d.count/totalItems*1000)/10 or 0,
-            slotFill = math.floor(d.count/capacity*1000)/10, -- % remplissage des slots utilisés
+            name=d.name, count=d.count, max=d.max, slots=slots, capacity=capacity,
+            pct     =totalItems>0 and math.floor(d.count/totalItems*1000)/10 or 0,
+            slotFill=math.floor(d.count/capacity*1000)/10,
         }
     end
-
+    local fillRate = slotsTotal>0 and (slotsUsed/slotsTotal*100) or 0
     return {
-        containers = #containers,
         slotsTotal = slotsTotal,
         slotsUsed  = slotsUsed,
         fillRate   = math.floor(fillRate*10)/10,
@@ -158,7 +156,53 @@ local function computeStats(containers)
     }
 end
 
--- === CALCUL VITESSE (items/min par type) ===
+-- === STATS GLOBALES + SOUS-ZONES ===
+local function computeStats(zones)
+    local globalSlotT, globalSlotU = 0, 0
+    local globalRaw = {}
+    local subzones  = {}
+
+    for _, z in ipairs(zones) do
+        local s = computeContainerStats(z.containers)
+        s.name = z.name
+        table.insert(subzones, s)
+        globalSlotT = globalSlotT + s.slotsTotal
+        globalSlotU = globalSlotU + s.slotsUsed
+        for id, d in pairs(s.items) do
+            if not globalRaw[id] then globalRaw[id]={name=d.name,count=0,max=d.max} end
+            globalRaw[id].count = globalRaw[id].count + d.count
+        end
+    end
+
+    local totalItems = 0
+    for _, d in pairs(globalRaw) do totalItems = totalItems + d.count end
+    local itemStats = {}
+    for id, d in pairs(globalRaw) do
+        local slots    = math.ceil(d.count / d.max)
+        local capacity = slots * d.max
+        itemStats[id] = {
+            name=d.name, count=d.count, max=d.max, slots=slots, capacity=capacity,
+            pct     =totalItems>0 and math.floor(d.count/totalItems*1000)/10 or 0,
+            slotFill=math.floor(d.count/capacity*1000)/10,
+        }
+    end
+
+    local fillRate = globalSlotT>0 and (globalSlotU/globalSlotT*100) or 0
+    local result = {
+        slotsTotal = globalSlotT,
+        slotsUsed  = globalSlotU,
+        fillRate   = math.floor(fillRate*10)/10,
+        totalItems = totalItems,
+        items      = itemStats,
+    }
+    -- champ subzones uniquement si 2+ sous-zones (sinon comportement flat identique)
+    if #subzones > 1 then
+        result.subzones = subzones
+    end
+    return result
+end
+
+-- === CALCUL VITESSE (items/min, basé sur items globaux) ===
 local function computeSpeed(cur, prev, dtSec)
     local speed = {}
     if not prev or dtSec <= 0 then return speed end
@@ -166,7 +210,6 @@ local function computeSpeed(cur, prev, dtSec)
         local prevCount = prev.items[id] and prev.items[id].count or 0
         speed[id] = math.floor((d.count-prevCount)/dtSec*60*10)/10
     end
-    -- types qui ont disparu → vitesse négative
     for id, d in pairs(prev.items) do
         if not cur.items[id] then
             speed[id] = math.floor(-d.count/dtSec*60*10)/10
@@ -176,26 +219,33 @@ local function computeSpeed(cur, prev, dtSec)
 end
 
 -- === BOUCLE PRINCIPALE ===
-local containers = findContainers()
-print("STOCKAGE démarré — "..#containers.." conteneur(s), scan toutes les "..SCAN_INTERVAL.."s")
+local zones = buildZones()
+local totalCont = 0
+for _, z in ipairs(zones) do totalCont = totalCont + #z.containers end
+print("STOCKAGE démarré — "..#zones.." sous-zone(s), "..totalCont.." conteneur(s), scan toutes les "..SCAN_INTERVAL.."s")
 
 local prevStats = nil
 local prevTime  = nil
 
 while true do
-    local now = computer.millis()/1000
-    local stats = computeStats(containers)
+    local now   = computer.millis()/1000
+    local stats = computeStats(zones)
     local dtSec = prevTime and (now-prevTime) or 0
     stats.speed = computeSpeed(stats, prevStats, dtSec)
     stats.ts    = now
 
-    print(string.format("%s : %.1f%% (%d/%d slots | %d items)",
-        ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
+    if stats.subzones then
+        print(string.format("%s : %.1f%% (%d/%d slots | %d items) [%d sous-zones]",
+            ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems, #stats.subzones))
+    else
+        print(string.format("%s : %.1f%% (%d/%d slots | %d items)",
+            ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
+    end
 
     -- Envoi vers LOGGER
     if net then
         if loggerAddr then
-            local ok,err=pcall(function() net:send(loggerAddr,PORT_OUT,ZONE_NAME,ser(stats)) end)
+            local ok,err = pcall(function() net:send(loggerAddr,PORT_OUT,ZONE_NAME,ser(stats)) end)
             if not ok then print("ERR send: "..tostring(err)) end
         else
             pcall(function() net:broadcast(PORT_OUT,ZONE_NAME,ser(stats)) end)
@@ -206,7 +256,6 @@ while true do
     prevTime  = now
 
     -- Écoute pendant SCAN_INTERVAL : mise à jour loggerAddr si LOGGER redémarre
-    -- On boucle sur event.pull pour consommer tous les messages sans relancer le scan
     local deadline = computer.millis() + SCAN_INTERVAL * 1000
     repeat
         local remaining = (deadline - computer.millis()) / 1000

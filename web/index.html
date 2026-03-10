@@ -196,6 +196,22 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-card.dragging { opacity: 0.35; cursor: grabbing; }
 .stock-card.drag-over { border-color: #ff8800; }
 
+/* ── SOUS-ZONES STOCKAGE ── */
+.stock-subzones { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.stock-subzone { background: #0d0d0d; border-radius: 4px; padding: 7px 10px; border-left: 2px solid #2a2a2a; }
+.stock-subzone-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+.stock-subzone-name { color: #777; font-size: 0.72em; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+.stock-subzone-fill { font-size: 0.82em; font-weight: 700; }
+.stock-subzone-bar-bg { background: #1a1a1a; height: 3px; border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
+.stock-subzone-bar { height: 100%; border-radius: 2px; transition: width .5s; }
+.stock-subzone-meta { color: #555; font-size: 0.7em; margin-bottom: 3px; }
+/* modal sous-zones */
+.stock-modal-subzone { padding: 10px 0; border-bottom: 1px solid #1e1e1e; }
+.stock-modal-subzone:last-child { border-bottom: none; }
+.stock-modal-subzone-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.stock-modal-subzone-name { color: #aaa; font-size: 0.8em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.stock-modal-subzone-meta { color: #666; font-size: 0.72em; margin-bottom: 6px; }
+
 /* ── MODAL STOCKAGE ── */
 #stock-modal {
     display: none; position: fixed; inset: 0; z-index: 200;
@@ -602,7 +618,6 @@ function openStockModal(zoneName) {
     if (!z) return;
     const fill = z.fillRate ?? 0;
     const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
-    const allItems = z.items || z.topItems || [];
 
     document.getElementById('stock-modal-title').textContent = zoneName;
     const fillEl = document.getElementById('stock-modal-fill');
@@ -612,14 +627,35 @@ function openStockModal(zoneName) {
     document.getElementById('stock-modal-meta').textContent =
         `${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items`;
 
-    document.getElementById('stock-modal-body').innerHTML = allItems.length
-        ? allItems.map(it => `
-            <div class="stock-item-row">
-                <span class="stock-item-name">${esc(it.name)}</span>
-                <span class="stock-item-count">${it.count}</span>
-                <span class="stock-item-pct">${it.pct}%</span>
-            </div>`).join('')
-        : '<div class="stock-empty">Aucun item</div>';
+    let bodyHtml;
+    if (z.subzones && z.subzones.length > 1) {
+        bodyHtml = z.subzones.map(sz => {
+            const szFill = sz.fillRate ?? 0;
+            const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+            const allSzItems = sz.items || sz.topItems || [];
+            return `<div class="stock-modal-subzone">
+                <div class="stock-modal-subzone-header">
+                    <span class="stock-modal-subzone-name">${esc(sz.name)}</span>
+                    <span class="stock-fill" style="color:${szColor}">${szFill}%</span>
+                </div>
+                <div class="stock-modal-subzone-meta">${sz.slotsUsed ?? '?'} / ${sz.slotsTotal ?? '?'} slots · ${sz.totalItems ?? '?'} items</div>
+                ${allSzItems.length
+                    ? allSzItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
+                    : '<div class="stock-empty">Aucun item</div>'}
+            </div>`;
+        }).join('');
+    } else {
+        const allItems = z.items || z.topItems || [];
+        bodyHtml = allItems.length
+            ? allItems.map(it => `
+                <div class="stock-item-row">
+                    <span class="stock-item-name">${esc(it.name)}</span>
+                    <span class="stock-item-count">${it.count}</span>
+                    <span class="stock-item-pct">${it.pct}%</span>
+                </div>`).join('')
+            : '<div class="stock-empty">Aucun item</div>';
+    }
+    document.getElementById('stock-modal-body').innerHTML = bodyHtml;
 
     document.getElementById('stock-modal').classList.add('open');
 }
@@ -720,10 +756,26 @@ function renderStockage(stockage) {
         const stale = z.server_ts && (now - z.server_ts) > 120;
         const fill = z.fillRate ?? 0;
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
-        const topItems = z.topItems || [];
-        const itemsHtml = topItems.length
-            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
-            : '<div class="stock-empty">Aucun item</div>';
+        let itemsBlock;
+        if (z.subzones && z.subzones.length > 1) {
+            itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
+                const szFill = sz.fillRate ?? 0;
+                const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+                const szTop = sz.topItems || [];
+                return `<div class="stock-subzone">
+                    <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
+                    <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
+                    <div class="stock-subzone-meta">${sz.slotsUsed ?? '?'} / ${sz.slotsTotal ?? '?'} slots · ${sz.totalItems ?? '?'} items</div>
+                    ${szTop.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}
+                </div>`;
+            }).join('')}</div>`;
+        } else {
+            const topItems = z.topItems || [];
+            const inner = topItems.length
+                ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
+                : '<div class="stock-empty">Aucun item</div>';
+            itemsBlock = `<div class="stock-items">${inner}</div>`;
+        }
         return `
             <div class="stock-card${stale ? ' stock-stale' : ''}" draggable="true" data-zone="${esc(z.zone || '?')}" onclick="openStockModal('${esc(z.zone || '?')}')" title="Voir tous les items">
                 <div class="stock-card-header">
@@ -732,7 +784,7 @@ function renderStockage(stockage) {
                 </div>
                 <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
                 <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
-                <div class="stock-items">${itemsHtml}</div>
+                ${itemsBlock}
             </div>`;
     }).join('');
     _setupStockageDrag();

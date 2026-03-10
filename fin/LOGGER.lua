@@ -214,6 +214,23 @@ local function postState(cs)
                 for i=1,math.min(3,#items) do table.insert(top,items[i]) end
                 entry.topItems=top
             end
+            if d.stats.subzones then
+                local subzones={}
+                for _,sz in ipairs(d.stats.subzones) do
+                    local se={name=sz.name,fillRate=sz.fillRate,slotsUsed=sz.slotsUsed,slotsTotal=sz.slotsTotal,totalItems=sz.totalItems}
+                    if sz.items then
+                        local items={}
+                        for _,item in pairs(sz.items) do table.insert(items,{name=item.name,count=item.count,pct=item.pct}) end
+                        table.sort(items,function(a,b)return a.count>b.count end)
+                        se.items=items
+                        local top={}
+                        for i=1,math.min(3,#items) do table.insert(top,items[i]) end
+                        se.topItems=top
+                    end
+                    table.insert(subzones,se)
+                end
+                entry.subzones=subzones
+            end
         end
         table.insert(stockArr,entry)
     end
