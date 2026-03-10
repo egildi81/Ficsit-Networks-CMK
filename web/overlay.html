@@ -41,6 +41,7 @@ html, body { background:transparent; overflow:hidden; }
 #ticker-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
+  transition:opacity 0.35s ease;
 }
 .ticker-copy { display:none; }
 .ticker-copy:first-child { display:flex; align-items:center; height:100%; }
@@ -71,6 +72,7 @@ html, body { background:transparent; overflow:hidden; }
 #ticker-top-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
+  transition:opacity 0.35s ease;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -159,6 +161,77 @@ const scoreClr = v  => v >= 80 ? 'cg' : v >= 60 ? 'cy' : 'cr';
 const confClr  = c  => ({ HAUTE:'cg', BONNE:'cg', FAIBLE:'cy', INEXISTANTE:'cr' })[c] || '';
 
 // ══════════════════════════════════════════════════════════════
+// CARROUSEL TICKER (partagé entre ticker bas et ticker haut)
+// Pages : trains → stockage (si zones actives) → rotation auto
+// ══════════════════════════════════════════════════════════════
+const _C_INTERVAL = 7000;  // ms entre chaque page
+const _C_FADE     = 350;   // ms de fondu
+
+let _cPage  = 0;
+let _cData  = null;
+let _cTimer = null;
+
+function _activeTracks() {
+  const ids = ['ticker-track', 'ticker-top-track'];
+  return ids.map(id => document.getElementById(id)).filter(el => el && el.closest('[style*="flex"]'));
+}
+
+function _buildPages(data) {
+  const pages = [];
+  pages.push(SKINS.ticker._htmlTrains(data.stats || {}));
+  const now   = Date.now() / 1000;
+  const zones = (data.stockage || []).filter(z => !z.server_ts || (now - z.server_ts) <= 120);
+  if (zones.length) pages.push(SKINS.ticker._htmlStockage(zones));
+  return pages;
+}
+
+function _carouselSet(html) {
+  // ticker bas : injecte dans ticker-a (seul affiché via :first-child)
+  const a = document.getElementById('ticker-a');
+  if (a) { a.innerHTML = html; a.style.display = 'flex'; }
+  const b = document.getElementById('ticker-b');
+  if (b) b.style.display = 'none';
+  // ticker haut
+  const top = document.getElementById('ticker-top-track');
+  if (top) top.innerHTML = html;
+}
+
+function _carouselFadeTo(html) {
+  const tracks = [
+    document.getElementById('ticker-track'),
+    document.getElementById('ticker-top-track'),
+  ];
+  tracks.forEach(t => { if (t) t.style.opacity = '0'; });
+  setTimeout(() => {
+    _carouselSet(html);
+    tracks.forEach(t => { if (t) t.style.opacity = '1'; });
+  }, _C_FADE);
+}
+
+function _carouselTick() {
+  if (!_cData) return;
+  const pages = _buildPages(_cData);
+  _cPage = (_cPage + 1) % pages.length;
+  _carouselFadeTo(pages[_cPage]);
+}
+
+function _carouselUpdate(data) {
+  _cData = data;
+  if (!_cTimer) {
+    // Premier rendu immédiat
+    const pages = _buildPages(data);
+    _carouselSet(pages[0]);
+    _cPage  = 0;
+    if (pages.length > 1) _cTimer = setInterval(_carouselTick, _C_INTERVAL);
+  }
+}
+
+function _carouselStop() {
+  clearInterval(_cTimer);
+  _cTimer = null;
+}
+
+// ══════════════════════════════════════════════════════════════
 // SYSTÈME DE SKINS
 // Pour ajouter un skin : créer l'élément HTML, puis l'objet dans SKINS
 // avec les méthodes init(), destroy(), render(data)
@@ -169,10 +242,8 @@ const SKINS = {
   ticker: {
     name: 'Ticker',
     el: null,
-    _raf: null, _x: 0, _last: null,
-    _speed: 72, // px/s
 
-    _html(s) {
+    _htmlTrains(s) {
       const sep = '<span class="ticker-sep">◆</span>';
       const sc  = s.score || 0;
       return [
@@ -202,18 +273,29 @@ const SKINS = {
       ].join('');
     },
 
+    _htmlStockage(zones) {
+      const sep  = '<span class="ticker-sep">◆</span>';
+      const fc   = f => f >= 80 ? '#ee4444' : f >= 50 ? '#ddcc22' : '#33ee55';
+      const items = zones.map(z => {
+        const f = z.fillRate ?? 0;
+        return `<span class="ticker-item">
+          <span class="tk-lbl">${z.zone||'?'}</span>
+          <b style="color:${fc(f)};opacity:1">${f}%</b>
+          <b style="opacity:0.45;font-size:12px">${z.slotsUsed||0}/${z.slotsTotal||0}</b>
+        </span>`;
+      });
+      return `<span class="ticker-item"><span class="tk-lbl">Stockage</span></span>${sep}${items.join(sep)}${sep}`;
+    },
+
     init() {
       this.el = document.getElementById('skin-ticker');
       this.el.style.display = 'flex';
     },
     destroy() {
       if (this.el) this.el.style.display = 'none';
+      _carouselStop();
     },
-    render(data) {
-      const html = this._html(data.stats || {});
-      document.getElementById('ticker-a').innerHTML = html;
-      document.getElementById('ticker-b').innerHTML = html;
-    },
+    render(data) { _carouselUpdate(data); },
   },
 
   // ── Skin : Ticker Top ──────────────────────────────────────
@@ -226,11 +308,9 @@ const SKINS = {
     },
     destroy() {
       if (this.el) this.el.style.display = 'none';
+      _carouselStop();
     },
-    render(data) {
-      document.getElementById('ticker-top-track').innerHTML =
-        SKINS.ticker._html(data.stats || {});
-    },
+    render(data) { _carouselUpdate(data); },
   },
 
   // ── Skin : Terminal ────────────────────────────────────────
@@ -267,6 +347,18 @@ const SKINS = {
       const ts     = [now.getHours(), now.getMinutes(), now.getSeconds()]
                        .map(n => String(n).padStart(2, '0')).join(':');
 
+      // Bloc stockage
+      const nowSec = Date.now() / 1000;
+      const zones  = (data.stockage || []).filter(z => !z.server_ts || (nowSec - z.server_ts) <= 120);
+      const fc     = f => f >= 80 ? 'cr' : f >= 50 ? 'cy' : 'cg';
+      const stockRows = zones.length
+        ? ['<hr class="term-sep">', '<div class="term-hdr" style="font-size:9px;margin-top:3px">◈ STOCKAGE ◈</div>',
+           ...zones.map(z => {
+             const f = z.fillRate ?? 0;
+             return this._row(z.zone||'?', `${f}%`, fc(f)) + this._bar(f);
+           })]
+        : [];
+
       document.getElementById('term-body').innerHTML = [
         this._row('Trains',    `${s.totalCnt||0} total`),
         this._row('Mvt / Quai', `${s.movingCnt||0} / ${s.dockedCnt||0}`),
@@ -281,6 +373,7 @@ const SKINS = {
         this._bar(spdPct),
         this._row('Durée moy.', fmtDur(s.avgDur)),
         this._row('Uptime',    fmtUptime(s.uptime)),
+        ...stockRows,
       ].join('');
 
       document.getElementById('term-foot').textContent = `◈ ${ts}`;
