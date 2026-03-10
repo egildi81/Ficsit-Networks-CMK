@@ -68,6 +68,10 @@ def get_data():
 def index():
     return send_from_directory(os.path.dirname(os.path.abspath(__file__)), "index.html")
 
+@app.route("/<path:filename>")
+def static_files(filename):
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), filename)
+
 
 def run_flask():
     """Lance Flask dans un thread dédié (ne bloque pas le bot Discord)."""
