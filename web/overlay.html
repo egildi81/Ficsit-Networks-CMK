@@ -41,7 +41,7 @@ html, body { background:transparent; overflow:hidden; }
 #ticker-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
-  transition:opacity 0.35s ease;
+  transition:opacity 0.7s ease;
 }
 .ticker-copy { display:none; }
 .ticker-copy:first-child { display:flex; align-items:center; height:100%; }
@@ -72,7 +72,7 @@ html, body { background:transparent; overflow:hidden; }
 #ticker-top-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
-  transition:opacity 0.35s ease;
+  transition:opacity 0.7s ease;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -165,7 +165,7 @@ const confClr  = c  => ({ HAUTE:'cg', BONNE:'cg', FAIBLE:'cy', INEXISTANTE:'cr' 
 // Pages : trains → stockage (si zones actives) → rotation auto
 // ══════════════════════════════════════════════════════════════
 const _C_INTERVAL = 7000;  // ms entre chaque page
-const _C_FADE     = 350;   // ms de fondu
+const _C_FADE     = 700;   // ms de fondu
 
 let _cPage  = 0;
 let _cData  = null;
