@@ -201,23 +201,18 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 #stock-modal.open { display: flex; }
 #stock-modal-panel {
-    background: #111; border-radius: 8px; border: 1px solid #1e1e1e;
+    background: #111; border-radius: 8px; border: 1px solid #1a1a1a;
     width: 480px; max-width: 95vw; max-height: 80vh;
-    display: flex; flex-direction: column; overflow: hidden;
+    display: flex; flex-direction: column; overflow: hidden; padding: 0;
 }
-#stock-modal-header {
-    padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;
-    background: #0f0c08; color: #ff8800; font-size: 0.82em; font-weight: 700;
-    letter-spacing: 1.5px; border-bottom: 2px solid #ff8800; flex-shrink: 0;
-}
-#stock-modal-close {
-    background: none; border: none; outline: none; color: #ff8800;
-    font-size: 1.2em; cursor: pointer; padding: 0 4px; line-height: 1;
-}
-#stock-modal-meta { padding: 8px 16px 4px; color: #888; font-size: 0.76em; flex-shrink: 0; }
-#stock-modal-bar-bg { height: 5px; background: #1a1a1a; flex-shrink: 0; }
-#stock-modal-bar { height: 100%; transition: width .5s; }
-#stock-modal-body { overflow-y: auto; flex: 1; }
+#stock-modal-panel .stock-card-header { padding: 12px 18px; margin-bottom: 0; flex-shrink: 0; border-bottom: 1px solid #1e1e1e; }
+#stock-modal-panel .stock-bar-bg { margin: 0; border-radius: 0; flex-shrink: 0; }
+#stock-modal-panel .stock-meta { padding: 8px 18px 4px; margin: 0; flex-shrink: 0; }
+#stock-modal-panel .stock-items { overflow-y: auto; flex: 1; padding: 4px 18px 12px; }
+#stock-modal-panel .stock-item-row { padding: 5px 0; border-bottom: 1px solid #161616; }
+#stock-modal-panel .stock-item-row:last-child { border-bottom: none; }
+.stock-modal-close { background: none; border: none; outline: none; color: #666; font-size: 1em; cursor: pointer; padding: 0 2px; line-height: 1; }
+.stock-modal-close:hover { color: #bbb; }
 
 /* ── FOOTER ── */
 #footer { position: fixed; bottom: 8px; right: 14px; color: #282828; font-size: 0.72em; }
@@ -317,13 +312,16 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 <!-- ── MODAL DÉTAIL ZONE STOCKAGE ── -->
 <div id="stock-modal" onclick="if(event.target===this)closeStockModal()">
     <div id="stock-modal-panel">
-        <div id="stock-modal-header">
-            <span id="stock-modal-title">—</span>
-            <button id="stock-modal-close" onclick="closeStockModal()">✕</button>
+        <div class="stock-card-header">
+            <span class="stock-zone" id="stock-modal-title">—</span>
+            <div style="display:flex;align-items:center;gap:10px">
+                <span class="stock-fill" id="stock-modal-fill">—</span>
+                <button class="stock-modal-close" onclick="closeStockModal()">✕</button>
+            </div>
         </div>
-        <div id="stock-modal-bar-bg"><div id="stock-modal-bar"></div></div>
-        <div id="stock-modal-meta"></div>
-        <div id="stock-modal-body"></div>
+        <div class="stock-bar-bg"><div class="stock-bar" id="stock-modal-bar"></div></div>
+        <div class="stock-meta" id="stock-modal-meta"></div>
+        <div class="stock-items" id="stock-modal-body"></div>
     </div>
 </div>
 
@@ -584,18 +582,21 @@ function openStockModal(zoneName) {
     const allItems = z.items || z.topItems || [];
 
     document.getElementById('stock-modal-title').textContent = zoneName;
+    const fillEl = document.getElementById('stock-modal-fill');
+    fillEl.textContent = fill + '%';
+    fillEl.style.color = fillColor;
     document.getElementById('stock-modal-bar').style.cssText = `width:${fill}%;background:${fillColor}`;
     document.getElementById('stock-modal-meta').textContent =
-        `${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items · ${fill}%`;
+        `${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items`;
 
     document.getElementById('stock-modal-body').innerHTML = allItems.length
         ? allItems.map(it => `
-            <div class="stock-item-row" style="padding:7px 16px">
+            <div class="stock-item-row">
                 <span class="stock-item-name">${esc(it.name)}</span>
                 <span class="stock-item-count">${it.count}</span>
                 <span class="stock-item-pct">${it.pct}%</span>
             </div>`).join('')
-        : '<div class="stock-empty" style="padding:16px">Aucun item</div>';
+        : '<div class="stock-empty">Aucun item</div>';
 
     document.getElementById('stock-modal').classList.add('open');
 }
@@ -615,7 +616,7 @@ function renderStockage(stockage) {
     }
     const now = Date.now() / 1000;
     grid.innerHTML = stockage.map(z => {
-        const stale = z.server_ts && (now - z.server_ts) > 60;
+        const stale = z.server_ts && (now - z.server_ts) > 120;
         const fill = z.fillRate ?? 0;
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
         const topItems = z.topItems || [];
