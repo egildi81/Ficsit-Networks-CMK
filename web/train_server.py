@@ -67,7 +67,7 @@ def receive_trips():
 
 @app.route("/api/data")
 def get_data():
-    return jsonify({**_cache, "trips": _trips, "stats": _stats, "stockage": list(_stockage.values()), "logger_updated_at": _cache_updated_at})
+    return jsonify({**_cache, "trips": _trips, "stats": _stats, "stockage": list(_stockage.values()), "logger_updated_at": _cache_updated_at, "site_title": getattr(config, "SITE_TITLE", "FN Monitor")})
 
 
 @app.route("/")

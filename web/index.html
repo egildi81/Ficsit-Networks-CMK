@@ -665,6 +665,10 @@ async function refresh() {
             }
         }
 
+        if (data.site_title) {
+            document.title = data.site_title;
+            document.querySelector('header h1').textContent = data.site_title;
+        }
         renderTrains(data.trains || []);
         renderTrips(data.trips || {});
         renderStats(data.trains || [], data.stats || {}, data.logger_updated_at);
