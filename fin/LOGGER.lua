@@ -188,6 +188,7 @@ local function postState(cs)
                     table.insert(items,{name=item.name,count=item.count,pct=item.pct})
                 end
                 table.sort(items,function(a,b)return a.count>b.count end)
+                entry.items=items
                 local top={}
                 for i=1,math.min(3,#items) do table.insert(top,items[i]) end
                 entry.topItems=top
