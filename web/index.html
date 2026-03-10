@@ -534,7 +534,7 @@ function renderStockage(stockage) {
     }
     const now = Date.now() / 1000;
     grid.innerHTML = stockage.map(z => {
-        const stale = z.ts && (now - z.ts) > 60;
+        const stale = z.server_ts && (now - z.server_ts) > 60;
         const fill = z.fillRate ?? 0;
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
         const topItems = z.topItems || [];

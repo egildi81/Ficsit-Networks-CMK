@@ -48,6 +48,7 @@ def receive_push():
     if isinstance(body.get("stockage"), list):
         for zone in body["stockage"]:
             name = zone.get("zone") or "?"
+            zone["server_ts"] = time.time()
             _stockage[name] = zone
     return jsonify({"status": "ok"})
 
