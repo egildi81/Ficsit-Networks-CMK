@@ -32,13 +32,14 @@ html, body { background:transparent; overflow:hidden; }
   display:none;
   position:fixed; bottom:0; left:0; right:0; height:34px;
   background:rgba(6,6,11,0.80);
-  border-top:2px solid rgba(255,136,0,var(--oa));
+  border-top:1px solid rgba(255,136,0,var(--oa));
   overflow:hidden;
   align-items:center; justify-content:center;
 }
 #ticker-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
+  opacity:var(--oa);
 }
 .ticker-copy { display:none; }
 .ticker-copy:first-child { display:flex; align-items:center; height:100%; }
@@ -48,10 +49,10 @@ html, body { background:transparent; overflow:hidden; }
   font-family:'Segoe UI', sans-serif; color:#b8b8c8;
 }
 .tk-lbl {
-  color:rgba(255,136,0,calc(var(--oa) * 1.22)); font-size:10px;
+  color:rgba(255,136,0,0.75); font-size:10px;
   text-transform:uppercase; letter-spacing:0.09em;
 }
-.ticker-sep { color:rgba(255,136,0,calc(var(--oa) * 0.56)); padding:0 4px; font-size:14px; }
+.ticker-sep { color:rgba(255,136,0,0.40); padding:0 4px; font-size:14px; }
 
 /* ══════════════════════════════════════════════════════════════
    SKIN : TICKER TOP
@@ -61,13 +62,14 @@ html, body { background:transparent; overflow:hidden; }
   display:none;
   position:fixed; top:0; left:0; right:0; height:34px;
   background:rgba(6,6,11,0.80);
-  border-bottom:2px solid rgba(255,136,0,var(--oa));
+  border-bottom:1px solid rgba(255,136,0,var(--oa));
   overflow:hidden;
   align-items:center; justify-content:center;
 }
 #ticker-top-track {
   display:flex; align-items:center; justify-content:center;
   white-space:nowrap; height:100%; width:100%;
+  opacity:var(--oa);
 }
 
 /* ══════════════════════════════════════════════════════════════
