@@ -177,10 +177,18 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 /* ── STOCKAGE ── */
 .stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.stock-grid .col { border: 1px solid #1e1e1e; }
-.col-header.storage { background:#0f0c08; color:#ff8800; border-bottom:2px solid #ff8800; }
-.fill-bar-bg { height: 4px; background: #1a1a1a; }
-.fill-bar    { height: 100%; transition: width .6s; }
+.stock-card { background: #111; border-radius: 8px; padding: 16px 18px; border: 1px solid #1a1a1a; }
+.stock-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.stock-zone { color: #ff8800; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+.stock-fill { font-size: 1.4em; font-weight: 700; }
+.stock-bar-bg { background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; margin: 4px 0 12px; }
+.stock-bar { height: 100%; border-radius: 3px; transition: width .5s; }
+.stock-meta { color: #888; font-size: 0.76em; margin-bottom: 10px; }
+.stock-items { display: flex; flex-direction: column; gap: 3px; }
+.stock-item-row { display: flex; justify-content: space-between; font-size: 0.78em; }
+.stock-item-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+.stock-item-val { color: #ddd; font-weight: 600; flex-shrink: 0; }
+.stock-empty { color: #888; font-size: 0.82em; font-style: italic; padding: 8px 0; }
 .stock-stale { opacity: 0.45; }
 
 /* ── FOOTER ── */
@@ -529,7 +537,7 @@ function renderStockage(stockage) {
     const grid = document.getElementById('stockage-grid');
     if (!grid) return;
     if (!stockage || !stockage.length) {
-        grid.innerHTML = '<div class="empty-row">Aucune zone de stockage connectée</div>';
+        grid.innerHTML = '<div class="stock-empty">Aucune zone de stockage connectée</div>';
         return;
     }
     const now = Date.now() / 1000;
@@ -539,29 +547,17 @@ function renderStockage(stockage) {
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
         const topItems = z.topItems || [];
         const itemsHtml = topItems.length
-            ? topItems.map(it => `
-                <div class="train-row">
-                    <div class="train-name">${esc(it.name)}</div>
-                    <div class="train-sub">
-                        <span style="color:${fillColor}">${it.count}</span>
-                        <span style="color:#555">${it.pct}%</span>
-                    </div>
-                </div>`).join('')
-            : '<div class="empty-row">Aucun item</div>';
+            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-val">${it.count} <span style="color:#555">${it.pct}%</span></span></div>`).join('')
+            : '<div class="stock-empty">Aucun item</div>';
         return `
-            <div class="col${stale ? ' stock-stale' : ''}">
-                <div class="col-header storage">
-                    <span>${esc(z.zone || '?')}</span>
-                    <span class="badge">${fill}%</span>
+            <div class="stock-card${stale ? ' stock-stale' : ''}">
+                <div class="stock-card-header">
+                    <span class="stock-zone">${esc(z.zone || '?')}</span>
+                    <span class="stock-fill" style="color:${fillColor}">${fill}%</span>
                 </div>
-                <div class="fill-bar-bg"><div class="fill-bar" style="width:${fill}%;background:${fillColor}"></div></div>
-                <div class="train-row">
-                    <div class="train-sub">
-                        <span>${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots</span>
-                        <span>${z.totalItems ?? '?'} items</span>
-                    </div>
-                </div>
-                ${itemsHtml}
+                <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
+                <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
+                <div class="stock-items">${itemsHtml}</div>
             </div>`;
     }).join('');
 }
