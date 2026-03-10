@@ -185,9 +185,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-bar { height: 100%; border-radius: 3px; transition: width .5s; }
 .stock-meta { color: #888; font-size: 0.76em; margin-bottom: 10px; }
 .stock-items { display: flex; flex-direction: column; gap: 3px; }
-.stock-item-row { display: flex; justify-content: space-between; font-size: 0.78em; }
-.stock-item-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
-.stock-item-val { color: #ddd; font-weight: 600; flex-shrink: 0; }
+.stock-item-row { display: grid; grid-template-columns: 1fr 56px 40px; gap: 4px; font-size: 0.78em; align-items: center; }
+.stock-item-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stock-item-count { color: #ddd; font-weight: 600; text-align: right; }
+.stock-item-pct  { color: #555; text-align: right; }
 .stock-empty { color: #888; font-size: 0.82em; font-style: italic; padding: 8px 0; }
 .stock-stale { opacity: 0.45; }
 
@@ -547,7 +548,7 @@ function renderStockage(stockage) {
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
         const topItems = z.topItems || [];
         const itemsHtml = topItems.length
-            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-val">${it.count} <span style="color:#555">${it.pct}%</span></span></div>`).join('')
+            ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
             : '<div class="stock-empty">Aucun item</div>';
         return `
             <div class="stock-card${stale ? ' stock-stale' : ''}">
