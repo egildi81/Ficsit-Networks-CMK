@@ -177,13 +177,14 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 /* ── STOCKAGE ── */
 .stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.stock-card { background: #111; border-radius: 8px; overflow: hidden; }
+.stock-card { background: #111; border-radius: 8px; overflow: hidden; border: 1px solid #1e1e1e; }
 .stock-card-header {
     padding: 12px 16px; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px;
     display: flex; justify-content: space-between; align-items: center;
     background: #0f0c08; color: #ff8800; border-bottom: 2px solid #ff8800;
 }
-.stock-bar-bg { background: #0d0d0d; height: 5px; overflow: hidden; }
+.stock-fill-pct { font-weight: 700; font-size: 1em; }
+.stock-bar-bg { background: #1a1a1a; height: 5px; overflow: hidden; }
 .stock-bar { height: 100%; transition: width .5s; }
 .stock-meta { padding: 8px 14px 4px; color: #999; font-size: 0.76em; }
 .stock-item-row {
@@ -193,7 +194,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-item-row:last-child { border-bottom: none; }
 .stock-item-name { color: #fff; font-size: 0.9em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stock-item-sub { color: #999; font-size: 0.76em; flex-shrink: 0; margin-left: 8px; }
-.stock-empty { padding: 12px 14px; color: #666; font-size: 0.8em; font-style: italic; }
+.stock-empty { padding: 12px 14px; color: #555; font-size: 0.8em; font-style: italic; }
 .stock-stale { opacity: 0.45; }
 
 /* ── FOOTER ── */
@@ -558,7 +559,7 @@ function renderStockage(stockage) {
             <div class="stock-card${stale ? ' stock-stale' : ''}">
                 <div class="stock-card-header">
                     <span>${esc(z.zone || '?')}</span>
-                    <span class="badge" style="color:${fillColor}">${fill}%</span>
+                    <span class="stock-fill-pct" style="color:${fillColor}">${fill}%</span>
                 </div>
                 <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
                 <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
