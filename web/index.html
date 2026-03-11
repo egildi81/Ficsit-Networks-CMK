@@ -343,7 +343,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 <div id="page-stockage" class="page">
     <div class="stock-section-bar">
         <span class="stock-section-title">STOCKAGE</span>
-        <button class="stock-purge-btn" onclick="purgeStockage()" title="Supprime les zones inactives depuis plus de 2 minutes">Purger les inactives</button>
+        <div style="display:flex;gap:8px">
+            <button id="stock-view-btn" class="stock-purge-btn" onclick="toggleStockView()">Vue détaillée</button>
+            <button class="stock-purge-btn" onclick="purgeStockage()" title="Supprime les zones inactives depuis plus de 2 minutes">Purger les inactives</button>
+        </div>
     </div>
     <div id="stockage-grid" class="stock-grid"></div>
 </div>
@@ -667,6 +670,15 @@ function closeStockModal() {
     document.getElementById('stock-modal').classList.remove('open');
 }
 
+// ── Toggle vue stockage (compact / détaillée) ─────────────────
+let _stockCompact = true;
+
+function toggleStockView() {
+    _stockCompact = !_stockCompact;
+    document.getElementById('stock-view-btn').textContent = _stockCompact ? 'Vue détaillée' : 'Vue compacte';
+    renderStockage(_stockageCache);
+}
+
 // ── Purge manuelle des zones inactives ────────────────────────
 async function purgeStockage() {
     const btn = document.querySelector('.stock-purge-btn');
@@ -761,17 +773,33 @@ function renderStockage(stockage) {
         const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
         let itemsBlock;
         if (z.subzones && z.subzones.length > 1) {
-            itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
-                const szFill = sz.fillRate ?? 0;
-                const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
-                const szTop = toArr(sz.topItems);
-                return `<div class="stock-subzone">
-                    <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
-                    <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
-                    <div class="stock-subzone-meta">${sz.slotsUsed ?? '?'} / ${sz.slotsTotal ?? '?'} slots · ${sz.totalItems ?? '?'} items</div>
-                    ${szTop.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}
-                </div>`;
-            }).join('')}</div>`;
+            if (_stockCompact) {
+                // Compact : top 3 sous-zones par remplissage, barre + % seulement
+                const topSz = [...z.subzones]
+                    .sort((a, b) => (b.fillRate ?? 0) - (a.fillRate ?? 0))
+                    .slice(0, 3);
+                itemsBlock = `<div class="stock-subzones">${topSz.map(sz => {
+                    const szFill = sz.fillRate ?? 0;
+                    const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+                    return `<div class="stock-subzone">
+                        <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
+                        <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
+                    </div>`;
+                }).join('')}</div>`;
+            } else {
+                // Détaillé : toutes les sous-zones avec top 3 ressources
+                itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
+                    const szFill = sz.fillRate ?? 0;
+                    const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+                    const szTop = toArr(sz.topItems);
+                    return `<div class="stock-subzone">
+                        <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
+                        <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
+                        <div class="stock-subzone-meta">${sz.slotsUsed ?? '?'} / ${sz.slotsTotal ?? '?'} slots · ${sz.totalItems ?? '?'} items</div>
+                        ${szTop.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}
+                    </div>`;
+                }).join('')}</div>`;
+            }
         } else {
             const topItems = toArr(z.topItems);
             const inner = topItems.length
