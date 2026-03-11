@@ -610,6 +610,9 @@ function renderStats(trains, stats, updatedAt) {
     }
 }
 
+// ── Utilitaire : table Lua vide sérialisée en {} côté Python → toujours un tableau
+function toArr(v) { return Array.isArray(v) ? v : []; }
+
 // ── Modal détail zone stockage ───────────────────────────────
 let _stockageCache = [];
 
@@ -632,7 +635,7 @@ function openStockModal(zoneName) {
         bodyHtml = z.subzones.map(sz => {
             const szFill = sz.fillRate ?? 0;
             const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
-            const allSzItems = sz.items || sz.topItems || [];
+            const allSzItems = toArr(sz.items).length ? toArr(sz.items) : toArr(sz.topItems);
             return `<div class="stock-modal-subzone">
                 <div class="stock-modal-subzone-header">
                     <span class="stock-modal-subzone-name">${esc(sz.name)}</span>
@@ -645,7 +648,7 @@ function openStockModal(zoneName) {
             </div>`;
         }).join('');
     } else {
-        const allItems = z.items || z.topItems || [];
+        const allItems = toArr(z.items).length ? toArr(z.items) : toArr(z.topItems);
         bodyHtml = allItems.length
             ? allItems.map(it => `
                 <div class="stock-item-row">
@@ -761,7 +764,7 @@ function renderStockage(stockage) {
             itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
                 const szFill = sz.fillRate ?? 0;
                 const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
-                const szTop = sz.topItems || [];
+                const szTop = toArr(sz.topItems);
                 return `<div class="stock-subzone">
                     <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
                     <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
@@ -770,7 +773,7 @@ function renderStockage(stockage) {
                 </div>`;
             }).join('')}</div>`;
         } else {
-            const topItems = z.topItems || [];
+            const topItems = toArr(z.topItems);
             const inner = topItems.length
                 ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
                 : '<div class="stock-empty">Aucun item</div>';
