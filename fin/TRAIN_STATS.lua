@@ -18,6 +18,7 @@ if not net then computer.stop() end
 event.listen(net)
 net:open(44)
 net:open(47)
+net:open(50)  -- port SHUTDOWN (STARTER)
 
 local gpu=computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
 local scr=component.proxy(component.findComponent("STATS_SCREEN")[1])
@@ -205,7 +206,11 @@ while true do
     local e,_,_,port,a1=event.pull(remaining)
 
     if e=="NetworkMessage" then
-        if port==47 then
+        if port==50 then
+            gpu:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
+            gpu:flush()
+            computer.stop()
+        elseif port==47 then
             -- Stats calculées par LOGGER — source unique de vérité
             local ok,fn=pcall(load,"return "..(a1 or "{}"))
             if ok and fn then

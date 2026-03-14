@@ -8,6 +8,7 @@ local scr=component.proxy(component.findComponent("MAP_SCREEN")[1])
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
 gpu:bindScreen(scr)
 net:open(43)   -- port dédié aux logs
+net:open(50)   -- port SHUTDOWN (STARTER)
 event.listen(net)
 
 -- === CONSTANTES AFFICHAGE ===
@@ -69,7 +70,11 @@ end
 draw()
 while true do
     local e,src,sender,port,script,msg=event.pull(30)
-    if e=="NetworkMessage" and port==43 then
+    if e=="NetworkMessage" and port==50 then
+        gpu:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
+        gpu:flush()
+        computer.stop()
+    elseif e=="NetworkMessage" and port==43 then
         addLine(tostring(script),tostring(msg))
         print("["..tostring(script).."] "..tostring(msg))
         draw()

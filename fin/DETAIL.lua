@@ -29,6 +29,7 @@ local ledFB=pan:getModule(5,8,0) -- IndicatorModule centre  (feedback vert)
 event.listen(bP) event.listen(bN) event.listen(net)
 net:open(42)
 net:open(45)
+net:open(50)  -- port SHUTDOWN (STARTER)
 
 -- === CONSTANTES AFFICHAGE ===
 local sw,sh=600,900
@@ -270,8 +271,17 @@ for _,t in pairs(tl) do
     if ok and m then dk_prev[t:getName()]=m.isDocked end
 end
 
+local function shutdownNow()
+    gpu:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
+    gpu:flush()
+    if gpu2 then gpu2:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0); gpu2:flush() end
+    computer.stop()
+end
+
 -- === BOUCLE PRINCIPALE ===
 while true do
+    -- Vérifie SHUTDOWN en priorité avant chaque draw (non-bloquant)
+    do local e,_,_,p=event.pull(0) if e=="NetworkMessage" and p==50 then shutdownNow() end end
     draw()
     drawList()
     -- LED : éteindre après un cycle de feedback
@@ -289,7 +299,9 @@ while true do
         ledOn=true
         setLed(true)
     elseif e=="NetworkMessage" then
-        if port==42 then
+        if port==50 then
+            shutdownNow()
+        elseif port==42 then
             onTrip(a1,a2,a3,a4,a5,a6)
         elseif port==45 then
             local tn,seg,avg,cnt=a1,a2,a3,a4

@@ -7,6 +7,7 @@
 -- Port 47 : stats calculées (avgSpeed,avgDur,score,conf,scoreHistory...) → TRAIN_STATS
 -- Port 48 : réception données STOCKAGE (STOCKAGE → LOGGER)
 -- Port 49 : requêtes point-à-point → réponse via net:send(addr, 49, data)
+-- Port 51 : réception stats power (POWER_MON → LOGGER)
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -20,6 +21,7 @@ event.listen(net)
 net:open(46)
 net:open(48)
 net:open(49)
+net:open(51)
 
 -- === LOG (broadcast port 43 → GET_LOG) ===
 local function log(msg)
@@ -32,6 +34,7 @@ end
 
 local saved={}         -- historique des trajets en mémoire (source primaire)
 local stockageData={}  -- données STOCKAGE par adresse : [addr]={name,ts,raw}
+local powerData=nil    -- dernière donnée reçue de POWER_MON (port 51)
 local _knownDups={}    -- zones déjà signalées comme dupliquées (évite spam GET_LOG)
 
 -- === SÉRIALISEURS ===
@@ -235,7 +238,7 @@ local function postState(cs)
         table.insert(stockArr,entry)
     end
     local ok,body=pcall(function()
-        return toJson({trains=trainArr,trips=saved,stats=cs,stockage=stockArr})
+        return toJson({trains=trainArr,trips=saved,stats=cs,stockage=stockArr,power=powerData})
     end)
     if not ok or not body then return end
     pcall(function()
@@ -423,6 +426,14 @@ while true do
         local ok2,parsed=pcall(function()return (load("return "..arg2))()end)
         stockageData[sender]={name=arg1,ts=computer.millis()/1000,stats=ok2 and parsed or nil}
 
+    -- Stats power reçues de POWER_MON
+    elseif e=="NetworkMessage" and port==51 then
+        local ok2,parsed=pcall(function()return (load("return "..arg2))()end)
+        if ok2 and parsed then
+            parsed.ts=parsed.ts or math.floor(computer.millis()/1000)
+            powerData=parsed
+        end
+
     -- Requête point-à-point : répondre uniquement à l'expéditeur
     elseif e=="NetworkMessage" and port==49 then
         local ok5,cs=pcall(computeStats)
@@ -432,7 +443,7 @@ while true do
             for addr,d in pairs(stockageData) do
                 stockSummary[d.name or addr]={ts=d.ts,addr=addr}
             end
-            local resp=ser({stats=cs,stockage=stockSummary})
+            local resp=ser({stats=cs,stockage=stockSummary,power=powerData})
             pcall(function()net:send(sender,49,resp)end)
         end
     end

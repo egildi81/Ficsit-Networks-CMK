@@ -76,6 +76,9 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     /* Pages */
     .page { padding: 8px; }
 
+    /* Status : pastille + temps seulement */
+    .status-lbl { display: none; }
+
     /* Colonnes trains → empilées */
     .columns { grid-template-columns: 1fr; gap: 8px; }
     .col-header { padding: 10px 14px; justify-content: space-between; }
@@ -249,6 +252,58 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 .stock-purge-btn:hover { color: #ff8800; border-color: #ff8800; }
 
+/* ── POWER ── */
+.pw-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 4px 12px;
+}
+.pw-title { color: #ff8800; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
+.pw-stale { font-size: 0.76em; color: #555; }
+
+/* Desktop : sidebar gauche (cards) + graphe droit */
+.pw-layout {
+    display: grid;
+    grid-template-columns: 270px 1fr;
+    gap: 12px;
+    align-items: stretch;
+}
+.pw-sidebar { display: flex; flex-direction: column; gap: 10px; }
+.pw-stat-card {
+    background: #111; border-radius: 8px; padding: 14px 16px;
+    border: 1px solid #1a1a1a;
+}
+.pw-stat-label { color: #666; font-size: 0.72em; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; text-transform: uppercase; }
+.pw-stat-val   { font-size: 1.7em; font-weight: 700; }
+.pw-load-row   { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pw-load-bar-bg { flex: 1; background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; }
+.pw-load-bar   { height: 100%; border-radius: 3px; transition: width .5s, background .5s; width: 0%; }
+.pw-load-pct   { color: #888; font-size: 0.78em; font-weight: 700; min-width: 36px; text-align: right; }
+
+.pw-chart-col {
+    background: #111; border-radius: 8px; padding: 16px 18px;
+    border: 1px solid #1a1a1a;
+    display: flex; flex-direction: column;
+}
+.pw-chart-col canvas { flex: 1; width: 100%; display: block; border-radius: 4px; min-height: 0; }
+
+.pw-section-title {
+    color: #ff8800; font-size: 0.78em; letter-spacing: 1.5px; font-weight: 700;
+    margin-bottom: 10px;
+}
+.pw-batt {
+    background: #111; border-radius: 8px; padding: 14px 16px;
+    border: 1px solid #1a1a1a;
+}
+.pw-batt-pct   { font-size: 2em; font-weight: 700; margin-bottom: 4px; }
+.pw-batt-store { color: #888; font-size: 0.8em; margin-bottom: 2px; }
+.pw-batt-flux  { font-size: 0.8em; margin-top: 6px; }
+
+/* Mobile : empilement — graphe masqué */
+@media (max-width: 700px) {
+    .pw-layout { grid-template-columns: 1fr; }
+    .pw-chart-col { display: none; }
+}
+
 /* ── FOOTER ── */
 #footer { position: fixed; bottom: 8px; right: 14px; color: #282828; font-size: 0.72em; }
 </style>
@@ -263,6 +318,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     <div class="sections">
         <button class="section-btn active" onclick="switchSection('trains', this)">TRAINS</button>
         <button class="section-btn" onclick="switchSection('stockage', this)">STOCKAGE</button>
+        <button class="section-btn" onclick="switchSection('power', this)">ÉNERGIE</button>
     </div>
     <nav class="tabs" id="trains-tabs">
         <button class="tab active" onclick="switchTab('monitor', this)">EN DIRECT</button>
@@ -351,6 +407,54 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     <div id="stockage-grid" class="stock-grid"></div>
 </div>
 
+<!-- ── SECTION ÉNERGIE ── -->
+<div id="page-power" class="page">
+    <div class="pw-header">
+        <span class="pw-title">RÉSEAU ÉLECTRIQUE</span>
+        <span id="pw-stale" class="pw-stale"></span>
+    </div>
+    <div class="pw-layout">
+        <!-- Sidebar gauche : cards empilées -->
+        <div class="pw-sidebar">
+            <div class="pw-stat-card" style="border-top:2px solid #ff8800">
+                <div class="pw-stat-label">Production</div>
+                <div class="pw-stat-val" id="pw-prod" style="color:#ff8800">—</div>
+            </div>
+            <div class="pw-stat-card" style="border-top:2px solid #4499ff">
+                <div class="pw-stat-label">Consommation</div>
+                <div class="pw-stat-val" id="pw-cons" style="color:#4499ff">—</div>
+                <div class="pw-load-row">
+                    <div class="pw-load-bar-bg"><div class="pw-load-bar" id="pw-load-bar"></div></div>
+                    <span id="pw-load-pct" class="pw-load-pct"></span>
+                </div>
+            </div>
+            <div class="pw-stat-card" style="border-top:2px solid #444">
+                <div class="pw-stat-label">Capacité installée</div>
+                <div class="pw-stat-val" id="pw-cap" style="color:#888">—</div>
+            </div>
+            <div class="pw-stat-card" style="border-top:2px solid #aaaa22">
+                <div class="pw-stat-label">Conso max demandée</div>
+                <div class="pw-stat-val" id="pw-maxc" style="color:#cccc22">—</div>
+            </div>
+            <div class="pw-batt" id="pw-batt" style="display:none">
+                <div class="pw-section-title">BATTERIES</div>
+                <div class="pw-batt-pct" id="pw-batt-pct">—</div>
+                <div class="pw-batt-store" id="pw-batt-store">—</div>
+                <div class="stock-bar-bg" style="margin:8px 0 10px"><div class="stock-bar" id="pw-batt-bar"></div></div>
+                <div id="pw-batt-flux" class="pw-batt-flux">—</div>
+            </div>
+            <div id="pw-nodata" style="color:#555;font-size:0.85em;display:none">
+                En attente des données POWER_MON…
+            </div>
+        </div>
+        <!-- Graphe droit : pleine hauteur -->
+        <div class="pw-chart-col">
+            <div class="pw-section-title">HISTORIQUE MW</div>
+            <canvas id="pw-chart"></canvas>
+        </div>
+    </div>
+</div>
+
 <!-- ── MODAL DÉTAIL ZONE STOCKAGE ── -->
 <div id="stock-modal" onclick="if(event.target===this)closeStockModal()">
     <div id="stock-modal-panel">
@@ -370,22 +474,24 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 <div id="footer">—</div>
 
 <script>
-// ── Navigation sections (TRAINS / STOCKAGE) ──────────────────
-const _trainPages = ['page-monitor', 'page-history', 'page-stats'];
-let _lastTrainPage = 'page-monitor';
+// ── Navigation sections (TRAINS / STOCKAGE / ÉNERGIE) ────────
+const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
+const _sectionPages = ['page-stockage', 'page-power'];
+let _lastTrainPage  = 'page-monitor';
 
 function switchSection(name, btn) {
     document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const trainsTabs = document.getElementById('trains-tabs');
+    // Masquer toutes les pages
+    _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
+    _sectionPages.forEach(id => document.getElementById(id).classList.remove('active'));
     if (name === 'trains') {
         trainsTabs.style.display = '';
-        document.getElementById('page-stockage').classList.remove('active');
         document.getElementById(_lastTrainPage).classList.add('active');
     } else {
         trainsTabs.style.display = 'none';
-        _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
-        document.getElementById('page-stockage').classList.add('active');
+        document.getElementById('page-' + name).classList.add('active');
     }
 }
 
@@ -821,6 +927,162 @@ function renderStockage(stockage) {
     _setupStockageDrag();
 }
 
+// ── Power ─────────────────────────────────────────────────────
+const _POWER_HIST_MAX = 120;
+const _powerHist = { prod: [], cons: [], cap: [], maxCons: [] };
+let _lastPowerHistTime = 0;  // timestamp client (Date.now) du dernier ajout historique
+
+function _fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor(sec / 60) % 60;
+    const s = sec % 60;
+    if (h > 0) return `${h}h${String(m).padStart(2,'0')}m`;
+    return `${m}m${String(s).padStart(2,'0')}s`;
+}
+
+function renderPower(p, loggerUpdatedAt) {
+    const nodata = document.getElementById('pw-nodata');
+    if (!p) {
+        nodata.style.display = '';
+        document.getElementById('pw-stale').textContent = '';
+        return;
+    }
+    nodata.style.display = 'none';
+
+    // Indicateur fraîcheur (basé sur logger_updated_at — timestamp Python Unix)
+    const staleEl = document.getElementById('pw-stale');
+    if (loggerUpdatedAt) {
+        const ageSec = Math.round(Date.now() / 1000 - loggerUpdatedAt);
+        staleEl.textContent = `MAJ: ${ageSec}s`;
+        staleEl.style.color = ageSec > 30 ? '#ee3333' : '#555';
+    } else {
+        staleEl.textContent = '';
+    }
+
+    // Stats MW
+    const fmtMW = v => v != null ? (+v).toFixed(1) + ' MW' : '—';
+    document.getElementById('pw-prod').textContent = fmtMW(p.prod);
+    document.getElementById('pw-cons').textContent = fmtMW(p.cons);
+    document.getElementById('pw-cap').textContent  = fmtMW(p.cap);
+    document.getElementById('pw-maxc').textContent = fmtMW(p.maxCons);
+
+    // Barre charge (conso / capacité)
+    const loadPct = p.cap > 0 ? Math.min(100, Math.round(p.cons / p.cap * 100)) : 0;
+    const loadCol = loadPct > 90 ? '#ee3333' : loadPct > 75 ? '#eeee22' : '#22ee22';
+    document.getElementById('pw-load-bar').style.cssText = `width:${loadPct}%;background:${loadCol}`;
+    document.getElementById('pw-load-pct').textContent   = loadPct + '%';
+
+    // Batteries
+    const battEl = document.getElementById('pw-batt');
+    if (p.hasBatt) {
+        battEl.style.display = '';
+        const pct = +(p.battPct ?? 0);
+        const col = pct < 33 ? '#ee3333' : pct < 80 ? '#ffaa22' : '#22ee22';
+        document.getElementById('pw-batt-pct').textContent   = pct.toFixed(1) + '%';
+        document.getElementById('pw-batt-pct').style.color   = col;
+        document.getElementById('pw-batt-store').textContent =
+            `${(+p.battStore).toFixed(1)} / ${(+p.battCap).toFixed(1)} MWh`;
+        document.getElementById('pw-batt-bar').style.cssText =
+            `width:${Math.min(100, pct)}%;background:${col}`;
+
+        let fluxHtml = '';
+        if ((p.battOut || 0) > 0) {
+            fluxHtml = `<span style="color:#ee3333">▼ Décharge ${(+p.battOut).toFixed(1)} MW`;
+            if (p.tEmpty > 0) fluxHtml += ` &nbsp;·&nbsp; Vide dans ${_fmtTime(p.tEmpty)}`;
+            fluxHtml += '</span>';
+        } else if ((p.battIn || 0) > 0) {
+            fluxHtml = `<span style="color:#22ee22">▲ Charge ${(+p.battIn).toFixed(1)} MW`;
+            if (p.tFull > 0) fluxHtml += ` &nbsp;·&nbsp; Plein dans ${_fmtTime(p.tFull)}`;
+            fluxHtml += '</span>';
+        } else {
+            fluxHtml = '<span style="color:#555">En attente</span>';
+        }
+        document.getElementById('pw-batt-flux').innerHTML = fluxHtml;
+    } else {
+        battEl.style.display = 'none';
+    }
+
+    // Historique : une entrée toutes les 5s côté client (indépendant du ts POWER_MON)
+    const now = Date.now();
+    if (now - _lastPowerHistTime >= 5000) {
+        _lastPowerHistTime = now;
+        ['prod', 'cons', 'cap', 'maxCons'].forEach(k => {
+            _powerHist[k].push(+(p[k] || 0));
+            if (_powerHist[k].length > _POWER_HIST_MAX) _powerHist[k].shift();
+        });
+    }
+    _drawPowerChart();
+}
+
+function _drawPowerChart() {
+    const canvas = document.getElementById('pw-chart');
+    if (!canvas) return;
+    canvas.width  = canvas.offsetWidth  || 800;
+    canvas.height = canvas.offsetHeight || 400;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    const P = { t: 24, r: 12, b: 24, l: 52 };
+    const cw = w - P.l - P.r, ch = h - P.t - P.b;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0d0d0d';
+    ctx.fillRect(0, 0, w, h);
+
+    const n = _powerHist.prod.length;
+    if (n < 2) {
+        ctx.fillStyle = '#444'; ctx.font = '13px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('En attente des données…', w / 2, h / 2 + 5);
+        return;
+    }
+
+    // Max
+    let maxVal = 10;
+    ['prod', 'cons', 'cap', 'maxCons'].forEach(k => {
+        maxVal = Math.max(maxVal, Math.max(..._powerHist[k]));
+    });
+    maxVal *= 1.12;
+
+    // Grille Y
+    const GRID = 4;
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+    ctx.fillStyle = '#444'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
+    for (let i = 0; i <= GRID; i++) {
+        const y = P.t + ch - (i / GRID) * ch;
+        ctx.beginPath(); ctx.moveTo(P.l, y); ctx.lineTo(P.l + cw, y); ctx.stroke();
+        ctx.fillText(Math.round(maxVal * i / GRID) + ' MW', P.l - 4, y + 4);
+    }
+
+    // Courbes (ordre : cap gris en dernier pour ne pas masquer les autres)
+    const series = [
+        { key: 'cap',     color: '#444444', label: 'Capacité',   lw: 1.5 },
+        { key: 'maxCons', color: '#4499ff', label: 'Conso max',  lw: 1.5 },
+        { key: 'prod',    color: '#ffffff', label: 'Production', lw: 2.5 },
+        { key: 'cons',    color: '#ff8800', label: 'Conso',      lw: 2.5 },
+    ];
+    series.forEach(({ key, color, lw }) => {
+        const data = _powerHist[key];
+        if (!data.length) return;
+        ctx.strokeStyle = color; ctx.lineWidth = lw;
+        ctx.beginPath();
+        data.forEach((v, i) => {
+            const x = P.l + (i / (n - 1)) * cw;
+            const y = P.t + ch - (v / maxVal) * ch;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    });
+
+    // Légende (coin haut droit)
+    ctx.textAlign = 'right';
+    let lx = P.l + cw;
+    series.slice().reverse().forEach(({ color, label }) => {
+        ctx.fillStyle = color; ctx.font = 'bold 11px monospace';
+        ctx.fillText(label, lx, P.t + 14);
+        lx -= ctx.measureText(label).width + 14;
+    });
+}
+
 // ── Boucle de rafraîchissement ───────────────────────────────
 let errors = 0;
 
@@ -833,19 +1095,19 @@ async function refresh() {
 
         const st = document.getElementById('status');
         if (!data.logger_updated_at) {
-            st.textContent = '● En attente';
+            st.innerHTML = '● <span class="status-lbl">En attente</span>';
             st.className = '';
         } else {
             const ageSec = Math.round((Date.now() / 1000) - data.logger_updated_at);
             let ageStr = ageSec < 60 ? `${ageSec}s` : `${Math.floor(ageSec/60)}min${ageSec%60 ? ' '+ageSec%60+'s' : ''}`;
             if (ageSec <= 10) {
-                st.textContent = `● En direct  (${ageStr})`;
+                st.innerHTML = `● <span class="status-lbl">En direct</span>  (${ageStr})`;
                 st.className = 'ok';
             } else if (ageSec <= 60) {
-                st.textContent = `● Retard  (${ageStr})`;
+                st.innerHTML = `● <span class="status-lbl">Retard</span>  (${ageStr})`;
                 st.className = 'late';
             } else {
-                st.textContent = `● Hors ligne  (${ageStr})`;
+                st.innerHTML = `● <span class="status-lbl">Hors ligne</span>  (${ageStr})`;
                 st.className = 'err';
             }
         }
@@ -859,6 +1121,7 @@ async function refresh() {
         renderTrips(data.trips || {});
         renderStats(data.trains || [], data.stats || {}, data.logger_updated_at);
         renderStockage(data.stockage || []);
+        renderPower(data.power || null, data.logger_updated_at);
 
         document.getElementById('footer').textContent =
             'Dernière mise à jour : ' + new Date().toLocaleTimeString();
