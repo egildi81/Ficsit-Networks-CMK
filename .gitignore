@@ -1,0 +1,14 @@
+
+# Config lié à l'utisateur
+api/api_keys.json
+web/config.py
+
+# Préférence de l'utilisateur
+web/stockage_order.json
+
+# Python
+*__pycache__*
+
+# Edition Egild
+.codex/*
+Documentation/*
