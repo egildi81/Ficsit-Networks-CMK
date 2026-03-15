@@ -1,4 +1,4 @@
-const VERSION = "1.3.5";
+const VERSION = "1.3.6";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
 const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
@@ -717,7 +717,7 @@ let _dpRoutesConfig  = [];   // config routes — source de vérité pour l'affi
 let _dpLiveRoutes    = null; // état temps réel depuis DISPATCH (via LOGGER)
 let _dpEditingIndex  = -1;   // index route en cours d'édition (-1 = aucune)
 let _dpKnownStations = new Set();
-let _dpKnownBuffers  = new Set();
+let _dpKnownBuffers  = new Map();  // Map<value, label> — value=nom réel, label=affichage avec parent / value=actual name, label=display with parent
 let _dpKnownTrains   = new Set();
 
 function _dpUpdateLists(data) {
@@ -737,9 +737,12 @@ function _dpUpdateLists(data) {
     }
     if (Array.isArray(data.stockage)) {
         data.stockage.forEach(z => {
-            if (z.zone) _dpKnownBuffers.add(z.zone);
-            // Ajouter aussi les sous-zones / also add sub-zones
-            if (z.subzones) z.subzones.forEach(sz => { if (sz.name) _dpKnownBuffers.add(sz.name); });
+            if (!z.zone) return;
+            _dpKnownBuffers.set(z.zone, z.zone);  // zone principale : label = nom / main zone: label = name
+            // Sous-zones : préfixe (PARENT) pour différencier / sub-zones: prefix (PARENT) for clarity
+            if (z.subzones) z.subzones.forEach(sz => {
+                if (sz.name) _dpKnownBuffers.set(sz.name, `(${z.zone}) ${sz.name}`);
+            });
         });
     }
     const _refreshDl = (id, set) => {
@@ -750,8 +753,21 @@ function _dpUpdateLists(data) {
             const opt = document.createElement('option'); opt.value = v; dl.appendChild(opt);
         });
     };
+    // Datalist buffers : map value→label pour affichage sous-zones / buffer datalist: value→label for sub-zone display
+    const dlBuf = document.getElementById('dp-dl-buffers');
+    if (dlBuf) {
+        const existingBuf = new Set([...dlBuf.options].map(o => o.value));
+        [..._dpKnownBuffers.entries()]
+            .filter(([v]) => !existingBuf.has(v))
+            .sort(([, la], [, lb]) => la.localeCompare(lb))
+            .forEach(([value, label]) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = label;  // Chrome affiche le label, insère value / Chrome shows label, inserts value
+                dlBuf.appendChild(opt);
+            });
+    }
     _refreshDl('dp-dl-stations', _dpKnownStations);
-    _refreshDl('dp-dl-buffers',  _dpKnownBuffers);
     _refreshDl('dp-dl-trains',   _dpKnownTrains);
 }
 
