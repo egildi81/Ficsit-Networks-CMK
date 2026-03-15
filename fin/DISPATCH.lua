@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.1"
+local VERSION = "4.2.2"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -99,6 +99,13 @@ end
 -- deliver=true → selfDriving=true + timetable [PARK→DELIVERY]
 -- deliver=false → selfDriving=false + timetable vide (hold)
 local function setRoute(st, rs, deliver)
+    -- Guard nil stations — addStop(nil) crash le serveur dédié (exception C++ FIN non rattrapable)
+    -- Guard nil stations — addStop(nil) crashes dedicated server (uncatchable C++ FIN exception)
+    if deliver and (not rs.parkStObj or not rs.delivStObj) then
+        print("WARN setRoute "..st.name.." : station nil, GO annulé (route mal configurée)")
+        setSelfDriving(st, false)
+        return
+    end
     setSelfDriving(st, deliver)
     local ok,err=pcall(function()
         local tt=st.obj:getTimeTable()
@@ -195,6 +202,9 @@ local function discoverRoute(route, trainMap)
     if delivId and delivId[1] then rs.delivStObj=component.proxy(delivId[1]) end
     if not rs.parkStObj  then print("WARN route "..route.name.." : station PARK '"..route.park.."' introuvable") end
     if not rs.delivStObj then print("WARN route "..route.name.." : station DELIVERY '"..route.delivery.."' introuvable") end
+    -- Route désactivée si une station manque — evite tout GO avec addStop(nil)
+    -- Route disabled if a station is missing — prevents any GO with addStop(nil)
+    rs.disabled = not rs.parkStObj or not rs.delivStObj
 
     -- Mode assignation : route.trains fourni → lookup par nom dans trainMap
     if route.trains and #route.trains>0 then
@@ -706,7 +716,7 @@ while true do
             end
             for _,r in ipairs(routes) do
                 local rs=routeState[r.name]
-                if not rs or not rs.parkStr then goto cont end
+                if not rs or not rs.parkStr or rs.disabled then goto cont end
                 for _,st in pairs(rs.trains) do
                     local dock=getDock(st)
                     local stStr=getCurrentStopStr(st)
