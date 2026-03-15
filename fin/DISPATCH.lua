@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.3"
+local VERSION = "4.2.4"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -521,17 +521,27 @@ local function decide(rs, route, st, dock, stStr)
     local enRoute=countEnRoute(rs)-(isStuck and 1 or 0)
     local wagonItems=rs.trainCap>0 and getWagonItems(st) or 0
     local trainFull=rs.trainCap<=0 or wagonItems>=rs.trainCap
-    -- tbvAdj : drain>0 → formule normale. drain≤0 + buffer quasi vide → GO immédiat.
+    -- GO = deux conditions cumulatives / GO = two cumulative conditions:
+    -- 1. Contenu suffisant (>= MIN_BUF_DISPATCH) — pas de trip à vide / Enough content — no empty trip
+    -- 2. Timing / urgence selon drain :
+    --    drain>0 (buffer se vide)  → GO si le buffer sera vide avant l'arrivée du train
+    --    drain<0 (buffer croît)    → GO dès que contenu suffisant (production active, on vide au plus tôt)
+    --    drain=0 (stable/inconnu) → pas urgent (tbv=infini), on attend que le drain change
+    -- 2. Timing / urgency based on drain:
+    --    drain>0 (buffer draining)  → GO if buffer will be empty before train arrives
+    --    drain<0 (buffer growing)   → GO as soon as content sufficient (production active, pick up ASAP)
+    --    drain=0 (stable/unknown)   → not urgent (tbv=infinite), wait for drain to change
     local tbvAdj
     if drain>0 then
         tbvAdj=math.max(0,(curItems-wagonItems)/drain)
-    elseif curItems<=MIN_BUF_DISPATCH then
-        tbvAdj=0
+    elseif drain<0 then
+        tbvAdj=0      -- croissant → toujours "à temps" si contenu suffisant / growing → always "in time" if content sufficient
     else
-        tbvAdj=tbv
+        tbvAdj=math.huge  -- stable ou historique insuffisant → pas urgent / stable or no history → not urgent
     end
-    local urgent=tbvAdj<=avgETA+marge
-    local shouldGo=urgent and (enRoute<maxEnRoute)
+    local hasContent = curItems >= MIN_BUF_DISPATCH  -- assez d'items pour que le trip ait du sens / enough items to make trip worthwhile
+    local urgent = tbvAdj <= avgETA+marge
+    local shouldGo = hasContent and urgent and (enRoute<maxEnRoute)
     local decision=shouldGo and "go" or "hold"
 
     local now=computer.millis()/1000
