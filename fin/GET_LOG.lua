@@ -2,6 +2,9 @@
 -- Écoute le port 43 (broadcast de logs depuis LOGGER, DETAIL, TRAIN_TAB, etc.)
 -- Composants requis : GPU T2, écran nommé "MAP_SCREEN", NetworkCard
 
+local VERSION = "1.1.0"
+print("=== GET_LOG v"..VERSION.." BOOT ===")
+
 -- === INITIALISATION MATÉRIEL ===
 local gpu=computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
 local scr=component.proxy(component.findComponent("MAP_SCREEN")[1])
@@ -16,17 +19,30 @@ local sw,sh=2400,1800
 local BG={r=0,g=0,b=0,a=1}
 local WH={r=1,g=1,b=1,a=1}
 local DI={r=0.3,g=0.3,b=0.3,a=1}
-local OR={r=1,g=0.5,b=0,a=1}
-local GR={r=0.2,g=1,b=0.2,a=1}
-local BL={r=0.2,g=0.6,b=1,a=1}
-local YE={r=1,g=1,b=0.2,a=1}
-local RE={r=1,g=0.2,b=0.2,a=1}
+-- Palette (fond noir — toutes les couleurs sont vives)
+-- Color palette (black background — all colors are bright)
+local GR={r=0.2,g=1,  b=0.2,a=1}  -- vert   / green
+local BL={r=0.2,g=0.6,b=1,  a=1}  -- bleu   / blue
+local YE={r=1,  g=1,  b=0.2,a=1}  -- jaune  / yellow
+local OR={r=1,  g=0.5,b=0,  a=1}  -- orange
+local RE={r=1,  g=0.2,b=0.2,a=1}  -- rouge  / red
+local CY={r=0,  g=0.9,b=1,  a=1}  -- cyan
+local PU={r=0.8,g=0.4,b=1,  a=1}  -- violet / purple
+local MI={r=0.2,g=1,  b=0.7,a=1}  -- menthe / mint
+local PK={r=1,  g=0.4,b=0.8,a=1}  -- rose   / pink
 
--- Couleur par script source
+-- Couleur par script source (fond noir — ne pas mettre de couleurs sombres)
+-- Color per source script (black background — no dark colors)
 local COLORS={
-    LOGGER   = GR,
-    DETAIL   = BL,
-    TRAIN_TAB= YE,
+    LOGGER      = GR,  -- vert
+    DETAIL      = BL,  -- bleu
+    TRAIN_TAB   = YE,  -- jaune
+    DISPATCH    = CY,  -- cyan
+    STOCKAGE    = PU,  -- violet
+    TRAIN_STATS = OR,  -- orange
+    TRAIN_MAP   = MI,  -- menthe
+    POWER_MON   = PK,  -- rose
+    STARTER     = RE,  -- rouge
 }
 
 local FONT=22              -- taille de police

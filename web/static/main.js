@@ -1,0 +1,959 @@
+const VERSION = "1.3.0";
+// ── Navigation sections ───────────────────────────────────────
+const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
+const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch'];
+let _lastTrainPage  = 'page-monitor';
+
+function switchSection(name, btn) {
+    document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const trainsTabs = document.getElementById('trains-tabs');
+    // Masquer toutes les pages
+    _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
+    _sectionPages.forEach(id => document.getElementById(id).classList.remove('active'));
+    if (name === 'trains') {
+        trainsTabs.style.display = '';
+        document.getElementById(_lastTrainPage).classList.add('active');
+    } else {
+        trainsTabs.style.display = 'none';
+        document.getElementById('page-' + name).classList.add('active');
+    }
+}
+
+// ── Navigation onglets (sous TRAINS) ─────────────────────────
+function switchTab(name, btn) {
+    _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    _lastTrainPage = 'page-' + name;
+    document.getElementById(_lastTrainPage).classList.add('active');
+    btn.classList.add('active');
+}
+
+// ── Utilitaires ──────────────────────────────────────────────
+function fmt(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const m = Math.floor(sec / 60), s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function fmtNumMobile(n) {
+    n = Math.floor(n || 0);
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 10000)   return Math.floor(n / 1000) + 'k';
+    if (n >= 1000)    return (n / 1000).toFixed(1) + 'k';
+    return String(n);
+}
+function fmtUptime(sec) {
+    sec = Math.floor(sec || 0);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor(sec / 60) % 60;
+    const s = sec % 60;
+    return `${h}h${String(m).padStart(2,'0')}m${String(s).padStart(2,'0')}s`;
+}
+
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Rendu colonnes temps réel ────────────────────────────────
+function renderTrains(trains) {
+    const groups = { moving: [], docked: [], stopped: [] };
+    trains.forEach(t => (groups[t.status] || groups.stopped).push(t));
+    groups.moving.sort((a, b) => a.speed - b.speed);  // plus lent en haut
+
+    document.getElementById('cnt-moving').textContent  = groups.moving.length;
+    document.getElementById('cnt-docked').textContent  = groups.docked.length;
+    document.getElementById('cnt-stopped').textContent = groups.stopped.length;
+
+    const empty = '<div class="empty-row">Aucun</div>';
+
+    document.getElementById('col-moving').innerHTML = groups.moving.length
+        ? groups.moving.map(t => `
+            <div class="train-row">
+                <div class="train-name">
+                    <span class="dot ${t.speed > 100 ? 'dot-fast' : 'dot-slow'}"></span>
+                    ${esc(t.name)}
+                </div>
+                <div class="train-sub">
+                    <span class="${t.speed > 100 ? 'spd-fast' : 'spd-slow'}">${t.speed} km/h</span>
+                    <span>→ ${esc(t.station)}</span>
+                    <span>${t.wagons} wagon${t.wagons > 1 ? 's' : ''}</span>
+                </div>
+            </div>`).join('') : empty;
+
+    document.getElementById('col-docked').innerHTML = groups.docked.length
+        ? groups.docked.map(t => `
+            <div class="train-row">
+                <div class="train-name">
+                    <span class="dot dot-docked"></span>
+                    ${esc(t.name)}
+                </div>
+                <div class="train-sub">
+                    <span class="clr-blue">→ ${esc(t.station)}</span>
+                    <span>${t.wagons} wagon${t.wagons > 1 ? 's' : ''}</span>
+                </div>
+            </div>`).join('') : empty;
+
+    document.getElementById('col-stopped').innerHTML = groups.stopped.length
+        ? groups.stopped.map(t => `
+            <div class="train-row">
+                <div class="train-name">
+                    <span class="dot dot-stopped"></span>
+                    ${esc(t.name)}
+                </div>
+                <div class="train-sub">
+                    <span class="spd-none">Arrêté</span>
+                    <span>${esc(t.station)}</span>
+                    <span>${t.wagons} wagon${t.wagons > 1 ? 's' : ''}</span>
+                </div>
+            </div>`).join('') : empty;
+
+}
+
+// ── Rendu historique ─────────────────────────────────────────
+const openCards = new Set();
+
+function renderTrips(trips) {
+    const container = document.getElementById('trips-list');
+    const entries = Object.entries(trips || {});
+    if (!entries.length) {
+        container.innerHTML = '<div class="empty-row">Aucun trajet enregistré</div>';
+        return;
+    }
+
+    let totalTrips = 0;
+    let html = '';
+
+    for (const [trainName, segs] of entries) {
+        const isOpen = openCards.has(trainName);
+        const segEntries = Object.entries(segs || {});
+        let segHtml = '';
+
+        for (const [seg, tripArr] of segEntries) {
+            if (!tripArr || !tripArr.length) continue;
+            totalTrips += tripArr.length;
+            const durations = tripArr.map(t => Number(t.duration));
+            const mn = Math.min(...durations), mx = Math.max(...durations);
+            const avg = Math.floor(durations.reduce((a, b) => a + b, 0) / durations.length);
+            const last = tripArr[0];
+            const invParts = last.inv ? Object.entries(last.inv).map(([k, v]) => `<span>${esc(k)} ×${v}</span>`).join('') : '';
+
+            segHtml += `
+                <div class="segment">
+                    <div class="seg-title">${esc(seg)} &nbsp;(${tripArr.length} trajet${tripArr.length > 1 ? 's' : ''})</div>
+                    <div class="seg-stats">min ${fmt(mn)} · moy ${fmt(avg)} · max ${fmt(mx)} · ${last.wagons || '?'} wagon${last.wagons > 1 ? 's' : ''}</div>
+                    ${invParts ? `<div class="seg-inv">${invParts}</div>` : ''}
+                </div>`;
+        }
+
+        html += `
+            <div class="train-card">
+                <div class="train-card-header ${isOpen ? 'open' : ''}" onclick="toggleCard(this,'${esc(trainName).replace(/'/g,"\\'")}')">
+                    <span class="tname">${esc(trainName)}</span>
+                    <span class="tmeta">${segEntries.length} segment${segEntries.length > 1 ? 's' : ''}</span>
+                    <span class="arrow">▶</span>
+                </div>
+                <div class="segments ${isOpen ? 'open' : ''}">${segHtml || '<div class="empty-row">Aucun segment</div>'}</div>
+            </div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function toggleCard(el, name) {
+    const seg = el.nextElementSibling;
+    const open = !seg.classList.contains('open');
+    seg.classList.toggle('open', open);
+    el.classList.toggle('open', open);
+    open ? openCards.add(name) : openCards.delete(name);
+}
+
+// ── Stats réseau — données calculées par LOGGER, affichage uniquement ────────
+function renderStats(trains, stats, updatedAt) {
+    const s = stats || {};
+
+    // Trains (compteurs depuis LOGGER via stats)
+    document.getElementById('st-moving').textContent  = s.movingCnt  ?? '—';
+    document.getElementById('st-docked').textContent  = s.dockedCnt  ?? '—';
+    document.getElementById('st-stopped').textContent = s.stoppedCnt ?? '—';
+    document.getElementById('st-total').textContent   = s.totalCnt   ?? '—';
+
+    // Performance
+    const avgSpeed = s.avgSpeed || 0;
+    const durCnt   = s.durCnt   || 0;
+    const avgDur   = s.avgDur   || 0;
+    const avgInv   = s.avgInv   || 0;
+
+    document.getElementById('st-perf-title').textContent = 'PERFORMANCE' + (durCnt > 0 ? ' (' + durCnt + ' trajets)' : '');
+
+    const speedEl = document.getElementById('st-speed');
+    speedEl.textContent = avgSpeed > 0 ? avgSpeed + ' km/h' : '—';
+    speedEl.className = 'stats-bigval ' + (avgSpeed > 150 ? 'clr-green' : avgSpeed > 80 ? 'clr-yellow' : 'clr-red');
+    const barEl = document.getElementById('st-speed-bar');
+    barEl.style.width = Math.min(avgSpeed / 200, 1) * 100 + '%';
+    barEl.className = 'stats-bar ' + (avgSpeed > 150 ? 'bar-green' : avgSpeed > 80 ? 'bar-yellow' : 'bar-red');
+
+    document.getElementById('st-dur').textContent = durCnt > 0 ? fmt(avgDur) : 'N/A';
+    const isMobile = _isMobile;
+    const fmtI = n => isMobile ? fmtNumMobile(n) : String(n);
+    document.getElementById('st-inv').textContent = avgInv > 0 ? fmtI(avgInv) + ' items' : '—';
+    const totalInv = s.totalInv || 0;
+    document.getElementById('st-inv-total').textContent = totalInv > 0 ? fmtI(totalInv) + ' items' : '—';
+
+    // Score (calculé par LOGGER)
+    const scoreHistory = s.scoreHistory || [];
+    const score = scoreHistory.length > 0 ? scoreHistory[scoreHistory.length - 1] : (s.score ?? null);
+    const scoreEl = document.getElementById('st-score');
+    scoreEl.textContent = score !== null ? score : '—';
+    scoreEl.className = 'stats-score ' + (score >= 80 ? 'clr-green' : score >= 60 ? 'clr-yellow' : score !== null ? 'clr-red' : '');
+
+    // Confiance (calculée par LOGGER)
+    const confLabels = {
+        'HAUTE': 'clr-green', 'BONNE': 'clr-green',
+        'FAIBLE': 'clr-yellow', 'INEXISTANTE': 'clr-red'
+    };
+    const confEl = document.getElementById('st-conf');
+    confEl.textContent = s.conf || 'INCONNUE';
+    confEl.className = 'stats-bigval ' + (confLabels[s.conf] || '');
+
+    // Uptime (depuis LOGGER)
+    document.getElementById('st-uptime').textContent = 'UP: ' + fmtUptime(s.uptime);
+
+    // Graphique historique (depuis LOGGER)
+    document.getElementById('st-hist-cnt').textContent = `(${scoreHistory.length} mesures)`;
+    const canvas = document.getElementById('st-hist-canvas');
+    canvas.width = canvas.offsetWidth || 900;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!scoreHistory.length) {
+        ctx.fillStyle = '#333'; ctx.font = '13px monospace';
+        ctx.fillText('En attente des données...', 16, h / 2 + 5);
+    } else {
+        const colW = Math.floor((w - 32) / scoreHistory.length);
+        scoreHistory.forEach((sc, i) => {
+            const bh = Math.floor((h - 4) * sc / 100);
+            const bx = 16 + i * colW;
+            ctx.fillStyle = '#0d0d0d';
+            ctx.fillRect(bx, 0, colW - 2, h - 4);
+            if (bh > 0) {
+                ctx.fillStyle = sc >= 80 ? '#22cc22' : sc >= 60 ? '#cccc22' : '#cc2222';
+                ctx.fillRect(bx, h - 4 - bh, colW - 2, bh);
+            }
+        });
+    }
+}
+
+// ── Utilitaire : table Lua vide sérialisée en {} côté Python → toujours un tableau
+function toArr(v) { return Array.isArray(v) ? v : []; }
+
+// ── Modal détail zone stockage ───────────────────────────────
+let _stockageCache = [];
+
+function openStockModal(zoneName) {
+    const z = _stockageCache.find(z => z.zone === zoneName);
+    if (!z) return;
+    const fill = z.fillRate ?? 0;
+    const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+
+    document.getElementById('stock-modal-title').textContent = zoneName;
+    const fillEl = document.getElementById('stock-modal-fill');
+    fillEl.textContent = fill + '%';
+    fillEl.style.color = fillColor;
+    document.getElementById('stock-modal-bar').style.cssText = `width:${fill}%;background:${fillColor}`;
+    document.getElementById('stock-modal-meta').textContent =
+        `${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items`;
+
+    let bodyHtml;
+    if (z.subzones && z.subzones.length > 1) {
+        bodyHtml = z.subzones.map(sz => {
+            const szFill = sz.fillRate ?? 0;
+            const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+            const allSzItems = toArr(sz.items).length ? toArr(sz.items) : toArr(sz.topItems);
+            return `<div class="stock-modal-subzone">
+                <div class="stock-modal-subzone-header">
+                    <span class="stock-modal-subzone-name">${esc(sz.name)}</span>
+                    <span class="stock-fill" style="color:${szColor}">${szFill}%</span>
+                </div>
+                <div class="stock-modal-subzone-meta">${sz.slotsUsed ?? '?'} / ${sz.slotsTotal ?? '?'} slots · ${sz.totalItems ?? '?'} items</div>
+                ${allSzItems.length
+                    ? allSzItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
+                    : '<div class="stock-empty">Aucun item</div>'}
+            </div>`;
+        }).join('');
+    } else {
+        const allItems = toArr(z.items).length ? toArr(z.items) : toArr(z.topItems);
+        bodyHtml = allItems.length
+            ? allItems.map(it => `
+                <div class="stock-item-row">
+                    <span class="stock-item-name">${esc(it.name)}</span>
+                    <span class="stock-item-count">${it.count}</span>
+                    <span class="stock-item-pct">${it.pct}%</span>
+                </div>`).join('')
+            : '<div class="stock-empty">Aucun item</div>';
+    }
+    document.getElementById('stock-modal-body').innerHTML = bodyHtml;
+
+    document.getElementById('stock-modal').classList.add('open');
+}
+
+function closeStockModal() {
+    document.getElementById('stock-modal').classList.remove('open');
+}
+
+// ── Toggle vue stockage (compact / détaillée) ─────────────────
+let _stockCompact = true;
+
+function toggleStockView() {
+    _stockCompact = !_stockCompact;
+    document.getElementById('stock-view-btn').textContent = _stockCompact ? 'Vue détaillée' : 'Vue compacte';
+    renderStockage(_stockageCache);
+}
+
+// ── Purge manuelle des zones inactives ────────────────────────
+async function purgeStockage() {
+    const btn = document.querySelector('.stock-purge-btn');
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+        const r = await fetch('/api/stockage-purge', { method: 'POST' });
+        const d = await r.json();
+        btn.textContent = d.removed > 0 ? `${d.removed} supprimée(s)` : 'Rien à purger';
+    } catch(e) {
+        btn.textContent = 'Erreur';
+    }
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Purger les inactives'; }, 2500);
+}
+
+// ── Ordre des cards stockage (persisté côté serveur) ─────────
+let _stockageOrder = [];
+
+function _sortByOrder(stockage) {
+    if (!_stockageOrder.length) return stockage;
+    const sorted = [];
+    _stockageOrder.forEach(name => {
+        const z = stockage.find(z => (z.zone || '?') === name);
+        if (z) sorted.push(z);
+    });
+    stockage.forEach(z => { if (!_stockageOrder.includes(z.zone || '?')) sorted.push(z); });
+    return sorted;
+}
+
+let _dragSetup = false;
+let _isDragging = false;
+function _setupStockageDrag() {
+    if (_dragSetup) return;
+    _dragSetup = true;
+    const grid = document.getElementById('stockage-grid');
+    let dragSrc = null;
+
+    grid.addEventListener('dragstart', e => {
+        const card = e.target.closest('.stock-card[draggable]');
+        if (!card) return;
+        dragSrc = card;
+        _isDragging = true;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    });
+    grid.addEventListener('dragend', () => {
+        _isDragging = false;
+        grid.querySelectorAll('.stock-card').forEach(c => {
+            c.classList.remove('dragging', 'drag-over');
+        });
+        dragSrc = null;
+    });
+    grid.addEventListener('dragover', e => {
+        e.preventDefault();
+        const card = e.target.closest('.stock-card[draggable]');
+        if (!card || card === dragSrc) return;
+        grid.querySelectorAll('.stock-card').forEach(c => c.classList.remove('drag-over'));
+        card.classList.add('drag-over');
+    });
+    grid.addEventListener('dragleave', e => {
+        const card = e.target.closest('.stock-card');
+        if (card) card.classList.remove('drag-over');
+    });
+    grid.addEventListener('drop', e => {
+        e.preventDefault();
+        const card = e.target.closest('.stock-card[draggable]');
+        if (!card || card === dragSrc) return;
+        const cards = [...grid.querySelectorAll('.stock-card[draggable]')];
+        const si = cards.indexOf(dragSrc), di = cards.indexOf(card);
+        grid.insertBefore(dragSrc, si < di ? card.nextSibling : card);
+        _stockageOrder = [...grid.querySelectorAll('.stock-card[draggable]')].map(c => c.dataset.zone);
+        fetch('/api/stockage-order', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_stockageOrder) });
+        grid.querySelectorAll('.stock-card').forEach(c => c.classList.remove('drag-over'));
+    });
+}
+
+// ── Rendu stockage ───────────────────────────────────────────
+function renderStockage(stockage) {
+    const grid = document.getElementById('stockage-grid');
+    if (!grid) return;
+    _stockageCache = stockage;
+    if (!stockage || !stockage.length) {
+        grid.innerHTML = '<div class="stock-empty">Aucune zone de stockage connectée</div>';
+        return;
+    }
+    if (_isDragging) return;  // ne pas re-render pendant un drag en cours
+    const sorted = _sortByOrder(stockage);
+    const now = Date.now() / 1000;
+    grid.innerHTML = sorted.map(z => {
+        const stale = z.server_ts && (now - z.server_ts) > 120;
+        const fill = z.fillRate ?? 0;
+        const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+        let itemsBlock;
+        if (z.subzones && z.subzones.length > 1) {
+            if (_stockCompact) {
+                // Compact : top 3 sous-zones par remplissage, barre + % seulement
+                const topSz = [...z.subzones]
+                    .sort((a, b) => (b.fillRate ?? 0) - (a.fillRate ?? 0))
+                    .slice(0, 3);
+                itemsBlock = `<div class="stock-subzones">${topSz.map(sz => {
+                    const szFill = sz.fillRate ?? 0;
+                    const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+                    return `<div class="stock-subzone">
+                        <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
+                        <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
+                    </div>`;
+                }).join('')}</div>`;
+            } else {
+                // Détaillé : toutes les sous-zones avec top 3 ressources
+                itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
+                    const szFill = sz.fillRate ?? 0;
+                    const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+                    const szTop = toArr(sz.topItems);
+                    return `<div class="stock-subzone">
+                        <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
+                        <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
+                        <div class="stock-subzone-meta">${sz.slotsUsed ?? '?'} / ${sz.slotsTotal ?? '?'} slots · ${sz.totalItems ?? '?'} items</div>
+                        ${szTop.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}
+                    </div>`;
+                }).join('')}</div>`;
+            }
+        } else {
+            const topItems = toArr(z.topItems);
+            const inner = topItems.length
+                ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
+                : '<div class="stock-empty">Aucun item</div>';
+            itemsBlock = `<div class="stock-items">${inner}</div>`;
+        }
+        return `
+            <div class="stock-card${stale ? ' stock-stale' : ''}" draggable="true" data-zone="${esc(z.zone || '?')}" onclick="openStockModal('${esc(z.zone || '?')}')" title="Voir tous les items">
+                <div class="stock-card-header">
+                    <span class="stock-zone">${esc(z.zone || '?')}${z.duplicate ? ' ⚠️' : ''}</span>
+                    <span class="stock-fill" style="color:${fillColor}">${fill}%</span>
+                </div>
+                <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
+                <div class="stock-meta">${z.slotsUsed ?? '?'} / ${z.slotsTotal ?? '?'} slots · ${z.totalItems ?? '?'} items</div>
+                ${itemsBlock}
+            </div>`;
+    }).join('');
+    _setupStockageDrag();
+}
+
+// ── Power ─────────────────────────────────────────────────────
+const _POWER_HIST_MAX = 120;
+const _powerHist = { prod: [], cons: [], cap: [], maxCons: [] };
+let _lastPowerHistTime = 0;  // timestamp client (Date.now) du dernier ajout historique
+
+function _fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor(sec / 60) % 60;
+    const s = sec % 60;
+    if (h > 0) return `${h}h${String(m).padStart(2,'0')}m`;
+    return `${m}m${String(s).padStart(2,'0')}s`;
+}
+
+function renderPower(p, loggerUpdatedAt) {
+    const nodata = document.getElementById('pw-nodata');
+    if (!p) {
+        nodata.style.display = '';
+        document.getElementById('pw-stale').textContent = '';
+        return;
+    }
+    nodata.style.display = 'none';
+
+    // Indicateur fraîcheur (basé sur logger_updated_at — timestamp Python Unix)
+    const staleEl = document.getElementById('pw-stale');
+    if (loggerUpdatedAt) {
+        const ageSec = Math.round(Date.now() / 1000 - loggerUpdatedAt);
+        staleEl.textContent = `MAJ: ${ageSec}s`;
+        staleEl.style.color = ageSec > 30 ? '#ee3333' : '#555';
+    } else {
+        staleEl.textContent = '';
+    }
+
+    // Stats MW
+    const fmtMW = v => v != null ? (+v).toFixed(1) + ' MW' : '—';
+    document.getElementById('pw-prod').textContent = fmtMW(p.prod);
+    document.getElementById('pw-cons').textContent = fmtMW(p.cons);
+    document.getElementById('pw-cap').textContent  = fmtMW(p.cap);
+    document.getElementById('pw-maxc').textContent = fmtMW(p.maxCons);
+
+    // Barre charge (conso / capacité)
+    const loadPct = p.cap > 0 ? Math.min(100, Math.round(p.cons / p.cap * 100)) : 0;
+    const loadCol = loadPct > 90 ? '#ee3333' : loadPct > 75 ? '#eeee22' : '#22ee22';
+    document.getElementById('pw-load-bar').style.cssText = `width:${loadPct}%;background:${loadCol}`;
+    document.getElementById('pw-load-pct').textContent   = loadPct + '%';
+
+    // Batteries
+    const battEl = document.getElementById('pw-batt');
+    if (p.hasBatt) {
+        battEl.style.display = '';
+        const pct = +(p.battPct ?? 0);
+        const col = pct < 33 ? '#ee3333' : pct < 80 ? '#ffaa22' : '#22ee22';
+        document.getElementById('pw-batt-pct').textContent   = pct.toFixed(1) + '%';
+        document.getElementById('pw-batt-pct').style.color   = col;
+        document.getElementById('pw-batt-store').textContent =
+            `${(+p.battStore).toFixed(1)} / ${(+p.battCap).toFixed(1)} MWh`;
+        document.getElementById('pw-batt-bar').style.cssText =
+            `width:${Math.min(100, pct)}%;background:${col}`;
+
+        let fluxHtml = '';
+        if ((p.battOut || 0) > 0) {
+            fluxHtml = `<span style="color:#ee3333">▼ Décharge ${(+p.battOut).toFixed(1)} MW`;
+            if (p.tEmpty > 0) fluxHtml += ` &nbsp;·&nbsp; Vide dans ${_fmtTime(p.tEmpty)}`;
+            fluxHtml += '</span>';
+        } else if ((p.battIn || 0) > 0) {
+            fluxHtml = `<span style="color:#22ee22">▲ Charge ${(+p.battIn).toFixed(1)} MW`;
+            if (p.tFull > 0) fluxHtml += ` &nbsp;·&nbsp; Plein dans ${_fmtTime(p.tFull)}`;
+            fluxHtml += '</span>';
+        } else {
+            fluxHtml = '<span style="color:#555">En attente</span>';
+        }
+        document.getElementById('pw-batt-flux').innerHTML = fluxHtml;
+    } else {
+        battEl.style.display = 'none';
+    }
+
+    // Historique : une entrée toutes les 5s côté client (indépendant du ts POWER_MON)
+    // History: one entry every 5s client-side (independent of POWER_MON ts)
+    const now = Date.now();
+    if (now - _lastPowerHistTime >= 5000) {
+        _lastPowerHistTime = now;
+        ['prod', 'cons', 'cap', 'maxCons'].forEach(k => {
+            _powerHist[k].push(+(p[k] || 0));
+            if (_powerHist[k].length > _POWER_HIST_MAX) _powerHist[k].shift();
+        });
+        _drawPowerChart();  // redraw uniquement quand l'historique change / only redraw when history updates
+    } else if (_powerHist.prod.length < 2) {
+        _drawPowerChart();  // premier rendu : affiche le message d'attente / first render: show waiting message
+    }
+}
+
+function _drawPowerChart() {
+    const canvas = document.getElementById('pw-chart');
+    if (!canvas) return;
+    canvas.width  = canvas.offsetWidth  || 800;
+    canvas.height = canvas.offsetHeight || 400;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    const P = { t: 24, r: 12, b: 24, l: 52 };
+    const cw = w - P.l - P.r, ch = h - P.t - P.b;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0d0d0d';
+    ctx.fillRect(0, 0, w, h);
+
+    const n = _powerHist.prod.length;
+    if (n < 2) {
+        ctx.fillStyle = '#444'; ctx.font = '13px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('En attente des données…', w / 2, h / 2 + 5);
+        return;
+    }
+
+    // Max
+    let maxVal = 10;
+    ['prod', 'cons', 'cap', 'maxCons'].forEach(k => {
+        maxVal = Math.max(maxVal, Math.max(..._powerHist[k]));
+    });
+    maxVal *= 1.12;
+
+    // Grille Y
+    const GRID = 4;
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+    ctx.fillStyle = '#444'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
+    for (let i = 0; i <= GRID; i++) {
+        const y = P.t + ch - (i / GRID) * ch;
+        ctx.beginPath(); ctx.moveTo(P.l, y); ctx.lineTo(P.l + cw, y); ctx.stroke();
+        ctx.fillText(Math.round(maxVal * i / GRID) + ' MW', P.l - 4, y + 4);
+    }
+
+    // Courbes (ordre : cap gris en dernier pour ne pas masquer les autres)
+    const series = [
+        { key: 'cap',     color: '#444444', label: 'Capacité',   lw: 1.5 },
+        { key: 'maxCons', color: '#4499ff', label: 'Conso max',  lw: 1.5 },
+        { key: 'prod',    color: '#ffffff', label: 'Production', lw: 2.5 },
+        { key: 'cons',    color: '#ff8800', label: 'Conso',      lw: 2.5 },
+    ];
+    series.forEach(({ key, color, lw }) => {
+        const data = _powerHist[key];
+        if (!data.length) return;
+        ctx.strokeStyle = color; ctx.lineWidth = lw;
+        ctx.beginPath();
+        data.forEach((v, i) => {
+            const x = P.l + (i / (n - 1)) * cw;
+            const y = P.t + ch - (v / maxVal) * ch;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    });
+
+    // Légende (coin haut droit)
+    ctx.textAlign = 'right';
+    let lx = P.l + cw;
+    series.slice().reverse().forEach(({ color, label }) => {
+        ctx.fillStyle = color; ctx.font = 'bold 11px monospace';
+        ctx.fillText(label, lx, P.t + 14);
+        lx -= ctx.measureText(label).width + 14;
+    });
+}
+
+// ── Diff par section — évite les renders inutiles si les données n'ont pas changé
+// ── Per-section diff — skips renders when data is unchanged
+const _prevJson = { trains: null, trips: null, stats: null, stockage: null, power: null, dispatch: null };
+
+// ── Boucle de rafraîchissement ───────────────────────────────
+let errors = 0;
+
+// ── Perf debug — mesure fetch + render, log console + footer ─
+let _perfLog = '';  // dernière ligne de perf, affichée dans le footer
+
+function _t(label, fn) {
+    const t0 = performance.now();
+    fn();
+    return Math.round(performance.now() - t0);
+}
+
+async function refresh() {
+    const t0 = performance.now();
+    try {
+        const tFetch0 = performance.now();
+        const r = await fetch('/api/data');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        const tFetch = Math.round(performance.now() - tFetch0);
+        errors = 0;
+
+        const st = document.getElementById('status');
+        if (!data.logger_updated_at) {
+            st.innerHTML = '● <span class="status-lbl">En attente</span>';
+            st.className = '';
+        } else {
+            const ageSec = Math.round((Date.now() / 1000) - data.logger_updated_at);
+            let ageStr = ageSec < 60 ? `${ageSec}s` : `${Math.floor(ageSec/60)}min${ageSec%60 ? ' '+ageSec%60+'s' : ''}`;
+            if (ageSec <= 10) {
+                st.innerHTML = `● <span class="status-lbl">En direct</span>  (${ageStr})`;
+                st.className = 'ok';
+            } else if (ageSec <= 60) {
+                st.innerHTML = `● <span class="status-lbl">Retard</span>  (${ageStr})`;
+                st.className = 'late';
+            } else {
+                st.innerHTML = `● <span class="status-lbl">Hors ligne</span>  (${ageStr})`;
+                st.className = 'err';
+            }
+        }
+
+        if (data.site_title) {
+            document.title = data.site_title;
+            document.querySelector('header h1').textContent = data.site_title;
+        }
+        if (Array.isArray(data.stockage_order) && !_isDragging) _stockageOrder = data.stockage_order;
+
+        // Diff par section : render uniquement si le payload a changé
+        // Per-section diff: only render if payload changed
+        const _tj  = JSON.stringify(data.trains        || []);
+        const _rj  = JSON.stringify(data.trips         || {});
+        const _sj  = JSON.stringify(data.stats         || {});
+        const _zj  = JSON.stringify(data.stockage      || []);
+        const _pj  = JSON.stringify(data.power         || null);
+        const _dj  = JSON.stringify({ d: data.dispatch || null, r: data.dispatch_routes ?? null });
+
+        const rTimes = {};
+        if (_tj !== _prevJson.trains)   { _prevJson.trains   = _tj;  rTimes.trains   = _t('trains',   () => renderTrains(data.trains || [])); }
+        if (_rj !== _prevJson.trips)    { _prevJson.trips    = _rj;  rTimes.trips    = _t('trips',    () => renderTrips(data.trips || {})); }
+        if (_sj !== _prevJson.stats)    { _prevJson.stats    = _sj;  rTimes.stats    = _t('stats',    () => renderStats(data.trains || [], data.stats || {}, data.logger_updated_at)); }
+        if (_zj !== _prevJson.stockage) { _prevJson.stockage = _zj;  rTimes.stockage = _t('stockage', () => renderStockage(data.stockage || [])); }
+        if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
+        _dpUpdateLists(data);
+        if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
+
+        const tTotal = Math.round(performance.now() - t0);
+        const rParts = Object.entries(rTimes).map(([k, v]) => `${k}:${v}ms`).join(' ');
+        _perfLog = `fetch:${tFetch}ms${rParts ? '  rendu:['+rParts+']' : '  rendu:skipped'}  total:${tTotal}ms`;
+        if (tTotal > 200) console.warn('[PERF slow]', _perfLog);
+
+        document.getElementById('footer').textContent =
+            new Date().toLocaleTimeString() + '  |  ' + _perfLog;
+
+        if (data.error) console.warn('LOGGER:', data.error);
+    } catch (e) {
+        errors++;
+        const st = document.getElementById('status');
+        st.textContent = `⚠ Erreur serveur (${errors})`;
+        st.className = 'err';
+    }
+}
+
+// ── DISPATCH ─────────────────────────────────────────────────
+let _dpRoutesConfig  = [];   // config routes — source de vérité pour l'affichage
+let _dpLiveRoutes    = null; // état temps réel depuis DISPATCH (via LOGGER)
+let _dpEditingIndex  = -1;   // index route en cours d'édition (-1 = aucune)
+let _dpKnownStations = new Set();
+let _dpKnownBuffers  = new Set();
+
+function _dpUpdateLists(data) {
+    if (data.trips) {
+        Object.values(data.trips).forEach(segs => {
+            Object.keys(segs).forEach(seg => {
+                const m = seg.match(/^(.+)->(.+)$/);
+                if (m) { _dpKnownStations.add(m[1]); _dpKnownStations.add(m[2]); }
+            });
+        });
+    }
+    if (Array.isArray(data.trains)) {
+        data.trains.forEach(t => { if (t.station) _dpKnownStations.add(t.station); });
+    }
+    if (Array.isArray(data.stockage)) {
+        data.stockage.forEach(z => { if (z.zone) _dpKnownBuffers.add(z.zone); });
+    }
+    const _refreshDl = (id, set) => {
+        const dl = document.getElementById(id);
+        if (!dl) return;
+        const existing = new Set([...dl.options].map(o => o.value));
+        [...set].filter(v => !existing.has(v)).sort().forEach(v => {
+            const opt = document.createElement('option'); opt.value = v; dl.appendChild(opt);
+        });
+    };
+    _refreshDl('dp-dl-stations', _dpKnownStations);
+    _refreshDl('dp-dl-buffers',  _dpKnownBuffers);
+}
+
+function renderDispatch(dispatch, routesConfig) {
+    // Badges config/safeMode
+    const badgeCfg  = document.getElementById('dp-badge-config');
+    const badgeSafe = document.getElementById('dp-badge-safe');
+    if (dispatch && dispatch.configOk) {
+        badgeCfg.textContent = 'Config OK'; badgeCfg.className = 'dp-badge ok';
+    } else {
+        badgeCfg.textContent = dispatch ? 'Config manquante' : 'LOGGER hors ligne';
+        badgeCfg.className = 'dp-badge err';
+    }
+    if (dispatch && dispatch.safeMode) {
+        badgeSafe.style.display = ''; badgeSafe.className = 'dp-badge warn'; badgeSafe.textContent = 'SAFE MODE';
+    } else {
+        badgeSafe.style.display = 'none';
+    }
+    // Live routes depuis DISPATCH
+    _dpLiveRoutes = (dispatch && dispatch.routes && dispatch.routes.length > 0) ? dispatch.routes : null;
+    // Ne pas toucher la config ni re-rendre si éditeur ouvert (évite d'écraser les saisies en cours)
+    // Do not update config or re-render if editor is open (prevents overwriting in-progress edits)
+    if (_dpEditingIndex >= 0) return;
+    // Met à jour si le serveur a des données, OU si on n'a encore rien chargé (premier poll)
+    // Update if server has data, OR if we haven't loaded anything yet (first poll)
+    if (Array.isArray(routesConfig) && (routesConfig.length > 0 || _dpRoutesConfig.length === 0)) {
+        _dpRoutesConfig = routesConfig;
+    }
+    renderDpRoutes();
+}
+
+function renderDpRoutes() {
+    const container = document.getElementById('dp-routes');
+    container.innerHTML = '';
+    if (_dpRoutesConfig.length === 0) {
+        container.innerHTML = '<div style="color:#444;padding:20px 14px;font-size:0.82em;text-align:center">Aucune route configurée — cliquez sur + Route</div>';
+        return;
+    }
+    _dpRoutesConfig.forEach((r, i) => {
+        const live      = _dpLiveRoutes && _dpLiveRoutes.find(lr => lr.name === r.name);
+        const isEditing = _dpEditingIndex === i;
+
+        // Badge statut / Status badge
+        const badge = live
+            ? `<span class="dp-badge ok">● Live</span>`
+            : `<span class="dp-badge warn">⏳ En attente</span>`;
+
+        // Stats header
+        const statsHtml = live
+            ? `<span class="dp-route-stat">ETA ${Math.round(live.eta?.avg||0)}s ±${Math.round(live.eta?.sigma||0)}s</span>
+               <span class="dp-route-stat">buf: ${live.buffer?.items||0} · drain: ${(live.buffer?.drain||0).toFixed(2)}/s</span>
+               <span class="dp-badge ${live.enRoute>0?'ok':''}"> ${live.enRoute||0}/${live.maxEnRoute||1} en route</span>`
+            : `<span class="dp-route-meta">${r.park||'?'} → ${r.delivery||'?'} · buf: ${r.buffer||'?'}${(r.trains&&r.trains.length)?' · trains: '+r.trains.join(', '):''}</span>`;
+
+        // Lignes trains (quand live disponible) / Train rows (when live available)
+        const trainsHtml = live ? toArr(live.trains).map(st => {
+            const phase    = st.phase||'?';
+            const phaseCls = phase==='PARK'?'park':phase==='EN_ROUTE'?'route':phase==='DELIVERY'?'delivery':'unknown';
+            return `<div class="dp-train-row">
+                <span class="dp-train-name">${st.name}</span>
+                <span class="dp-train-phase ${phaseCls}">${phase}</span>
+                <span class="dp-train-decision">${st.decision||'—'}</span>
+                <div class="dp-btns">
+                    <button class="dp-btn go"   onclick="sendDispatchCmd('force_go','${st.name}','${r.name}')">GO</button>
+                    <button class="dp-btn hold" onclick="sendDispatchCmd('force_hold','${st.name}','${r.name}')">HOLD</button>
+                    <button class="dp-btn rec"  onclick="sendDispatchCmd('recovery','${st.name}','${r.name}')">REC</button>
+                </div>
+            </div>`;
+        }).join('') : '';
+
+        // Formulaire inline (si cette route est en édition) / Inline edit form
+        const editHtml = isEditing ? `
+            <div class="dp-inline-editor">
+                <div class="dp-edit-field">
+                    <label>Nom</label>
+                    <input class="dp-input" id="dp-ei-name-${i}" value="${r.name||''}">
+                </div>
+                <div class="dp-edit-field">
+                    <label>PARK</label>
+                    <input class="dp-input" id="dp-ei-park-${i}" value="${r.park||''}" list="dp-dl-stations">
+                </div>
+                <div class="dp-edit-field">
+                    <label>DELIVERY</label>
+                    <input class="dp-input" id="dp-ei-delivery-${i}" value="${r.delivery||''}" list="dp-dl-stations">
+                </div>
+                <div class="dp-edit-field">
+                    <label>Buffer</label>
+                    <input class="dp-input" id="dp-ei-buffer-${i}" value="${r.buffer||''}" list="dp-dl-buffers">
+                </div>
+                <div class="dp-edit-field dp-ef-max">
+                    <label>Max</label>
+                    <input class="dp-input" id="dp-ei-max-${i}" type="number" min="1" max="10" value="${r.maxEnRoute||1}">
+                </div>
+                <div class="dp-edit-field">
+                    <label>Trains</label>
+                    <input class="dp-input" id="dp-ei-trains-${i}" value="${(r.trains||[]).join(', ')}" placeholder="T1, T2, ...">
+                </div>
+                <div class="dp-editor-actions">
+                    <button class="dp-save-btn" onclick="dpSaveInlineEdit(${i})">💾 Sauvegarder</button>
+                    <button class="dp-btn" onclick="dpCancelEdit()">Annuler</button>
+                </div>
+            </div>` : '';
+
+        container.insertAdjacentHTML('beforeend', `
+        <div class="dp-route" id="dp-route-card-${i}">
+            <div class="dp-route-header">
+                <span class="dp-route-name">${r.name||'(sans nom)'}</span>
+                ${badge}
+                ${statsHtml}
+                <div class="dp-btns">
+                    <button class="dp-btn" onclick="dpToggleEdit(${i})" title="Éditer">✎</button>
+                    <button class="dp-btn del" onclick="dpDeleteRoute(${i})" title="Supprimer">✕</button>
+                </div>
+            </div>
+            ${trainsHtml}
+            ${editHtml}
+        </div>`);
+    });
+}
+
+function dpToggleEdit(i) {
+    _dpEditingIndex = (_dpEditingIndex === i) ? -1 : i;
+    renderDpRoutes();
+}
+
+function dpCancelEdit() {
+    // Si nouvelle route vide non sauvegardée → la retirer / Remove unsaved empty new route
+    if (_dpEditingIndex >= 0) {
+        const r = _dpRoutesConfig[_dpEditingIndex];
+        if (!r.name && !r.park && !r.delivery && !r.buffer) _dpRoutesConfig.splice(_dpEditingIndex, 1);
+    }
+    _dpEditingIndex = -1;
+    renderDpRoutes();
+}
+
+function dpSaveInlineEdit(i) {
+    const r = _dpRoutesConfig[i];
+    r.name       = document.getElementById(`dp-ei-name-${i}`).value.trim();
+    r.park       = document.getElementById(`dp-ei-park-${i}`).value.trim();
+    r.delivery   = document.getElementById(`dp-ei-delivery-${i}`).value.trim();
+    r.buffer     = document.getElementById(`dp-ei-buffer-${i}`).value.trim();
+    r.maxEnRoute = +document.getElementById(`dp-ei-max-${i}`).value || 1;
+    const trainsRaw = document.getElementById(`dp-ei-trains-${i}`).value.trim();
+    r.trains     = trainsRaw ? trainsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+    r.enabled    = true;
+    _dpEditingIndex = -1;
+    renderDpRoutes();
+    dpSaveRoutes(true);
+}
+
+function dpDeleteRoute(i) {
+    if (!confirm(`Supprimer la route "${_dpRoutesConfig[i].name||'(sans nom)'}" ?`)) return;
+    _dpRoutesConfig.splice(i, 1);
+    if (_dpEditingIndex === i)    _dpEditingIndex = -1;
+    else if (_dpEditingIndex > i) _dpEditingIndex--;
+    renderDpRoutes();
+    dpSaveRoutes(true);
+}
+
+function dpNewRoute() {
+    _dpRoutesConfig.push({ name:'', park:'', delivery:'', buffer:'', maxEnRoute:1, trains:[], enabled:true });
+    _dpEditingIndex = _dpRoutesConfig.length - 1;
+    renderDpRoutes();
+    // Focus automatique sur le champ Nom / Auto-focus on the Name field
+    setTimeout(() => { const el = document.getElementById(`dp-ei-name-${_dpEditingIndex}`); if (el) el.focus(); }, 50);
+}
+
+async function dpSaveRoutes(triggerReload=false) {
+    // Guard: ne jamais sauvegarder si aucune route avec contenu (évite d'écraser le JSON au chargement)
+    // Guard: never save if no route has any content (prevents overwriting JSON on page load)
+    const hasContent = _dpRoutesConfig.length > 0 && _dpRoutesConfig.some(r => r.name || r.park || r.delivery || r.buffer);
+    if (!hasContent) return;
+    const statusEl = document.getElementById('dp-save-status');
+    if (statusEl) statusEl.textContent = 'Sauvegarde...';
+    try {
+        const resp = await fetch('/api/dispatch/routes', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(_dpRoutesConfig),
+        });
+        const d = await resp.json();
+        if (d.status === 'ok') {
+            const msg = d.save_warning ? `⚠ Mémoire OK mais fichier échoué: ${d.save_warning}` : `✓ Sauvegardé (${d.count})`;
+            if (statusEl) { statusEl.textContent = msg; setTimeout(() => { if(statusEl) statusEl.textContent=''; }, d.save_warning ? 8000 : 3000); }
+            // Reload DISPATCH uniquement sur demande explicite (bouton), pas sur auto-save
+            // Trigger DISPATCH reload only on explicit user action, not on auto-save
+            if (triggerReload) setTimeout(() => sendDispatchCmd('reload', null, null), 800);
+        } else {
+            if (statusEl) statusEl.textContent = '✗ Erreur serveur';
+            console.error('dpSaveRoutes error:', d);
+        }
+    } catch(e) {
+        if (statusEl) statusEl.textContent = '✗ Erreur réseau';
+        console.error('dpSaveRoutes network error:', e);
+    }
+}
+
+async function sendDispatchCmd(cmd, train, route) {
+    try {
+        await fetch('/api/dispatch/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cmd, train, route }),
+        });
+    } catch(e) { console.warn('CMD err:', e); }
+}
+
+// ── Cache window.innerWidth (mis à jour sur resize uniquement) ──
+// ── Cache window.innerWidth (updated on resize only) ────────────
+let _isMobile = window.innerWidth < 600;
+window.addEventListener('resize', () => { _isMobile = window.innerWidth < 600; });
+
+// ── Polling avec pause si onglet caché ───────────────────────
+// ── Polling with pause when tab is hidden ────────────────────
+let _pollInterval = null;
+function _startPolling() {
+    if (_pollInterval) return;
+    _pollInterval = setInterval(refresh, 2000);
+}
+function _stopPolling() {
+    if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { _stopPolling(); }
+    else { refresh(); _startPolling(); }
+});
+
+refresh();
+_startPolling();

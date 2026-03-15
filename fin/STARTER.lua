@@ -1,5 +1,6 @@
 -- STARTER.lua : panneau de démarrage — contrôle la séquence d'allumage/extinction des ordinateurs
 -- Séquence ON : sw1 → sw2 | Séquence OFF : sw2 → sw1 | Mauvais ordre → son d'erreur
+local VERSION = "1.1.0"
 local panel1 = component.proxy(component.findComponent("PANEL_L")[1])
 local net    = computer.getPCIDevices(classes.NetworkCard)[1]
 
@@ -13,7 +14,7 @@ local SOUND_START = "MS95Start"   -- démarrage des ordis  → MS95Start.ogg
 local SOUND_STOP  = "W95Stop"     -- extinction des ordis → W95Stop.ogg
 local SOUND_ERROR = "W2kError"    -- mauvaise séquence    → W2kError.ogg
 
-local COMPUTERS_TO_CONTROL = { "GET_LOG", "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL" }
+local COMPUTERS_TO_CONTROL = { "GET_LOG", "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL", "DISPATCH" }
 
 local function findOpt(nick)
     local f = component.findComponent(nick)

@@ -3,6 +3,10 @@
 -- Port 43 : logs → GET_LOG
 -- Port 46 : découverte LOGGER (WHO_IS_LOGGER → LOGGER_ADDR)
 -- Port 48 : données stockage → LOGGER (net:send ciblé)
+-- Port 55 : priorité DISPATCH → mode rapide 2s si buffer concerné | PRIORITY_REQUEST → DISPATCH
+
+local VERSION = "1.2.0"
+print("=== STOCKAGE v"..VERSION.." BOOT ===")
 
 -- === CONFIGURATION ===
 -- Chaque entrée = une sous-zone : { name="NOM", containers={"NICK1","NICK2",...} }
@@ -13,17 +17,21 @@ local CONTAINER_NAMES = {
     -- { name = "SORTIE", containers = { "STOCKAGE_OUT_1" } },
 }
 -- Nom de zone : nick du computer (champ Nick dans l'interface FIN), ou ID en fallback
-local _inst = computer.getInstance()
+local _inst         = computer.getInstance()
 local ZONE_NAME     = (_inst and _inst.nick ~= "" and _inst.nick) or (_inst and _inst.id) or "STOCKAGE"
-local SCAN_INTERVAL = 60  -- secondes entre chaque scan
-local PORT_OUT      = 48  -- port vers LOGGER
+local SCAN_INTERVAL = 60   -- secondes entre chaque scan en mode normal / seconds between scans in normal mode
+local SCAN_FAST     = 2    -- secondes entre chaque scan en mode rapide (buffer dispatch) / fast mode scan interval
+local LOG_FAST_SEC  = 30   -- intervalle de log en mode rapide (évite spam GET_LOG) / log interval in fast mode
+local PORT_OUT      = 48   -- port vers LOGGER / port to LOGGER
+local FAST_EXPIRY   = 90   -- secondes sans heartbeat DISPATCH → retour mode normal / seconds without DISPATCH heartbeat → revert
 
--- === INIT RÉSEAU ===
+-- === INIT RÉSEAU / NETWORK INIT ===
 local net = computer.getPCIDevices(classes.NetworkCard)[1]
 if net then
     event.listen(net)
     net:open(46)
     net:open(48)
+    net:open(55)  -- priorité buffers DISPATCH / DISPATCH buffer priority
     net:broadcast(43,"STOCKAGE","[boot] NetworkCard OK")
 else
     error("STOCKAGE: pas de NetworkCard")
@@ -34,7 +42,7 @@ print = function(...)
     pcall(function() net:broadcast(43,"STOCKAGE",table.concat(t," ")) end)
 end
 print("[boot] print OK")
-print("=== STOCKAGE BOOT ===")
+print("=== STOCKAGE v"..VERSION.." ===")
 local _totalConf = 0
 for _, sz in ipairs(CONTAINER_NAMES) do _totalConf = _totalConf + #sz.containers end
 print("Zone: "..ZONE_NAME.." | Sous-zones: "..#CONTAINER_NAMES.." | Conteneurs: ".._totalConf.." | Scan: "..SCAN_INTERVAL.."s")
@@ -45,6 +53,7 @@ end
 print("=====================")
 
 -- === DÉCOUVERTE LOGGER (adresse pour net:send ciblé) ===
+-- LOGGER discovery (address for targeted net:send)
 local loggerAddr = nil
 local function discoverLogger()
     if not net then return end
@@ -78,7 +87,7 @@ local function ser(v)
     end
 end
 
--- === DÉCOUVERTE DES CONTENEURS ===
+-- === DÉCOUVERTE DES CONTENEURS / CONTAINER DISCOVERY ===
 local function buildZones()
     local zones = {}
     for _, sz in ipairs(CONTAINER_NAMES) do
@@ -97,8 +106,9 @@ local function buildZones()
     return zones
 end
 
--- === SCAN D'UN INVENTAIRE ===
+-- === SCAN D'UN INVENTAIRE / INVENTORY SCAN ===
 -- Retourne : items{[id]={name,count,max}}, slotsUsed, slotsTotal
+-- Returns:   items{[id]={name,count,max}}, slotsUsed, slotsTotal
 local function scanInv(inv)
     local items = {}
     local used  = 0
@@ -116,7 +126,7 @@ local function scanInv(inv)
     return items, used, inv.size
 end
 
--- === STATS D'UNE LISTE DE CONTENEURS ===
+-- === STATS D'UNE LISTE DE CONTENEURS / CONTAINER LIST STATS ===
 local function computeContainerStats(containerList)
     local slotsTotal, slotsUsed = 0, 0
     local allItems = {}
@@ -156,7 +166,7 @@ local function computeContainerStats(containerList)
     }
 end
 
--- === STATS GLOBALES + SOUS-ZONES ===
+-- === STATS GLOBALES + SOUS-ZONES / GLOBAL STATS + SUBZONES ===
 local function computeStats(zones)
     local globalSlotT, globalSlotU = 0, 0
     local globalRaw = {}
@@ -195,14 +205,12 @@ local function computeStats(zones)
         totalItems = totalItems,
         items      = itemStats,
     }
-    -- champ subzones uniquement si 2+ sous-zones (sinon comportement flat identique)
-    if #subzones > 1 then
-        result.subzones = subzones
-    end
+    -- champ subzones uniquement si 2+ sous-zones / subzones field only if 2+ subzones
+    if #subzones > 1 then result.subzones = subzones end
     return result
 end
 
--- === CALCUL VITESSE (items/min, basé sur items globaux) ===
+-- === CALCUL VITESSE / SPEED CALCULATION (items/min) ===
 local function computeSpeed(cur, prev, dtSec)
     local speed = {}
     if not prev or dtSec <= 0 then return speed end
@@ -218,52 +226,119 @@ local function computeSpeed(cur, prev, dtSec)
     return speed
 end
 
--- === BOUCLE PRINCIPALE ===
-local zones = buildZones()
+-- === ENVOI VERS LOGGER / SEND TO LOGGER ===
+local function sendStats(stats)
+    if not net then return end
+    if loggerAddr then
+        local ok,err = pcall(function() net:send(loggerAddr,PORT_OUT,ZONE_NAME,ser(stats)) end)
+        if not ok then print("ERR send: "..tostring(err)) end
+    else
+        pcall(function() net:broadcast(PORT_OUT,ZONE_NAME,ser(stats)) end)
+    end
+end
+
+-- === MODE RAPIDE — demandé par DISPATCH si ce STOCKAGE gère un buffer dispatch ===
+-- === FAST MODE — requested by DISPATCH if this STOCKAGE manages a dispatch buffer ===
+local fastMode        = false
+local fastExpiry      = 0   -- millis() au-delà duquel le mode rapide expire / millis() when fast mode expires
+
+-- Vérifie si l'un des containers de ce STOCKAGE est dans la liste prioritaire
+-- Checks if any of this STOCKAGE's containers is in the priority list
+local function checkPriority(bufferList)
+    for _, bufNick in ipairs(bufferList) do
+        for _, sz in ipairs(CONTAINER_NAMES) do
+            for _, cname in ipairs(sz.containers) do
+                if cname == bufNick then return true end
+            end
+        end
+    end
+    return false
+end
+
+-- Demande la liste de priorité à DISPATCH (au cas où DISPATCH est déjà démarré)
+-- Request priority list from DISPATCH (in case DISPATCH is already running)
+pcall(function() net:broadcast(55,"PRIORITY_REQUEST") end)
+print("PRIORITY_REQUEST envoyé → attente réponse DISPATCH")
+
+-- === BOUCLE PRINCIPALE / MAIN LOOP ===
+local zones    = buildZones()
 local totalCont = 0
 for _, z in ipairs(zones) do totalCont = totalCont + #z.containers end
-print("STOCKAGE démarré — "..#zones.." sous-zone(s), "..totalCont.." conteneur(s), scan toutes les "..SCAN_INTERVAL.."s")
+print("STOCKAGE démarré — "..#zones.." sous-zone(s), "..totalCont.." conteneur(s)")
 
-local prevStats = nil
-local prevTime  = nil
+local prevStats  = nil
+local prevTime   = nil
+local lastStats  = nil   -- cache pour ré-envoi immédiat si LOGGER redémarre / cache for immediate resend if LOGGER restarts
+local lastLog    = 0     -- timestamp dernier log (limité en mode rapide) / last log timestamp (throttled in fast mode)
 
 while true do
-    local now   = computer.millis()/1000
-    local stats = computeStats(zones)
-    local dtSec = prevTime and (now-prevTime) or 0
-    stats.speed = computeSpeed(stats, prevStats, dtSec)
-    stats.ts    = now
+    local now    = computer.millis()/1000
+    local stats  = computeStats(zones)
+    local dtSec  = prevTime and (now-prevTime) or 0
+    stats.speed  = computeSpeed(stats, prevStats, dtSec)
+    stats.ts     = now
+    lastStats    = stats
 
-    if stats.subzones then
-        print(string.format("%s : %.1f%% (%d/%d slots | %d items) [%d sous-zones]",
-            ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems, #stats.subzones))
-    else
-        print(string.format("%s : %.1f%% (%d/%d slots | %d items)",
-            ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
-    end
-
-    -- Envoi vers LOGGER
-    if net then
-        if loggerAddr then
-            local ok,err = pcall(function() net:send(loggerAddr,PORT_OUT,ZONE_NAME,ser(stats)) end)
-            if not ok then print("ERR send: "..tostring(err)) end
+    -- Log : toujours en mode normal, throttlé à LOG_FAST_SEC en mode rapide (évite spam GET_LOG)
+    -- Log: always in normal mode, throttled to LOG_FAST_SEC in fast mode (avoids GET_LOG spam)
+    if not fastMode or now-lastLog >= LOG_FAST_SEC then
+        lastLog = now
+        if stats.subzones then
+            print(string.format("%s : %.1f%% (%d/%d slots | %d items) [%d sous-zones]",
+                ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems, #stats.subzones))
         else
-            pcall(function() net:broadcast(PORT_OUT,ZONE_NAME,ser(stats)) end)
+            print(string.format("%s : %.1f%% (%d/%d slots | %d items)",
+                ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
         end
     end
 
+    sendStats(stats)
     prevStats = stats
     prevTime  = now
 
-    -- Écoute pendant SCAN_INTERVAL : mise à jour loggerAddr si LOGGER redémarre
-    local deadline = computer.millis() + SCAN_INTERVAL * 1000
+    -- Intervalle selon le mode / Interval depends on mode
+    local interval = fastMode and SCAN_FAST or SCAN_INTERVAL
+    local deadline = computer.millis() + interval * 1000
+
     repeat
         local remaining = (deadline - computer.millis()) / 1000
         if remaining <= 0 then break end
         local e,_,sndr,prt,a1 = event.pull(remaining)
-        if e=="NetworkMessage" and prt==46 and a1=="LOGGER_ADDR" and sndr~=loggerAddr then
-            loggerAddr = sndr
-            print("LOGGER mis à jour: "..sndr)
+
+        if e=="NetworkMessage" and prt==46 then
+            if a1=="LOGGER_ADDR" then
+                -- LOGGER (re)démarré — mise à jour adresse + ré-envoi immédiat
+                -- LOGGER (re)started — update address + immediate resend
+                loggerAddr = sndr
+                print("LOGGER (re)détecté: "..sndr.." → ré-envoi immédiat")
+                if lastStats then sendStats(lastStats) end
+            end
+
+        elseif e=="NetworkMessage" and prt==55 then
+            -- Message de priorité depuis DISPATCH / Priority message from DISPATCH
+            local ok,msg = pcall(function() return (load("return "..a1))() end)
+            if ok and type(msg)=="table" and msg.priority then
+                local concerned = checkPriority(msg.priority)
+                fastExpiry = computer.millis() + FAST_EXPIRY * 1000
+                if concerned ~= fastMode then
+                    fastMode = concerned
+                    if fastMode then
+                        print("Mode RAPIDE activé (buffer dispatch) — scan "..SCAN_FAST.."s")
+                    else
+                        print("Mode NORMAL rétabli — scan "..SCAN_INTERVAL.."s")
+                    end
+                    -- Sortir de l'attente pour appliquer le nouvel intervalle immédiatement
+                    -- Exit wait loop to apply new interval immediately
+                    deadline = 0
+                end
+            end
         end
     until computer.millis() >= deadline
+
+    -- Expiry mode rapide : si DISPATCH silencieux depuis FAST_EXPIRY secondes → mode normal
+    -- Fast mode expiry: if DISPATCH silent for FAST_EXPIRY seconds → revert to normal mode
+    if fastMode and computer.millis() > fastExpiry then
+        fastMode = false
+        print("Mode RAPIDE expiré ("..FAST_EXPIRY.."s sans heartbeat DISPATCH) → mode NORMAL")
+    end
 end

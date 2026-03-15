@@ -39,6 +39,45 @@ def _save_order(order):
         pass
 _stockage_order = _load_order()
 
+# ── Dispatch routes (persistées dans dispatch_routes.json) ────
+_DISPATCH_ROUTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch_routes.json")
+
+def _load_dispatch_routes():
+    try:
+        with open(_DISPATCH_ROUTES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def _save_dispatch_routes(routes):
+    try:
+        with open(_DISPATCH_ROUTES_FILE, "w", encoding="utf-8") as f:
+            json.dump(routes, f, indent=2, ensure_ascii=False)
+        return None
+    except Exception as e:
+        return str(e)
+
+_dispatch_routes      = _load_dispatch_routes()
+_dispatch_status      = {}    # état temps réel poussé par LOGGER (agrégé depuis DISPATCH port 69)
+_dispatch_pending_cmd = None  # commande web en attente d'être consommée par LOGGER
+
+def _to_lua(obj):
+    """Convertit un objet Python en chaîne table Lua (parseable par load('return '..s)() )."""
+    if isinstance(obj, dict):
+        parts = [f'{k}={_to_lua(v)}' for k, v in obj.items()]
+        return '{' + ','.join(parts) + '}'
+    elif isinstance(obj, list):
+        parts = [_to_lua(item) for item in obj]
+        return '{' + ','.join(parts) + '}'
+    elif isinstance(obj, str):
+        escaped = obj.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"'
+    elif isinstance(obj, bool):
+        return 'true' if obj else 'false'
+    elif isinstance(obj, (int, float)):
+        return str(obj)
+    return 'nil'
+
 
 # ════════════════════════════════════════════════════════════
 # FLASK — dashboard web
@@ -65,6 +104,9 @@ def receive_push():
             name = zone.get("zone") or "?"
             zone["server_ts"] = time.time()
             _stockage[name] = zone
+    if isinstance(body.get("dispatch"), dict):
+        _dispatch_status.update(body["dispatch"])
+        _dispatch_status["server_ts"] = time.time()
     return jsonify({"status": "ok"})
 
 
@@ -104,13 +146,87 @@ def purge_stockage():
     return jsonify({"status": "ok", "removed": removed})
 
 
+@app.route("/api/dispatch/routes", methods=["GET"])
+def get_dispatch_routes():
+    """Retourne la config des routes dispatch (JSON ou ?format=lua pour la web UI)."""
+    if request.args.get("format") == "lua":
+        return _to_lua(_dispatch_routes), 200, {"Content-Type": "text/plain"}
+    return jsonify(_dispatch_routes)
+
+@app.route("/api/dispatch/routes.lua", methods=["GET", "POST"])
+def get_dispatch_routes_lua():
+    """Config dispatch pour LOGGER — GET (debug/curl) ou POST (FIN InternetCard, GET non supporté)."""
+    return _to_lua(_dispatch_routes), 200, {"Content-Type": "text/plain"}
+
+@app.route("/api/dispatch/routes", methods=["PUT"])
+def put_dispatch_routes():
+    """Sauvegarde la config routes (depuis la web UI)."""
+    global _dispatch_routes
+    body = request.get_json(silent=True)
+    if not isinstance(body, list):
+        return jsonify({"error": "Liste de routes attendue"}), 400
+    _dispatch_routes = body
+    save_err = _save_dispatch_routes(_dispatch_routes)
+    if save_err:
+        return jsonify({"status": "ok", "count": len(_dispatch_routes), "save_warning": save_err})
+    return jsonify({"status": "ok", "count": len(_dispatch_routes)})
+
+@app.route("/api/dispatch/command", methods=["POST"])
+def dispatch_command():
+    """
+    Reçoit une commande depuis la web UI → stockée, LOGGER la récupèrera
+    au prochain poll et la transmettra à DISPATCH via net:send port 69.
+    Body: { "cmd": "force_go"|"force_hold"|"recovery"|"reload", "train": "...", "route": "..." }
+    """
+    global _dispatch_pending_cmd
+    body = request.get_json(silent=True)
+    if not body or "cmd" not in body:
+        return jsonify({"error": "cmd manquant"}), 400
+    body["ts"] = time.time()
+    _dispatch_pending_cmd = body
+    return jsonify({"status": "queued", "cmd": body["cmd"]})
+
+@app.route("/api/dispatch/command", methods=["GET"])
+def get_dispatch_command():
+    """LOGGER poll cette route pour récupérer la prochaine commande en attente.
+    ?format=lua → retourne une table Lua (nil si aucune commande)."""
+    global _dispatch_pending_cmd
+    lua_mode = request.args.get("format") == "lua"
+    if not _dispatch_pending_cmd:
+        return ("nil", 200, {"Content-Type": "text/plain"}) if lua_mode else jsonify(None)
+    cmd = _dispatch_pending_cmd
+    _dispatch_pending_cmd = None   # consommée
+    if lua_mode:
+        return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
+    return jsonify(cmd)
+
+@app.route("/api/dispatch/command.lua", methods=["GET", "POST"])
+def get_dispatch_command_lua():
+    """Endpoint dédié Lua pour LOGGER (InternetCard ne supporte pas les query strings)."""
+    global _dispatch_pending_cmd
+    if not _dispatch_pending_cmd:
+        return "nil", 200, {"Content-Type": "text/plain"}
+    cmd = _dispatch_pending_cmd
+    _dispatch_pending_cmd = None
+    return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
+
 @app.route("/api/data")
 def get_data():
     # Auto-nettoyage TTL : zones sans update depuis > 10 min
     global _stockage
     now = time.time()
     _stockage = {k: v for k, v in _stockage.items() if (now - v.get("server_ts", 0)) <= _STOCKAGE_TTL}
-    return jsonify({**_cache, "trips": _trips, "stats": _stats, "stockage": list(_stockage.values()), "logger_updated_at": _cache_updated_at, "site_title": getattr(config, "SITE_TITLE", "FN Monitor"), "stockage_order": _stockage_order})
+    return jsonify({
+        **_cache,
+        "trips":           _trips,
+        "stats":           _stats,
+        "stockage":        list(_stockage.values()),
+        "logger_updated_at": _cache_updated_at,
+        "site_title":      getattr(config, "SITE_TITLE", "FN Monitor"),
+        "stockage_order":  _stockage_order,
+        "dispatch":        _dispatch_status,
+        "dispatch_routes": _dispatch_routes,
+    })
 
 
 @app.route("/")
@@ -126,7 +242,7 @@ def run_flask():
     """Lance Flask dans un thread dédié (ne bloque pas le bot Discord)."""
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     print("Dashboard disponible sur http://0.0.0.0:8081")
-    app.run(host="0.0.0.0", port=8081, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=8081, debug=False, use_reloader=False, threaded=True)
 
 
 # ════════════════════════════════════════════════════════════
