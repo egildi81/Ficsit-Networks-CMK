@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.4"
+local VERSION = "4.2.5"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -551,8 +551,8 @@ local function decide(rs, route, st, dock, stStr)
         local fillStr=rs.trainCap>0 and string.format(" wagon=%d/%d",wagonItems,rs.trainCap) or ""
         local tbvStr=tbvAdj==math.huge and "inf" or string.format("%.0f",tbvAdj).."s"
         print(string.format(
-            "[%s/%s] buf=%d%s drain=%.2f tbv=%s ETA=%.0f+-%.0f marge=%.0f en=%d/%d -> %s",
-            route.name,dockStr,curItems,fillStr,drain,tbvStr,
+            "[%s/%s] buf=%d(min%d)%s drain=%.2f tbv=%s ETA=%.0f+-%.0f marge=%.0f en=%d/%d -> %s",
+            route.name,dockStr,curItems,MIN_BUF_DISPATCH,fillStr,drain,tbvStr,
             avgETA,sigma,marge,enRoute,maxEnRoute,
             shouldGo and "GO" or "HOLD"
         ))
@@ -569,6 +569,8 @@ local function decide(rs, route, st, dock, stStr)
             local reason
             if enRoute>=maxEnRoute then
                 reason=string.format("quota %d/%d",enRoute,maxEnRoute)
+            elseif not hasContent then
+                reason=string.format("buf=%d < min=%d",curItems,MIN_BUF_DISPATCH)
             elseif not trainFull then
                 reason=string.format("chargement %d/%d",wagonItems,rs.trainCap)
             else
