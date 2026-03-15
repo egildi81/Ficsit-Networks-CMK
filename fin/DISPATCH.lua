@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.5"
+local VERSION = "4.2.6"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -419,8 +419,10 @@ local function countBufferItems(rs)
     if not rs.bufBox then return 0 end
     local total=0
     pcall(function()
-        local inv=rs.bufBox:getInventories()[1]
-        if inv then
+        -- Lire TOUS les inventaires du composant, pas seulement [1]
+        -- Read ALL inventories of the component, not just [1]
+        local invs=rs.bufBox:getInventories()
+        for _,inv in ipairs(invs) do
             for i=0,inv.size-1 do
                 local ok,s=pcall(function()return inv:getStack(i)end)
                 if ok and s and s.count then total=total+s.count end
