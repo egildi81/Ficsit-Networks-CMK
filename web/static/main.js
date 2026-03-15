@@ -1,4 +1,4 @@
-const VERSION = "1.3.2";
+const VERSION = "1.3.3";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
 const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
@@ -959,16 +959,27 @@ async function sendDispatchCmd(cmd, train, route) {
 // ── Cache window.innerWidth (mis à jour sur resize uniquement) ──
 // ── Cache window.innerWidth (updated on resize only) ────────────
 // ── LOGS FIN ─────────────────────────────────────────────────
+let _renderedLogCount = 0;  // nb d'entrées déjà affichées / number of already rendered entries
+
 function renderLogs(logs) {
     const el = document.getElementById('logs-list');
     if (!el) return;
-    el.innerHTML = logs.slice().reverse().map(e => {
+    // Reset si le serveur a redémarré / reset if server restarted
+    if (logs.length < _renderedLogCount) { el.innerHTML = ''; _renderedLogCount = 0; }
+    const newEntries = logs.slice(_renderedLogCount);
+    if (!newEntries.length) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    newEntries.forEach(e => {
         const col = LOG_TAG_COLORS[e.tag] || '#888';
-        const tag = `<span style="color:${col};font-weight:700;min-width:90px;display:inline-block">${e.tag}</span>`;
-        const ts  = `<span style="color:#444;margin-right:8px">${e.ts}</span>`;
-        const msg = `<span style="color:#ccc">${e.msg.replace(/</g,'&lt;')}</span>`;
-        return `<div style="border-bottom:1px solid #181818;padding:2px 0">${ts}${tag} ${msg}</div>`;
-    }).join('');
+        const div = document.createElement('div');
+        div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
+        div.innerHTML = `<span style="color:#444;margin-right:8px">${e.ts}</span>`
+            + `<span style="color:${col};font-weight:700;min-width:90px;display:inline-block">${e.tag}</span> `
+            + `<span style="color:#ccc">${e.msg.replace(/</g,'&lt;')}</span>`;
+        el.appendChild(div);
+    });
+    _renderedLogCount = logs.length;
+    if (atBottom) el.scrollTop = el.scrollHeight;  // auto-scroll si en bas / auto-scroll if at bottom
 }
 
 let _isMobile = window.innerWidth < 600;
