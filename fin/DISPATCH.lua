@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.2"
+local VERSION = "4.2.3"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -200,11 +200,10 @@ local function discoverRoute(route, trainMap)
     if parkId and parkId[1] then rs.parkStObj=component.proxy(parkId[1]) end
     local delivId=component.findComponent(route.delivery)
     if delivId and delivId[1] then rs.delivStObj=component.proxy(delivId[1]) end
-    if not rs.parkStObj  then print("WARN route "..route.name.." : station PARK '"..route.park.."' introuvable") end
-    if not rs.delivStObj then print("WARN route "..route.name.." : station DELIVERY '"..route.delivery.."' introuvable") end
-    -- Route désactivée si une station manque — evite tout GO avec addStop(nil)
-    -- Route disabled if a station is missing — prevents any GO with addStop(nil)
-    rs.disabled = not rs.parkStObj or not rs.delivStObj
+    if not rs.parkStObj  then print("WARN route "..route.name.." : station PARK '"..route.park.."' introuvable (fallback timetable)") end
+    if not rs.delivStObj then print("WARN route "..route.name.." : station DELIVERY '"..route.delivery.."' introuvable (fallback timetable)") end
+    -- Stations manquantes : on continue — le scan fallback les capturera depuis la timetable des trains
+    -- Missing stations: continue — fallback scan will capture them from train timetable
 
     -- Mode assignation : route.trains fourni → lookup par nom dans trainMap
     if route.trains and #route.trains>0 then
@@ -218,6 +217,16 @@ local function discoverRoute(route, trainMap)
                 local t=entry.obj
                 local key=tostring(t)
                 local stops={} pcall(function()local tt=t:getTimeTable() if tt then stops=tt:getStops() end end)
+                -- Capture station objects depuis timetable — plus fiable que findComponent
+                -- Capture station objects from timetable — more reliable than findComponent
+                for _,stop in ipairs(stops) do
+                    local s=stop.station
+                    if s then
+                        local sname="" pcall(function()sname=s.name end)
+                        if sname==route.park     and not rs.parkStObj  then rs.parkStObj=s  end
+                        if sname==route.delivery and not rs.delivStObj then rs.delivStObj=s end
+                    end
+                end
                 local restoredFromHold=false
                 local skipTrain=false
                 if #stops<2 then
@@ -269,8 +278,15 @@ local function discoverRoute(route, trainMap)
                     local s=stop.station
                     if not s then break end
                     local sname="" pcall(function()sname=s.name end)
-                    if sname==route.park     then hasPark=true
-                    elseif sname==route.delivery then hasDeliv=true end
+                    if sname==route.park then
+                        hasPark=true
+                        -- Capture l'objet station depuis timetable si findComponent a échoué
+                        -- Capture station object from timetable if findComponent failed
+                        if not rs.parkStObj then rs.parkStObj=s end
+                    elseif sname==route.delivery then
+                        hasDeliv=true
+                        if not rs.delivStObj then rs.delivStObj=s end
+                    end
                 end
                 if hasPark and hasDeliv then
                     local name="???"
@@ -716,7 +732,7 @@ while true do
             end
             for _,r in ipairs(routes) do
                 local rs=routeState[r.name]
-                if not rs or not rs.parkStr or rs.disabled then goto cont end
+                if not rs or not rs.parkStr then goto cont end
                 for _,st in pairs(rs.trains) do
                     local dock=getDock(st)
                     local stStr=getCurrentStopStr(st)
