@@ -61,8 +61,45 @@ _dispatch_routes      = _load_dispatch_routes()
 _dispatch_status      = {}    # état temps réel poussé par LOGGER (agrégé depuis DISPATCH port 69)
 _dispatch_pending_cmd = None  # commande web en attente d'être consommée par LOGGER
 
-_log_ring     = []    # ring buffer logs FIN (toutes sources) / FIN log ring buffer (all sources)
-_LOG_RING_MAX = 500   # capacité max / max capacity
+# ── Persistance logs FIN sur disque / FIN log persistence ────
+_LOG_DIR      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+_LOG_FILE     = os.path.join(_LOG_DIR, "fin_logs.jsonl")
+_LOG_TRIM_AT  = 200_000  # lignes max avant trim / max lines before trim
+_LOG_TRIM_TO  = 100_000  # lignes conservées après trim / lines kept after trim
+_log_lock     = __import__("threading").Lock()
+
+def _load_logs_from_file(n=5000):
+    """Charge les n dernières entrées du fichier JSONL / Load last n entries from JSONL file."""
+    try:
+        with open(_LOG_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        result = []
+        for line in lines[-n:]:
+            try: result.append(json.loads(line))
+            except Exception: pass
+        return result
+    except FileNotFoundError:
+        return []
+
+def _append_logs_to_file(entries):
+    """Append entries to JSONL file, trim if too large / Écriture incrémentale + trim si trop grand."""
+    os.makedirs(_LOG_DIR, exist_ok=True)
+    with _log_lock:
+        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+            for e in entries:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+        # Trim si le fichier dépasse _LOG_TRIM_AT lignes / Trim when file exceeds limit
+        try:
+            with open(_LOG_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if len(lines) > _LOG_TRIM_AT:
+                with open(_LOG_FILE, "w", encoding="utf-8") as f:
+                    f.writelines(lines[-_LOG_TRIM_TO:])
+        except Exception:
+            pass
+
+_log_ring     = _load_logs_from_file(5000)  # historique chargé au démarrage / history loaded at startup
+_LOG_RING_MAX = 10_000                       # cap mémoire / memory cap
 
 def _to_lua(obj):
     """Convertit un objet Python en chaîne table Lua (parseable par load('return '..s)() )."""
@@ -112,11 +149,12 @@ def receive_push():
         _dispatch_status["server_ts"] = time.time()
     new_logs = body.get("logs") or []
     if new_logs:
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        for entry in new_logs:
-            _log_ring.append({"ts": ts, "tag": str(entry.get("tag", "?")), "msg": str(entry.get("msg", ""))})
+        ts = datetime.now(timezone.utc).strftime("%d/%m %H:%M:%S")
+        parsed = [{"ts": ts, "tag": str(e.get("tag", "?")), "msg": str(e.get("msg", ""))} for e in new_logs]
+        _log_ring.extend(parsed)
         if len(_log_ring) > _LOG_RING_MAX:
             del _log_ring[:-_LOG_RING_MAX]
+        _append_logs_to_file(parsed)
     return jsonify({"status": "ok"})
 
 
@@ -242,8 +280,26 @@ def get_data():
         "stockage_order":  _stockage_order,
         "dispatch":        _dispatch_status,
         "dispatch_routes": _dispatch_routes,
-        "logs":            _log_ring[-100:],
     })
+
+
+@app.route("/api/logs")
+def get_logs():
+    """Endpoint dédié logs FIN / Dedicated FIN logs endpoint.
+    ?after=N  → entrées depuis l'index N / entries from index N
+    ?limit=M  → max M entrées (défaut 300, max 2000) / max M entries
+    Sans after → retourne les M dernières / without after: returns last M entries
+    """
+    limit = min(int(request.args.get("limit", 300)), 2000)
+    total = len(_log_ring)
+    after = request.args.get("after")
+    if after is None:
+        # Chargement initial : dernières `limit` entrées / initial load: last `limit` entries
+        start = max(0, total - limit)
+    else:
+        start = max(0, min(int(after), total))
+    entries = _log_ring[start:start + limit]
+    return jsonify({"logs": entries, "total": total, "start": start})
 
 
 @app.route("/")

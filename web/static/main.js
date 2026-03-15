@@ -1,4 +1,4 @@
-const VERSION = "1.3.3";
+const VERSION = "1.3.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
 const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
@@ -30,6 +30,7 @@ function switchSection(name, btn) {
     } else {
         trainsTabs.style.display = 'none';
         document.getElementById('page-' + name).classList.add('active');
+        if (name === 'logs') refreshLogs();
     }
 }
 
@@ -692,7 +693,7 @@ async function refresh() {
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
-        if (data.logs?.length)          { renderLogs(data.logs); }
+        if (document.getElementById('page-logs').classList.contains('active')) { refreshLogs(); }
 
         const tTotal = Math.round(performance.now() - t0);
         const rParts = Object.entries(rTimes).map(([k, v]) => `${k}:${v}ms`).join(' ');
@@ -959,27 +960,45 @@ async function sendDispatchCmd(cmd, train, route) {
 // ── Cache window.innerWidth (mis à jour sur resize uniquement) ──
 // ── Cache window.innerWidth (updated on resize only) ────────────
 // ── LOGS FIN ─────────────────────────────────────────────────
-let _renderedLogCount = 0;  // nb d'entrées déjà affichées / number of already rendered entries
+let _logSeenTotal = 0;   // nb total d'entrées vues depuis le serveur / total entries seen from server
+let _logFetching  = false;
 
-function renderLogs(logs) {
+function _appendLogEntries(entries) {
     const el = document.getElementById('logs-list');
-    if (!el) return;
-    // Reset si le serveur a redémarré / reset if server restarted
-    if (logs.length < _renderedLogCount) { el.innerHTML = ''; _renderedLogCount = 0; }
-    const newEntries = logs.slice(_renderedLogCount);
-    if (!newEntries.length) return;
+    if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    newEntries.forEach(e => {
+    entries.forEach(e => {
         const col = LOG_TAG_COLORS[e.tag] || '#888';
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
-        div.innerHTML = `<span style="color:#444;margin-right:8px">${e.ts}</span>`
-            + `<span style="color:${col};font-weight:700;min-width:90px;display:inline-block">${e.tag}</span> `
-            + `<span style="color:#ccc">${e.msg.replace(/</g,'&lt;')}</span>`;
+        div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
+            + `<span style="color:${col};font-weight:700;min-width:100px;display:inline-block">${e.tag}</span> `
+            + `<span style="color:#fff">${e.msg.replace(/</g,'&lt;')}</span>`;
         el.appendChild(div);
     });
-    _renderedLogCount = logs.length;
-    if (atBottom) el.scrollTop = el.scrollHeight;  // auto-scroll si en bas / auto-scroll if at bottom
+    if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+async function refreshLogs() {
+    if (_logFetching) return;
+    _logFetching = true;
+    try {
+        const url = _logSeenTotal === 0
+            ? '/api/logs?limit=500'
+            : `/api/logs?after=${_logSeenTotal}&limit=2000`;
+        const r = await fetch(url);
+        const d = await r.json();
+        // Reset si serveur redémarré (total plus petit) / reset if server restarted
+        if (d.total < _logSeenTotal) {
+            document.getElementById('logs-list').innerHTML = '';
+            _logSeenTotal = 0;
+        }
+        if (d.logs?.length) {
+            _appendLogEntries(d.logs);
+            _logSeenTotal = d.start + d.logs.length;
+        }
+    } catch(e) { console.warn('refreshLogs error', e); }
+    finally { _logFetching = false; }
 }
 
 let _isMobile = window.innerWidth < 600;
