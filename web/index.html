@@ -18,6 +18,7 @@
         <button class="section-btn" onclick="switchSection('dispatch', this)">DISPATCH</button>
         <button class="section-btn" onclick="switchSection('stockage', this)">STOCKAGE</button>
         <button class="section-btn" onclick="switchSection('power', this)">ÉNERGIE</button>
+        <button class="section-btn" onclick="switchSection('logs', this)">LOGS</button>
         <button class="section-btn" style="opacity:0.35;cursor:not-allowed" disabled title="Bientôt disponible">USINE <span style="font-size:0.75em;color:#aaa">(Soon)</span></button>
     </div>
     <nav class="tabs" id="trains-tabs">
@@ -169,6 +170,14 @@
             <canvas id="pw-chart"></canvas>
         </div>
     </div>
+</div>
+
+<!-- ── SECTION LOGS ── -->
+<div id="page-logs" class="page">
+    <div class="dp-header">
+        <span class="dp-status-title">LOGS FIN</span>
+    </div>
+    <div id="logs-list" style="font-family:monospace;font-size:0.78em;padding:6px 10px;display:flex;flex-direction:column;gap:2px;"></div>
 </div>
 
 <!-- ── MODAL DÉTAIL ZONE STOCKAGE ── -->

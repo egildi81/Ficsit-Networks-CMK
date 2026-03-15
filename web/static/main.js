@@ -1,7 +1,20 @@
-const VERSION = "1.3.1";
+const VERSION = "1.3.2";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
-const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch'];
+const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
+
+// Couleurs tags FIN / FIN tag colors
+const LOG_TAG_COLORS = {
+    LOGGER:     '#33cc55',
+    DETAIL:     '#4488ff',
+    TRAIN_TAB:  '#cccc00',
+    DISPATCH:   '#00cccc',
+    STOCKAGE:   '#aa44aa',
+    TRAIN_STATS:'#ff8800',
+    TRAIN_MAP:  '#44cc99',
+    POWER_MON:  '#ff66aa',
+    STARTER:    '#cc2222',
+};
 let _lastTrainPage  = 'page-monitor';
 
 function switchSection(name, btn) {
@@ -679,6 +692,7 @@ async function refresh() {
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
+        if (data.logs?.length)          { renderLogs(data.logs); }
 
         const tTotal = Math.round(performance.now() - t0);
         const rParts = Object.entries(rTimes).map(([k, v]) => `${k}:${v}ms`).join(' ');
@@ -944,6 +958,19 @@ async function sendDispatchCmd(cmd, train, route) {
 
 // ── Cache window.innerWidth (mis à jour sur resize uniquement) ──
 // ── Cache window.innerWidth (updated on resize only) ────────────
+// ── LOGS FIN ─────────────────────────────────────────────────
+function renderLogs(logs) {
+    const el = document.getElementById('logs-list');
+    if (!el) return;
+    el.innerHTML = logs.slice().reverse().map(e => {
+        const col = LOG_TAG_COLORS[e.tag] || '#888';
+        const tag = `<span style="color:${col};font-weight:700;min-width:90px;display:inline-block">${e.tag}</span>`;
+        const ts  = `<span style="color:#444;margin-right:8px">${e.ts}</span>`;
+        const msg = `<span style="color:#ccc">${e.msg.replace(/</g,'&lt;')}</span>`;
+        return `<div style="border-bottom:1px solid #181818;padding:2px 0">${ts}${tag} ${msg}</div>`;
+    }).join('');
+}
+
 let _isMobile = window.innerWidth < 600;
 window.addEventListener('resize', () => { _isMobile = window.innerWidth < 600; });
 

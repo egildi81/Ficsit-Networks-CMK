@@ -61,6 +61,9 @@ _dispatch_routes      = _load_dispatch_routes()
 _dispatch_status      = {}    # état temps réel poussé par LOGGER (agrégé depuis DISPATCH port 69)
 _dispatch_pending_cmd = None  # commande web en attente d'être consommée par LOGGER
 
+_log_ring     = []    # ring buffer logs FIN (toutes sources) / FIN log ring buffer (all sources)
+_LOG_RING_MAX = 500   # capacité max / max capacity
+
 def _to_lua(obj):
     """Convertit un objet Python en chaîne table Lua (parseable par load('return '..s)() )."""
     if isinstance(obj, dict):
@@ -89,7 +92,7 @@ app = Flask(__name__)
 @app.route("/api/push", methods=["POST"])
 def receive_push():
     """Reçoit le snapshot trains + trips + stats + stockage de LOGGER (toutes les 2s)."""
-    global _cache, _cache_updated_at, _trips, _stats, _stockage
+    global _cache, _cache_updated_at, _trips, _stats, _stockage, _log_ring
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
@@ -107,6 +110,13 @@ def receive_push():
     if isinstance(body.get("dispatch"), dict):
         _dispatch_status.update(body["dispatch"])
         _dispatch_status["server_ts"] = time.time()
+    new_logs = body.get("logs") or []
+    if new_logs:
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        for entry in new_logs:
+            _log_ring.append({"ts": ts, "tag": str(entry.get("tag", "?")), "msg": str(entry.get("msg", ""))})
+        if len(_log_ring) > _LOG_RING_MAX:
+            del _log_ring[:-_LOG_RING_MAX]
     return jsonify({"status": "ok"})
 
 
@@ -232,6 +242,7 @@ def get_data():
         "stockage_order":  _stockage_order,
         "dispatch":        _dispatch_status,
         "dispatch_routes": _dispatch_routes,
+        "logs":            _log_ring[-100:],
     })
 
 
