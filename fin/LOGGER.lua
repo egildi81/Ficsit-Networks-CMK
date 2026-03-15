@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.3"
+local VERSION = "1.6.5"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -58,7 +58,7 @@ local _knownDups={}    -- zones déjà signalées comme dupliquées (évite spam
 -- === RING BUFFER LOGS → WEB ===
 local _logRing        = {}   -- entrées {ts,tag,msg} de tous les scripts FIN / entries from all FIN scripts
 local _logRingSentIdx = 0    -- index du dernier log envoyé via HTTP / index of last log sent via HTTP
-local LOG_RING_MAX    = 300  -- capacité max du ring / max ring capacity
+local LOG_RING_MAX    = 1000 -- capacité max du ring / max ring capacity
 
 local dispatchAddr    = nil   -- adresse DISPATCH (découverte via port 69 DISPATCH_HELLO)
 local dispatchStatus  = {}    -- état temps réel reçu de DISPATCH (port 69)
@@ -524,6 +524,14 @@ while true do
         -- Relay to DISPATCH: zone + totalItems for buffer monitoring
         if dispatchAddr and ok2 and parsed and parsed.totalItems then
             pcall(function()net:send(dispatchAddr,69,"BUF:"..arg1..":"..tostring(parsed.totalItems))end)
+            -- Relai sous-zones individuelles si présentes / relay individual subzones if present
+            if parsed.subzones then
+                for _,sz in ipairs(parsed.subzones) do
+                    if sz.name and sz.totalItems then
+                        pcall(function()net:send(dispatchAddr,69,"BUF:"..sz.name..":"..tostring(sz.totalItems))end)
+                    end
+                end
+            end
         end
 
     -- Stats power reçues de POWER_MON

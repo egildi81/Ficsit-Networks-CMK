@@ -1,4 +1,4 @@
-const VERSION = "1.3.4";
+const VERSION = "1.3.5";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
 const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
@@ -736,7 +736,11 @@ function _dpUpdateLists(data) {
         });
     }
     if (Array.isArray(data.stockage)) {
-        data.stockage.forEach(z => { if (z.zone) _dpKnownBuffers.add(z.zone); });
+        data.stockage.forEach(z => {
+            if (z.zone) _dpKnownBuffers.add(z.zone);
+            // Ajouter aussi les sous-zones / also add sub-zones
+            if (z.subzones) z.subzones.forEach(sz => { if (sz.name) _dpKnownBuffers.add(sz.name); });
+        });
     }
     const _refreshDl = (id, set) => {
         const dl = document.getElementById(id);
