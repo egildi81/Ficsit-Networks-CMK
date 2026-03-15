@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.2"
+local VERSION = "1.6.3"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -32,6 +32,7 @@ net:open(49)
 net:open(51)
 net:open(53)
 net:open(69)
+net:open(43)  -- écoute tous les logs FIN pour le dashboard web / listen to all FIN logs for web dashboard
 
 print("=== LOGGER v"..VERSION.." BOOT ===")
 
@@ -44,20 +45,9 @@ print=function(...)
     log(table.concat(t," "))
 end
 
--- === HTTP ASYNC — 1 InternetCard dédiée par endpoint (aucune contention possible) ===
-local _pushFuture   = nil  ; local _pushTimeout   = 0
-local _tripsFuture  = nil  ; local _tripsTimeout  = 0
-local HTTP_TIMEOUT  = 10000  -- ms — délai max pour tout future HTTP
-
--- Retourne true si le future est prêt (terminé, erreur ou expiré), false si encore pending
-local function _poll(f, deadline)
-    if not f then return true end
-    if computer.millis() > deadline then return true end  -- expiré → on libère
-    local ok,r=pcall(function()return f:get()end)
-    if ok then return true end
-    if type(r)=="string" and r:find("pending") then return false end
-    return true
-end
+-- === HTTP — 1 InternetCard dédiée par endpoint, f:await() obligatoire en FIN ===
+-- f:get() ne déclenche pas la requête et reste "pending" indéfiniment — toujours f:await()
+-- f:get() does not trigger the request and stays "pending" forever — always use f:await()
 
 local saved={}         -- historique des trajets en mémoire (source primaire)
 local stockageData={}  -- données STOCKAGE par adresse : [addr]={name,ts,raw}
@@ -65,6 +55,11 @@ local powerData=nil    -- dernière donnée reçue de POWER_MON (port 51)
 local _knownDups={}    -- zones déjà signalées comme dupliquées (évite spam GET_LOG)
 
 -- === DISPATCH ===
+-- === RING BUFFER LOGS → WEB ===
+local _logRing        = {}   -- entrées {ts,tag,msg} de tous les scripts FIN / entries from all FIN scripts
+local _logRingSentIdx = 0    -- index du dernier log envoyé via HTTP / index of last log sent via HTTP
+local LOG_RING_MAX    = 300  -- capacité max du ring / max ring capacity
+
 local dispatchAddr    = nil   -- adresse DISPATCH (découverte via port 69 DISPATCH_HELLO)
 local dispatchStatus  = {}    -- état temps réel reçu de DISPATCH (port 69)
 local dispatchRoutes       = nil   -- config routes fetchée depuis le web (nil = pas encore chargée)
@@ -256,17 +251,16 @@ local function checkDispatch() end  -- conservé pour compatibilité / kept for 
 
 -- === PUSH HTTP VERS PYTHON ===
 local function postTrips()
-    if not inetTrips or not _poll(_tripsFuture,_tripsTimeout) then return end
+    if not inetTrips then return end
     local ok,body=pcall(function()return toJson(saved)end)
     if ok and body then
         local ok2,f=pcall(function()return inetTrips:request(WEB_URL.."/api/trips","POST",body,"Content-Type","application/json")end)
-        if ok2 and f then _tripsFuture=f ; _tripsTimeout=computer.millis()+HTTP_TIMEOUT
-        else _tripsFuture=nil end
+        if ok2 and f then pcall(function()f:await()end) end
     end
 end
 
 local function postState(cs)
-    if not inetPush or not _poll(_pushFuture,_pushTimeout) then return end
+    if not inetPush then return end
     local trainArr={} for _,s in pairs(state) do table.insert(trainArr,s) end
     -- Déduplication par nom de zone : si même nom depuis 2 adresses, garder le plus récent
     local byZone={}
@@ -327,13 +321,16 @@ local function postState(cs)
         end
         table.insert(stockArr,entry)
     end
+    -- Logs nouveaux depuis le dernier push / New logs since last push
+    local newLogs={}
+    for i=_logRingSentIdx+1,#_logRing do table.insert(newLogs,_logRing[i]) end
+    _logRingSentIdx=#_logRing
     local ok,body=pcall(function()
-        return toJson({trains=trainArr,stats=cs,stockage=stockArr,power=powerData,dispatch=dispatchStatus})
+        return toJson({trains=trainArr,stats=cs,stockage=stockArr,power=powerData,dispatch=dispatchStatus,logs=newLogs})
     end)
     if not ok or not body then return end
     local ok2,f=pcall(function()return inetPush:request(WEB_URL.."/api/push","POST",body,"Content-Type","application/json")end)
-    if ok2 and f then _pushFuture=f ; _pushTimeout=computer.millis()+HTTP_TIMEOUT
-    else _pushFuture=nil end
+    if ok2 and f then pcall(function()f:await()end) end
 end
 
 -- === LECTURE DE L'INVENTAIRE D'UN TRAIN ===
@@ -553,6 +550,15 @@ while true do
             -- Status broadcast de DISPATCH (table Lua sérialisée)
             local ok2,parsed=pcall(function()return (load("return "..arg1))()end)
             if ok2 and type(parsed)=="table" then dispatchStatus=parsed end
+        end
+
+    -- Logs de tous les scripts FIN → ring buffer pour dashboard web / All FIN scripts logs → ring buffer for web dashboard
+    elseif e=="NetworkMessage" and port==43 then
+        local entry={ts=math.floor(computer.millis()),tag=tostring(arg1),msg=tostring(arg2 or "")}
+        table.insert(_logRing,entry)
+        if #_logRing>LOG_RING_MAX then
+            table.remove(_logRing,1)
+            if _logRingSentIdx>0 then _logRingSentIdx=_logRingSentIdx-1 end
         end
 
     -- Requête point-à-point : répondre uniquement à l'expéditeur
