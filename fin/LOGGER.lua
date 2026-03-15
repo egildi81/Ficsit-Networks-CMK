@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.1"
+local VERSION = "1.6.2"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -523,6 +523,11 @@ while true do
     elseif e=="NetworkMessage" and port==48 then
         local ok2,parsed=pcall(function()return (load("return "..arg2))()end)
         stockageData[sender]={name=arg1,ts=computer.millis()/1000,stats=ok2 and parsed or nil}
+        -- Relai vers DISPATCH : zone + totalItems pour le monitoring buffer
+        -- Relay to DISPATCH: zone + totalItems for buffer monitoring
+        if dispatchAddr and ok2 and parsed and parsed.totalItems then
+            pcall(function()net:send(dispatchAddr,69,"BUF:"..arg1..":"..tostring(parsed.totalItems))end)
+        end
 
     -- Stats power reçues de POWER_MON
     elseif e=="NetworkMessage" and port==51 then

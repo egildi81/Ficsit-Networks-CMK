@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.6"
+local VERSION = "4.2.7"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -42,6 +42,7 @@ local lastSafeRetry      = -SAFE_RETRY_SEC
 local _lastConfigPayload = nil
 local _trainSnapshot     = {}
 local lastPriorityBcast  = 0
+local _stockageCache     = {}  -- {[zoneName]=totalItems} mis à jour depuis port 55 STOCKAGE / {[zoneName]=totalItems} updated from port 55 STOCKAGE
 
 -- === SÉRIALISEUR ===
 local function ser(v)
@@ -183,7 +184,8 @@ local function discoverRoute(route, trainMap)
         trains={},
         parkStObj=nil, delivStObj=nil,
         parkStr=route.park, delivStr=route.delivery,
-        bufBox=nil, trainCap=0,
+        bufBox=nil, bufName=route.buffer,  -- bufName = nick STOCKAGE computer pour cache relai LOGGER / STOCKAGE computer nick for LOGGER relay cache
+        trainCap=0,
         etaHistory={}, bufHistory={},
         lastBufSample=0, lastStatusLog=0,
     }
@@ -416,11 +418,16 @@ end
 
 -- === BUFFER PAR ROUTE ===
 local function countBufferItems(rs)
+    -- Préférer les données STOCKAGE relayées par LOGGER (source authoritative)
+    -- Prefer STOCKAGE data relayed by LOGGER (authoritative source)
+    if rs.bufName and _stockageCache[rs.bufName] then
+        return _stockageCache[rs.bufName]
+    end
+    -- Fallback : lecture directe FIN (si STOCKAGE pas encore connecté ou pas en mode rapide)
+    -- Fallback: direct FIN read (if STOCKAGE not yet connected or not in fast mode)
     if not rs.bufBox then return 0 end
     local total=0
     pcall(function()
-        -- Lire TOUS les inventaires du composant, pas seulement [1]
-        -- Read ALL inventories of the component, not just [1]
         local invs=rs.bufBox:getInventories()
         for _,inv in ipairs(invs) do
             for i=0,inv.size-1 do
@@ -720,6 +727,15 @@ while true do
         if arg1=="LOGGER_READY" then
             pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
             print("LOGGER_READY → DISPATCH_HELLO renvoyé")
+        elseif arg1 and arg1:sub(1,4)=="BUF:" then
+            -- Données buffer relayées par LOGGER depuis STOCKAGE / Buffer data relayed by LOGGER from STOCKAGE
+            local rest=arg1:sub(5)
+            local sep=rest:find(":")
+            if sep then
+                local zone=rest:sub(1,sep-1)
+                local count=tonumber(rest:sub(sep+1)) or 0
+                _stockageCache[zone]=count
+            end
         elseif arg1 and arg1:sub(1,4)=="CMD:" then
             handleCommand(arg1:sub(5))
         end
