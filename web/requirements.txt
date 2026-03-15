@@ -1,0 +1,3 @@
+# Dependances pour le dashboard Flask et le bot Discord
+Flask>=2.2
+discord.py>=2.3
