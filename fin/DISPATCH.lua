@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.7"
+local VERSION = "4.2.10"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -16,6 +16,7 @@ print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
     pcall(function()net:broadcast(43,"DISPATCH",table.concat(t," "))end)
 end
+print("DISPATCH v"..VERSION.." démarré")
 
 -- === CONSTANTES ===
 local BUF_SAMPLE_SEC   = 10
@@ -43,6 +44,7 @@ local _lastConfigPayload = nil
 local _trainSnapshot     = {}
 local lastPriorityBcast  = 0
 local _stockageCache     = {}  -- {[zoneName]=totalItems} mis à jour depuis port 55 STOCKAGE / {[zoneName]=totalItems} updated from port 55 STOCKAGE
+local _globalStationMap  = {}  -- {[stName]=stObj} collecté depuis timetables de tous les trains au boot / {[stName]=stObj} collected from all train timetables at boot
 
 -- === SÉRIALISEUR ===
 local function ser(v)
@@ -162,8 +164,11 @@ local function buildTrainMap()
         return map
     end
     local anch=component.proxy(anchId[1])
+    _globalStationMap={}  -- reset à chaque buildTrainMap / reset on each buildTrainMap
+    local graph=nil
     pcall(function()
         local all=anch:getTrackGraph():getTrains()
+        graph=anch:getTrackGraph()
         print("buildTrainMap: "..#all.." trains sur le graphe")
         for _,t in ipairs(all) do
             local name="???"
@@ -174,8 +179,40 @@ local function buildTrainMap()
             else
                 map[name]={obj=t,duplicate=false}
             end
+            -- Collecter les objets station depuis toutes les timetables (même si le train cible est en hold)
+            -- Collect station objects from all timetables (even if target train is in hold)
+            pcall(function()
+                local tt=t:getTimeTable()
+                if not tt then return end
+                for _,stop in ipairs(tt:getStops()) do
+                    local s=stop.station
+                    if s then
+                        local sname="" pcall(function()sname=s.name end)
+                        if sname~="" and not _globalStationMap[sname] then
+                            _globalStationMap[sname]=s
+                        end
+                    end
+                end
+            end)
         end
     end)
+    -- Tentative getStations() sur le graphe — découvre les stations sans passer par les timetables
+    -- Try getStations() on the graph — discovers stations without going through timetables
+    -- (utile si le train cible est en hold avec timetable vide / useful if target train is in hold with empty timetable)
+    if graph then
+        pcall(function()
+            local allStations=graph:getStations()
+            local n=0
+            for _,s in ipairs(allStations) do
+                local sname="" pcall(function()sname=s.name end)
+                if sname~="" and not _globalStationMap[sname] then
+                    _globalStationMap[sname]=s
+                    n=n+1
+                end
+            end
+            if n>0 then print("buildTrainMap: +"..n.." station(s) via getStations()") end
+        end)
+    end
     return map
 end
 
@@ -202,10 +239,12 @@ local function discoverRoute(route, trainMap)
     if parkId and parkId[1] then rs.parkStObj=component.proxy(parkId[1]) end
     local delivId=component.findComponent(route.delivery)
     if delivId and delivId[1] then rs.delivStObj=component.proxy(delivId[1]) end
-    if not rs.parkStObj  then print("WARN route "..route.name.." : station PARK '"..route.park.."' introuvable (fallback timetable)") end
-    if not rs.delivStObj then print("WARN route "..route.name.." : station DELIVERY '"..route.delivery.."' introuvable (fallback timetable)") end
-    -- Stations manquantes : on continue — le scan fallback les capturera depuis la timetable des trains
-    -- Missing stations: continue — fallback scan will capture them from train timetable
+    -- Fallback 2 : _globalStationMap (collecté depuis toutes les timetables au boot)
+    -- Fallback 2: _globalStationMap (collected from all timetables at boot)
+    if not rs.parkStObj  then rs.parkStObj  = _globalStationMap[route.park]     end
+    if not rs.delivStObj then rs.delivStObj = _globalStationMap[route.delivery]  end
+    if not rs.parkStObj  then print("WARN route "..route.name.." : station PARK '"..route.park.."' introuvable") end
+    if not rs.delivStObj then print("WARN route "..route.name.." : station DELIVERY '"..route.delivery.."' introuvable") end
 
     -- Mode assignation : route.trains fourni → lookup par nom dans trainMap
     if route.trains and #route.trains>0 then
@@ -380,6 +419,10 @@ local function applyConfig(newRoutes)
         for _,st in pairs(rs.trains) do
             -- Train restauré depuis hold → forcément au PARK
             if st.restoredFromHold then
+                local dock=getDock(st)
+                local stStr=getCurrentStopStr(st)
+                st.lastDock=dock        -- évite nil~=0=true → fausse transition Départ / avoids nil~=0=true → false Depart transition
+                st.lastStation=stStr
                 st.arrivedAt=rs.parkStr
                 setRoute(st,rs,false)
                 print(st.name.." boot → hold @ PARK (restauré hold)")
@@ -529,28 +572,29 @@ local function decide(rs, route, st, dock, stStr)
     local marge=math.max(MIN_MARGE_SEC,sigma*SIGMA_FACTOR)
     local enRoute=countEnRoute(rs)-(isStuck and 1 or 0)
     local wagonItems=rs.trainCap>0 and getWagonItems(st) or 0
-    local trainFull=rs.trainCap<=0 or wagonItems>=rs.trainCap
-    -- GO = deux conditions cumulatives / GO = two cumulative conditions:
-    -- 1. Contenu suffisant (>= MIN_BUF_DISPATCH) — pas de trip à vide / Enough content — no empty trip
-    -- 2. Timing / urgence selon drain :
-    --    drain>0 (buffer se vide)  → GO si le buffer sera vide avant l'arrivée du train
-    --    drain<0 (buffer croît)    → GO dès que contenu suffisant (production active, on vide au plus tôt)
-    --    drain=0 (stable/inconnu) → pas urgent (tbv=infini), on attend que le drain change
-    -- 2. Timing / urgency based on drain:
-    --    drain>0 (buffer draining)  → GO if buffer will be empty before train arrives
-    --    drain<0 (buffer growing)   → GO as soon as content sufficient (production active, pick up ASAP)
-    --    drain=0 (stable/unknown)   → not urgent (tbv=infinite), wait for drain to change
+    -- GO = urgence + quota / GO = urgency + quota
+    -- Urgence selon drain / Urgency based on drain:
+    --   drain>0 (buffer se vide)   → GO si buffer vide avant arrivée / GO if buffer empty before arrival
+    --   drain<0 (buffer croît)     → toujours urgent (production active, vider au plus tôt) / always urgent (active production, pick up ASAP)
+    --   drain=0 (stable/inconnu)  :
+    --     buf <= MIN_BUF_DISPATCH  → buffer vide/presque → urgence livraison / buffer empty/low → delivery urgent
+    --     buf >  MIN_BUF_DISPATCH  → stable et suffisant → pas urgent / stable and sufficient → not urgent
     local tbvAdj
     if drain>0 then
         tbvAdj=math.max(0,(curItems-wagonItems)/drain)
     elseif drain<0 then
-        tbvAdj=0      -- croissant → toujours "à temps" si contenu suffisant / growing → always "in time" if content sufficient
+        tbvAdj=0      -- croissant → toujours "à temps" / growing → always "in time"
     else
-        tbvAdj=math.huge  -- stable ou historique insuffisant → pas urgent / stable or no history → not urgent
+        -- drain=0 : stable ou historique insuffisant — urgence si buffer bas ou vide
+        -- drain=0: stable or insufficient history — urgent if buffer low or empty
+        if curItems<=MIN_BUF_DISPATCH then
+            tbvAdj=0          -- buffer vide/bas → GO livrer / buffer empty/low → GO deliver
+        else
+            tbvAdj=math.huge  -- buffer suffisant et stable → pas urgent / buffer sufficient and stable → not urgent
+        end
     end
-    local hasContent = curItems >= MIN_BUF_DISPATCH  -- assez d'items pour que le trip ait du sens / enough items to make trip worthwhile
     local urgent = tbvAdj <= avgETA+marge
-    local shouldGo = hasContent and urgent and (enRoute<maxEnRoute)
+    local shouldGo = urgent and (enRoute<maxEnRoute)
     local decision=shouldGo and "go" or "hold"
 
     local now=computer.millis()/1000
@@ -578,13 +622,9 @@ local function decide(rs, route, st, dock, stStr)
             local reason
             if enRoute>=maxEnRoute then
                 reason=string.format("quota %d/%d",enRoute,maxEnRoute)
-            elseif not hasContent then
-                reason=string.format("buf=%d < min=%d",curItems,MIN_BUF_DISPATCH)
-            elseif not trainFull then
-                reason=string.format("chargement %d/%d",wagonItems,rs.trainCap)
             else
                 local tbvStr=tbvAdj==math.huge and "inf" or string.format("%.0f",tbvAdj).."s"
-                reason=string.format("tbv=%s > ETA+m=%.0fs",tbvStr,avgETA+marge)
+                reason=string.format("buf=%d tbv=%s > ETA+m=%.0fs",curItems,tbvStr,avgETA+marge)
             end
             print(st.name.." HOLD ("..reason..")")
         end

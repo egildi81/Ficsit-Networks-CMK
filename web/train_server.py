@@ -210,6 +210,12 @@ def get_dispatch_command_lua():
     _dispatch_pending_cmd = None
     return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
 
+@app.route("/api/fin/<path:script>", methods=["GET", "POST"])
+def get_fin_script(script):
+    """Sert les scripts FIN Lua depuis fin/ — utilisé par les EEPROM bootstrap."""
+    fin_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fin"))
+    return send_from_directory(fin_dir, script, mimetype="text/plain")
+
 @app.route("/api/data")
 def get_data():
     # Auto-nettoyage TTL : zones sans update depuis > 10 min

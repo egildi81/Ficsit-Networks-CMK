@@ -5,7 +5,7 @@
 -- Port 48 : données stockage → LOGGER (net:send ciblé)
 -- Port 55 : priorité DISPATCH → mode rapide 2s si buffer concerné | PRIORITY_REQUEST → DISPATCH
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 print("=== STOCKAGE v"..VERSION.." BOOT ===")
 
 -- === CONFIGURATION ===
@@ -284,11 +284,11 @@ while true do
     if not fastMode or now-lastLog >= LOG_FAST_SEC then
         lastLog = now
         if stats.subzones then
-            print(string.format("%s : %.1f%% (%d/%d slots | %d items) [%d sous-zones]",
-                ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems, #stats.subzones))
+            print(string.format("%s (v%s) : %.1f%% (%d/%d slots | %d items) [%d sous-zones]",
+                ZONE_NAME, VERSION, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems, #stats.subzones))
         else
-            print(string.format("%s : %.1f%% (%d/%d slots | %d items)",
-                ZONE_NAME, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
+            print(string.format("%s (v%s) : %.1f%% (%d/%d slots | %d items)",
+                ZONE_NAME, VERSION, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems))
         end
     end
 

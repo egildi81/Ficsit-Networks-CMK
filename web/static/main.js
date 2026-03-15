@@ -1,4 +1,4 @@
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
 const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch'];
@@ -703,6 +703,7 @@ let _dpLiveRoutes    = null; // état temps réel depuis DISPATCH (via LOGGER)
 let _dpEditingIndex  = -1;   // index route en cours d'édition (-1 = aucune)
 let _dpKnownStations = new Set();
 let _dpKnownBuffers  = new Set();
+let _dpKnownTrains   = new Set();
 
 function _dpUpdateLists(data) {
     if (data.trips) {
@@ -714,7 +715,10 @@ function _dpUpdateLists(data) {
         });
     }
     if (Array.isArray(data.trains)) {
-        data.trains.forEach(t => { if (t.station) _dpKnownStations.add(t.station); });
+        data.trains.forEach(t => {
+            if (t.station) _dpKnownStations.add(t.station);
+            if (t.name)    _dpKnownTrains.add(t.name);
+        });
     }
     if (Array.isArray(data.stockage)) {
         data.stockage.forEach(z => { if (z.zone) _dpKnownBuffers.add(z.zone); });
@@ -729,6 +733,7 @@ function _dpUpdateLists(data) {
     };
     _refreshDl('dp-dl-stations', _dpKnownStations);
     _refreshDl('dp-dl-buffers',  _dpKnownBuffers);
+    _refreshDl('dp-dl-trains',   _dpKnownTrains);
 }
 
 function renderDispatch(dispatch, routesConfig) {
@@ -786,10 +791,12 @@ function renderDpRoutes() {
         const trainsHtml = live ? toArr(live.trains).map(st => {
             const phase    = st.phase||'?';
             const phaseCls = phase==='PARK'?'park':phase==='EN_ROUTE'?'route':phase==='DELIVERY'?'delivery':'unknown';
+            const dec      = st.decision==='go'?'Go':st.decision==='hold'?'Hold':'Idle';
+            const decCls   = st.decision==='go'?'dec-go':st.decision==='hold'?'dec-hold':'dec-idle';
             return `<div class="dp-train-row">
                 <span class="dp-train-name">${st.name}</span>
                 <span class="dp-train-phase ${phaseCls}">${phase}</span>
-                <span class="dp-train-decision">${st.decision||'—'}</span>
+                <span class="dp-train-decision ${decCls}">${dec}</span>
                 <div class="dp-btns">
                     <button class="dp-btn go"   onclick="sendDispatchCmd('force_go','${st.name}','${r.name}')">GO</button>
                     <button class="dp-btn hold" onclick="sendDispatchCmd('force_hold','${st.name}','${r.name}')">HOLD</button>
@@ -823,7 +830,7 @@ function renderDpRoutes() {
                 </div>
                 <div class="dp-edit-field">
                     <label>Trains</label>
-                    <input class="dp-input" id="dp-ei-trains-${i}" value="${(r.trains||[]).join(', ')}" placeholder="T1, T2, ...">
+                    <input class="dp-input" id="dp-ei-trains-${i}" value="${(r.trains||[]).join(', ')}" placeholder="T1, T2, ..." list="dp-dl-trains">
                 </div>
                 <div class="dp-editor-actions">
                     <button class="dp-save-btn" onclick="dpSaveInlineEdit(${i})">💾 Sauvegarder</button>

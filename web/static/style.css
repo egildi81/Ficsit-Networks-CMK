@@ -339,7 +339,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .dp-train-phase.route    { color: #33cc55; }
 .dp-train-phase.delivery { color: #ff8800; }
 .dp-train-phase.unknown  { color: #666; }
-.dp-train-decision { color: #666; font-size: 0.76em; }
+.dp-train-decision          { font-size: 0.76em; font-weight: 700; letter-spacing: 0.5px; }
+.dp-train-decision.dec-go   { color: #33cc55; }
+.dp-train-decision.dec-hold { color: #cc4444; }
+.dp-train-decision.dec-idle { color: #555; }
 .dp-btns { display: flex; gap: 5px; margin-left: auto; }
 .dp-btn {
     background: none; border: 1px solid #333; outline: none; cursor: pointer;
