@@ -1,4 +1,4 @@
-const VERSION = "1.3.6";
+const VERSION = "1.3.7";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
 const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
@@ -738,10 +738,11 @@ function _dpUpdateLists(data) {
     if (Array.isArray(data.stockage)) {
         data.stockage.forEach(z => {
             if (!z.zone) return;
-            _dpKnownBuffers.set(z.zone, z.zone);  // zone principale : label = nom / main zone: label = name
-            // Sous-zones : préfixe (PARENT) pour différencier / sub-zones: prefix (PARENT) for clarity
+            _dpKnownBuffers.set(z.zone, z.zone);  // zone principale / main zone
+            // Sous-zones : valeur = "(PARENT) nom" (clé unique, une seule ligne dans datalist)
+            // Sub-zones: value = "(PARENT) name" (unique key, single line in datalist)
             if (z.subzones) z.subzones.forEach(sz => {
-                if (sz.name) _dpKnownBuffers.set(sz.name, `(${z.zone}) ${sz.name}`);
+                if (sz.name) { const lbl = `(${z.zone}) ${sz.name}`; _dpKnownBuffers.set(lbl, lbl); }
             });
         });
     }
@@ -760,10 +761,9 @@ function _dpUpdateLists(data) {
         [..._dpKnownBuffers.entries()]
             .filter(([v]) => !existingBuf.has(v))
             .sort(([, la], [, lb]) => la.localeCompare(lb))
-            .forEach(([value, label]) => {
+            .forEach(([value]) => {
                 const opt = document.createElement('option');
-                opt.value = value;
-                opt.textContent = label;  // Chrome affiche le label, insère value / Chrome shows label, inserts value
+                opt.value = value;  // value = label → une seule ligne dans Chrome / value = label → single line in Chrome
                 dlBuf.appendChild(opt);
             });
     }

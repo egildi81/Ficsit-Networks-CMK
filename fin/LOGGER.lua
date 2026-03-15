@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.5"
+local VERSION = "1.6.6"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -524,11 +524,13 @@ while true do
         -- Relay to DISPATCH: zone + totalItems for buffer monitoring
         if dispatchAddr and ok2 and parsed and parsed.totalItems then
             pcall(function()net:send(dispatchAddr,69,"BUF:"..arg1..":"..tostring(parsed.totalItems))end)
-            -- Relai sous-zones individuelles si présentes / relay individual subzones if present
+            -- Relai sous-zones individuelles si présentes (clé = "(PARENT) nom" = même format que web)
+            -- Relay individual subzones if present (key = "(PARENT) name" = same format as web)
             if parsed.subzones then
                 for _,sz in ipairs(parsed.subzones) do
                     if sz.name and sz.totalItems then
-                        pcall(function()net:send(dispatchAddr,69,"BUF:"..sz.name..":"..tostring(sz.totalItems))end)
+                        local fqName="("..arg1..") "..sz.name
+                        pcall(function()net:send(dispatchAddr,69,"BUF:"..fqName..":"..tostring(sz.totalItems))end)
                     end
                 end
             end
