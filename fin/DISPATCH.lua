@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.3.4"
+local VERSION = "4.3.5"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -836,12 +836,17 @@ while true do
                     local sep3=after2:find(":")
                     su=tonumber(sep3 and after2:sub(sep3+1) or nil) or 0
                 end
-                local entry={items=count, slotsUsed=su}
+                -- Entrée directe (depuis STOCKAGE computer) = canonique / Direct entry (from STOCKAGE computer) = canonical
+                local entry={items=count, slotsUsed=su, canonical=true}
                 _stockageCache[zone]=entry
-                -- Compatibilité : si clé = "(PARENT) szname", stocker aussi "szname" seul (anciens configs)
-                -- Backward compat: if key = "(PARENT) szname", also store bare "szname" (old configs)
+                -- Compatibilité : si clé = "(PARENT) szname", stocker aussi "szname" seul SEULEMENT si pas d'entrée canonique
+                -- Backward compat: if key = "(PARENT) szname", also store bare "szname" ONLY if no canonical entry exists
+                -- Évite la collision : données parent-zone ne doivent pas écraser les données directes (plus fraîches)
+                -- Avoids collision: parent-zone data must not overwrite direct STOCKAGE computer data (more authoritative)
                 local shortZone=zone:match("^%b() (.+)$")
-                if shortZone then _stockageCache[shortZone]=entry end
+                if shortZone and not (_stockageCache[shortZone] and _stockageCache[shortZone].canonical) then
+                    _stockageCache[shortZone]={items=count, slotsUsed=su}
+                end
             end
         elseif arg1 and arg1:sub(1,4)=="CMD:" then
             handleCommand(arg1:sub(5))
