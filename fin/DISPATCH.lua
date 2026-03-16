@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.11"
+local VERSION = "4.2.12"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -562,7 +562,9 @@ end
 
 -- === DÉCISION DISPATCH ===
 local function decide(rs, route, st, dock, stStr)
-    local atPark  = st.arrivedAt==rs.parkStr and dock~=0
+    -- atPark : docké AU PARK (dock~=0) OU en hold au PARK (timetable vide → dock=0 toujours)
+    -- atPark: docked AT PARK (dock~=0) OR held at PARK (empty timetable → dock always 0)
+    local atPark  = st.arrivedAt==rs.parkStr and (dock~=0 or not st.delivering)
     local isStuck = dock==0 and st.delivering and st.lastDecision=="hold"
     if not atPark and not isStuck then return end
 
@@ -694,7 +696,11 @@ local function broadcastStatus()
                 phase=st.arrivedAt==rs.parkStr  and "PARK"     or
                       st.arrivedAt==rs.delivStr and "DELIVERY" or "GARE"
             else
-                phase=st.delivering and "EN_ROUTE" or "TRANSIT"
+                if st.arrivedAt==rs.parkStr and not st.delivering then
+                    phase="PARK"   -- hold : timetable vide → dock=0 / hold: empty timetable → dock=0
+                else
+                    phase=st.delivering and "EN_ROUTE" or "TRANSIT"
+                end
             end
             table.insert(trainsList,{
                 name=st.name, phase=phase,
