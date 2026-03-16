@@ -262,8 +262,8 @@ function renderStats(trains, stats, updatedAt) {
 function toArr(v) { return Array.isArray(v) ? v : []; }
 
 // ── Check Perf ───────────────────────────────────────────────
-// ~11 entrées LOGGER/min → 1 min ≈ 70 entrées totales tous tags confondus
-const PERF_ENTRIES_PER_MIN = 70;
+// ~100 entrées/min tous tags confondus (mesuré en production)
+const PERF_ENTRIES_PER_MIN = 100;
 
 function openCheckPerf() {
     document.getElementById('perf-modal').classList.add('open');
@@ -274,7 +274,7 @@ async function loadCheckPerf(minutes, btn) {
     document.querySelectorAll('.perf-range-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     document.getElementById('perf-body').innerHTML = 'Chargement…';
-    const limit = Math.min(Math.ceil(minutes * PERF_ENTRIES_PER_MIN), 3000);
+    const limit = Math.min(Math.ceil(minutes * PERF_ENTRIES_PER_MIN), 8000);
     try {
         const r = await fetch(`/api/perf/trains?limit=${limit}&minutes=${minutes}`);
         const d = await r.json();

@@ -1,4 +1,4 @@
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -100,8 +100,8 @@ def _append_logs_to_file(entries):
         except Exception:
             pass
 
-_log_ring       = _load_logs_from_file(5000)  # historique chargé au démarrage / history loaded at startup
-_LOG_RING_MAX   = 10_000                       # cap mémoire / memory cap
+_log_ring       = _load_logs_from_file(10_000) # historique chargé au démarrage / history loaded at startup
+_LOG_RING_MAX   = 15_000                       # cap mémoire / memory cap
 _log_total_ever = len(_log_ring)               # compteur absolu cumulatif — ne décroît jamais / absolute cumulative counter — never decreases
 
 def _to_lua(obj):
@@ -429,7 +429,7 @@ def get_perf_trains():
     """Analyse les logs LOGGER pour classer les trains par inutilité de circulation."""
     import re
     from collections import defaultdict
-    limit = min(int(request.args.get("limit", 1200)), 3000)
+    limit = min(int(request.args.get("limit", 1200)), 8000)
     entries = _log_ring[-limit:]
 
     trains = defaultdict(list)
