@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.3"
+local VERSION = "1.2.4"
 
 -- === INITIALISATION MATÉRIEL ===
 local gpu = computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
@@ -156,8 +156,8 @@ while true do
         computer.stop()
 
     elseif e == "NetworkMessage" and port == 43 then
+        -- Ne pas appeler print() ici — boucle infinie garantie / Never call print() here — infinite loop
         addLine(tostring(script), tostring(msg))
-        print("["..tostring(script).."] "..tostring(msg))
         draw()
 
     else
