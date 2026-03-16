@@ -1,8 +1,13 @@
 -- STARTER.lua : panneau de démarrage — contrôle la séquence d'allumage/extinction des ordinateurs
 -- Séquence ON : sw1 → sw2 | Séquence OFF : sw2 → sw1 | Mauvais ordre → son d'erreur
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 local panel1 = component.proxy(component.findComponent("PANEL_L")[1])
 local net    = computer.getPCIDevices(classes.NetworkCard)[1]
+
+-- === LOG → GET_LOG ===
+print=function(...)local t={}for i=1,select('#',...)do t[i]=tostring(select(i,...))end
+    pcall(function()net:broadcast(43,"STARTER",table.concat(t," "))end)end
+print("STARTER v"..VERSION.." démarré")
 
 local swL = panel1:getModule(2, 6, 0)
 local swR = panel1:getModule(8, 6, 0)
