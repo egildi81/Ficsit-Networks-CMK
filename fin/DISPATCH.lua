@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.3.0"
+local VERSION = "4.3.1"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -792,12 +792,14 @@ while true do
             pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
             print("LOGGER_READY → DISPATCH_HELLO renvoyé")
         elseif arg1 and arg1:sub(1,4)=="BUF:" then
-            -- Données buffer relayées par LOGGER depuis STOCKAGE / Buffer data relayed by LOGGER from STOCKAGE
+            -- Format : BUF:zone:totalItems[:slotsTotal] / Format: BUF:zone:totalItems[:slotsTotal]
             local rest=arg1:sub(5)
             local sep=rest:find(":")
             if sep then
                 local zone=rest:sub(1,sep-1)
-                local count=tonumber(rest:sub(sep+1)) or 0
+                local after=rest:sub(sep+1)
+                local sep2=after:find(":")
+                local count = tonumber(sep2 and after:sub(1,sep2-1) or after) or 0
                 _stockageCache[zone]=count
                 -- Compatibilité : si clé = "(PARENT) szname", stocker aussi "szname" seul (anciens configs)
                 -- Backward compat: if key = "(PARENT) szname", also store bare "szname" (old configs)
