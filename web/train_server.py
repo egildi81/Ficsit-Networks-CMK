@@ -1,3 +1,5 @@
+__version__ = "1.0.0"
+
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
 - Flask  : dashboard web sur le port 8081
