@@ -1,4 +1,4 @@
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -421,6 +421,84 @@ def get_dispatch_report():
         "healthy":        healthy,
         "high_count":     high_count,
         "medium_count":   medium_count,
+    })
+
+
+@app.route("/api/perf/trains")
+def get_perf_trains():
+    """Analyse les logs LOGGER pour classer les trains par inutilité de circulation."""
+    import re
+    from collections import defaultdict
+    limit = min(int(request.args.get("limit", 1200)), 3000)
+    entries = _log_ring[-limit:]
+
+    trains = defaultdict(list)
+    for e in entries:
+        if e.get("tag") != "LOGGER":
+            continue
+        m = re.search(r"LOG: (.+?) (IN|OUT) (.+?)->(.+?) d=(\d+)s wagons=(\d+)(?:\s*\|\s*(.+?) x(\d+))?", e["msg"])
+        if not m:
+            continue
+        name = m.group(1).strip()
+        qty  = int(m.group(8)) if m.group(8) else 0
+        trains[name].append({
+            "dir": m.group(2), "from": m.group(3).strip(), "to": m.group(4).strip(),
+            "dur": int(m.group(5)), "wagons": int(m.group(6)),
+            "item": m.group(7), "qty": qty,
+        })
+
+    results = []
+    for name, trips in trains.items():
+        n = len(trips)
+        if n < 2:
+            continue
+        avg_dur  = sum(t["dur"] for t in trips) / n
+        with_qty = [t for t in trips if t["qty"] > 0]
+        avg_qty  = sum(t["qty"] for t in with_qty) / len(with_qty) if with_qty else 0
+        avg_wag  = sum(t["wagons"] for t in trips) / n
+        lpw      = avg_qty / avg_wag if avg_wag > 0 else 0
+        empty_r  = sum(1 for t in trips if t["qty"] == 0) / n
+        stations = sorted(set(t["from"] for t in trips) | set(t["to"] for t in trips))
+        last_item = with_qty[-1]["item"] if with_qty else None
+
+        score  = empty_r * 50 + (n / 40) * 20
+        if avg_qty > 0 and lpw < 2000:
+            score += (1 - lpw / 2000) * 30
+
+        # Verdict
+        if empty_r == 1.0:
+            verdict = "critical"
+            label   = "100% vides"
+        elif empty_r >= 0.4:
+            verdict = "warning"
+            label   = f"{empty_r*100:.0f}% vides"
+        elif lpw < 300 and avg_qty > 0:
+            verdict = "warning"
+            label   = f"Très sous-chargé ({lpw:.0f} items/wagon)"
+        elif lpw < 800 and avg_qty > 0:
+            verdict = "info"
+            label   = f"Sous-chargé ({lpw:.0f} items/wagon)"
+        else:
+            verdict = "ok"
+            label   = f"{lpw:.0f} items/wagon"
+
+        results.append({
+            "name": name, "trips": n, "avg_dur": round(avg_dur),
+            "avg_qty": round(avg_qty), "lpw": round(lpw),
+            "empty_pct": round(empty_r * 100),
+            "wagons": round(avg_wag), "stations": stations,
+            "item": last_item, "score": round(score, 1),
+            "verdict": verdict, "label": label,
+        })
+
+    results.sort(key=lambda x: -x["score"])
+    period_from = entries[0]["ts"]  if entries else "—"
+    period_to   = entries[-1]["ts"] if entries else "—"
+
+    return jsonify({
+        "period": {"from": period_from, "to": period_to},
+        "total_trips": sum(r["trips"] for r in results),
+        "trains": results[:10],
     })
 
 

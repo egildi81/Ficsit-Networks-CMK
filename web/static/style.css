@@ -207,6 +207,22 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-modal-subzone-name { color: #aaa; font-size: 0.8em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
 .stock-modal-subzone-meta { color: #666; font-size: 0.72em; margin-bottom: 6px; }
 
+/* ── MODAL CHECK PERF ── */
+#perf-modal {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.75); align-items: center; justify-content: center;
+}
+#perf-modal.open { display: flex; }
+#perf-panel {
+    background: #111; border-radius: 8px; border: 1px solid #1a1a1a;
+    width: 660px; max-width: 96vw; max-height: 80vh;
+    display: flex; flex-direction: column; overflow: hidden; padding: 16px 18px;
+}
+#perf-body { overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: #333 #111; }
+#perf-body::-webkit-scrollbar { width: 6px; }
+#perf-body::-webkit-scrollbar-track { background: #111; }
+#perf-body::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
 /* ── MODAL RAPPORT DISPATCH ── */
 #dp-report-modal {
     display: none; position: fixed; inset: 0; z-index: 200;

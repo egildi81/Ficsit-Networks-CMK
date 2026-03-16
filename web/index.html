@@ -19,6 +19,7 @@
         <button class="section-btn" onclick="switchSection('stockage', this)">STOCKAGE</button>
         <button class="section-btn" onclick="switchSection('power', this)">ÉNERGIE</button>
         <button class="section-btn" onclick="switchSection('logs', this)">LOGS</button>
+        <button class="section-btn" onclick="openCheckPerf()" title="Analyse performance des trains">⚡ PERF</button>
         <button class="section-btn" style="opacity:0.35;cursor:not-allowed" disabled title="Bientôt disponible">USINE <span style="font-size:0.75em;color:#aaa">(Soon)</span></button>
     </div>
     <nav class="tabs" id="trains-tabs">
@@ -179,6 +180,17 @@
         <span class="dp-status-title">LOGS FIN</span>
     </div>
     <div id="logs-list" style="font-family:monospace;font-size:0.78em;padding:6px 10px;display:flex;flex-direction:column;gap:2px;height:calc(100vh - 90px);overflow-y:auto;"></div>
+</div>
+
+<!-- ── MODAL CHECK PERF ── -->
+<div id="perf-modal" onclick="if(event.target===this)closeCheckPerf()">
+    <div id="perf-panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <span style="color:#ffaa00;font-weight:700;font-size:0.9em;letter-spacing:1.5px">⚡ CHECK PERF — TOP 10 TRAINS</span>
+            <button class="stock-modal-close" onclick="closeCheckPerf()">✕</button>
+        </div>
+        <div id="perf-body">Chargement…</div>
+    </div>
 </div>
 
 <!-- ── MODAL RAPPORT DISPATCH ── -->

@@ -261,6 +261,58 @@ function renderStats(trains, stats, updatedAt) {
 // ── Utilitaire : table Lua vide sérialisée en {} côté Python → toujours un tableau
 function toArr(v) { return Array.isArray(v) ? v : []; }
 
+// ── Check Perf ───────────────────────────────────────────────
+async function openCheckPerf() {
+    document.getElementById('perf-body').innerHTML = 'Chargement…';
+    document.getElementById('perf-modal').classList.add('open');
+    try {
+        const r = await fetch('/api/perf/trains');
+        const d = await r.json();
+        document.getElementById('perf-body').innerHTML = renderCheckPerf(d);
+    } catch(e) {
+        document.getElementById('perf-body').innerHTML = `<span style="color:#f44">Erreur : ${e}</span>`;
+    }
+}
+
+function closeCheckPerf() {
+    document.getElementById('perf-modal').classList.remove('open');
+}
+
+function renderCheckPerf(d) {
+    const VERDICT_COLOR = { critical: '#f44', warning: '#fa0', info: '#888', ok: '#33cc55' };
+    const VERDICT_ICON  = { critical: '🔴', warning: '🟠', info: '🟡', ok: '🟢' };
+
+    let html = `<div style="color:#666;font-size:0.76em;margin-bottom:10px">
+        ${esc(d.period.from)} → ${esc(d.period.to)} &nbsp;·&nbsp; ${d.total_trips} trajets analysés
+    </div>`;
+
+    for (const [i, t] of d.trains.entries()) {
+        const c  = VERDICT_COLOR[t.verdict] || '#888';
+        const ic = VERDICT_ICON[t.verdict]  || '⚪';
+        const stations = t.stations.join(' ↔ ');
+        html += `
+        <div style="margin-bottom:10px;border-left:3px solid ${c};padding-left:10px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                <span style="color:#555;font-size:0.7em;font-weight:700">#${i+1}</span>
+                <span style="color:#ddd;font-size:0.85em;font-weight:700">${esc(t.name)}</span>
+                <span style="font-size:0.75em">${ic}</span>
+                <span style="color:${c};font-size:0.72em;font-weight:600">${esc(t.label)}</span>
+            </div>
+            <div style="color:#555;font-size:0.72em;font-family:monospace;margin-bottom:2px">
+                ${esc(stations)}
+            </div>
+            <div style="display:flex;gap:14px;font-size:0.72em;color:#666">
+                <span>${t.trips} trajets</span>
+                <span>${t.avg_dur}s moy</span>
+                <span>${t.wagons} wagons</span>
+                <span>${t.empty_pct}% vides</span>
+                ${t.item ? `<span style="color:#555">${esc(t.item)}</span>` : ''}
+            </div>
+        </div>`;
+    }
+    return html;
+}
+
 // ── Rapport DISPATCH ─────────────────────────────────────────
 async function dpReport() {
     document.getElementById('dp-report-body').innerHTML = 'Chargement…';
