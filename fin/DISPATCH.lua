@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.3.3"
+local VERSION = "4.3.4"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -31,7 +31,7 @@ local MAX_BUF_HIST     = 6
 local ITEMS_PER_SLOT   = 100
 local GARE_ANCHOR_NICK   = "GARE_TEST"
 local PRIORITY_BCAST_SEC = 30
-local MIN_BUF_DISPATCH   = 200  -- items : seuil urgence buffer critique / critical buffer emergency threshold
+local MIN_BUF_SLOTS      = 2    -- slots occupés : seuil urgence (adaptatif selon taille de stack) / occupied slots: emergency threshold (adapts to item stack size)
 local DOCK_TIME_SEC      = 20   -- temps approx chargement/déchargement en gare (ajouté à l'ETA effectif) / approx loading/unloading time at station (added to effective ETA)
 local TIMEOUT_ETA_FACTOR = 2.0  -- timeout = 2×(ETA+marge) si timing urgent sans charge suffisante / timeout if timing urgent without sufficient load
 
@@ -45,7 +45,7 @@ local lastSafeRetry      = -SAFE_RETRY_SEC
 local _lastConfigPayload = nil
 local _trainSnapshot     = {}
 local lastPriorityBcast  = 0
-local _stockageCache     = {}  -- {[zoneName]=totalItems} mis à jour depuis port 55 STOCKAGE / {[zoneName]=totalItems} updated from port 55 STOCKAGE
+local _stockageCache     = {}  -- {[zoneName]={items,slotsUsed}} mis à jour depuis port 69 BUF / {[zoneName]={items,slotsUsed}} updated from port 69 BUF
 local _globalStationMap  = {}  -- {[stName]=stObj} collecté depuis timetables de tous les trains au boot / {[stName]=stObj} collected from all train timetables at boot
 
 -- === SÉRIALISEUR ===
@@ -468,7 +468,7 @@ local function countBufferItems(rs)
     -- Préférer les données STOCKAGE relayées par LOGGER (source authoritative)
     -- Prefer STOCKAGE data relayed by LOGGER (authoritative source)
     if rs.bufName and _stockageCache[rs.bufName] then
-        return _stockageCache[rs.bufName]
+        return _stockageCache[rs.bufName].items or 0
     end
     -- Fallback : lecture directe FIN (si STOCKAGE pas encore connecté ou pas en mode rapide)
     -- Fallback: direct FIN read (if STOCKAGE not yet connected or not in fast mode)
@@ -484,6 +484,25 @@ local function countBufferItems(rs)
         end
     end)
     return total
+end
+
+-- Slots occupés dans le buffer — depuis cache STOCKAGE ou lecture FIN directe
+-- Occupied slots in buffer — from STOCKAGE cache or direct FIN read
+local function getBufferSlotsUsed(rs)
+    if rs.bufName and _stockageCache[rs.bufName] then
+        return _stockageCache[rs.bufName].slotsUsed or 0
+    end
+    if not rs.bufBox then return 0 end
+    local used=0
+    pcall(function()
+        for _,inv in ipairs(rs.bufBox:getInventories()) do
+            for i=0,inv.size-1 do
+                local ok,s=pcall(function()return inv:getStack(i)end)
+                if ok and s and s.count and s.count>0 then used=used+1 end
+            end
+        end
+    end)
+    return used
 end
 
 local function addBufSample(rs,val)
@@ -581,11 +600,14 @@ local function decide(rs, route, st, dock, stStr)
     local effectiveETA = avgETA + marge + DOCK_TIME_SEC
     local enRoute = countEnRoute(rs)-(isStuck and 1 or 0)
     local wagonItems = rs.trainCap>0 and getWagonItems(st) or 0
+    local slotsUsed  = getBufferSlotsUsed(rs)
     local now = computer.millis()/1000
 
-    -- URGENCE : buffer critique → GO immédiat SI wagon chargé (wagon=0 = livraison inutile)
-    -- EMERGENCY: critical buffer → immediate GO only IF wagon has items (wagon=0 = useless trip)
-    local emergency = curItems<=MIN_BUF_DISPATCH and wagonItems>0
+    -- URGENCE : buffer critique (≤ MIN_BUF_SLOTS slots occupés, adaptatif selon stack size)
+    -- EMERGENCY: critical buffer (≤ MIN_BUF_SLOTS occupied slots, adapts to item stack size)
+    -- Ex: stack×100 → 2 slots = 200 items | stack×500 → 2 slots = 1000 items
+    -- Only if wagon has items — wagon=0 = useless trip / seulement si wagon chargé
+    local emergency = slotsUsed<=MIN_BUF_SLOTS and wagonItems>0
 
     -- TIMING : le buffer s'épuise avant l'arrivée effective du train (transit + dock)
     -- TIMING: buffer runs out before train effectively arrives (transit + dock)
@@ -623,16 +645,16 @@ local function decide(rs, route, st, dock, stStr)
         local tbvStr  = tbv==math.huge and "inf" or string.format("%.0fs",tbv)
         local seuil   = string.format("%.0f",loadThreshold)
         local why
-        if curItems<=MIN_BUF_DISPATCH and wagonItems==0 then why="URGENCE buf<"..MIN_BUF_DISPATCH.." wagon vide → attente chargement"
-        elseif emergency       then why="URGENCE buf<"..MIN_BUF_DISPATCH
+        if slotsUsed<=MIN_BUF_SLOTS and wagonItems==0 then why="URGENCE slots≤"..MIN_BUF_SLOTS.." wagon vide → attente chargement"
+        elseif emergency       then why="URGENCE slots≤"..MIN_BUF_SLOTS
         elseif timeout         then why="TIMEOUT "..string.format("%.0fs",now-st.timingUrgentSince)
         elseif not timingUrgent then why="tbv="..tbvStr..">"..string.format("%.4fs",effectiveETA)
         elseif loadOk           then why="timing+charge ok"
         else                        why="wagon="..wagonItems.."<seuil="..seuil
         end
         print(string.format(
-            "[%s/%s] buf=%d(min%d) drain=%.2f tbv=%s seuil=%s wagon=%d ETA=%.0f+-%.0f(+%ds) en=%d/%d -> %s (%s)",
-            route.name,dockStr,curItems,MIN_BUF_DISPATCH,drain,tbvStr,seuil,wagonItems,
+            "[%s/%s] buf=%d slots=%d(min%d) drain=%.2f tbv=%s seuil=%s wagon=%d ETA=%.0f+-%.0f(+%ds) en=%d/%d -> %s (%s)",
+            route.name,dockStr,curItems,slotsUsed,MIN_BUF_SLOTS,drain,tbvStr,seuil,wagonItems,
             avgETA,sigma,DOCK_TIME_SEC,enRoute,maxEnRoute,shouldGo and "GO" or "HOLD",why
         ))
     end
@@ -642,8 +664,8 @@ local function decide(rs, route, st, dock, stStr)
         if shouldGo then
             setRoute(st,rs,true)
             local why=emergency and "URGENCE" or (timeout and "TIMEOUT" or "timing+charge")
-            print(string.format("%s GO [%s->%s] buf=%d wagon=%d seuil=%.0f (%s)",
-                st.name,route.park,route.delivery,curItems,wagonItems,loadThreshold,why))
+            print(string.format("%s GO [%s->%s] buf=%d slots=%d wagon=%d seuil=%.0f (%s)",
+                st.name,route.park,route.delivery,curItems,slotsUsed,wagonItems,loadThreshold,why))
         else
             local reason
             if enRoute>=maxEnRoute then
@@ -799,7 +821,7 @@ while true do
             pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
             print("LOGGER_READY → DISPATCH_HELLO renvoyé")
         elseif arg1 and arg1:sub(1,4)=="BUF:" then
-            -- Format : BUF:zone:totalItems[:slotsTotal] / Format: BUF:zone:totalItems[:slotsTotal]
+            -- Format : BUF:zone:totalItems:slotsTotal:slotsUsed / Format: BUF:zone:totalItems:slotsTotal:slotsUsed
             local rest=arg1:sub(5)
             local sep=rest:find(":")
             if sep then
@@ -807,11 +829,19 @@ while true do
                 local after=rest:sub(sep+1)
                 local sep2=after:find(":")
                 local count = tonumber(sep2 and after:sub(1,sep2-1) or after) or 0
-                _stockageCache[zone]=count
+                -- Extraire slotsUsed (4ème champ, après slotsTotal) / Extract slotsUsed (4th field, after slotsTotal)
+                local su=0
+                if sep2 then
+                    local after2=after:sub(sep2+1)
+                    local sep3=after2:find(":")
+                    su=tonumber(sep3 and after2:sub(sep3+1) or nil) or 0
+                end
+                local entry={items=count, slotsUsed=su}
+                _stockageCache[zone]=entry
                 -- Compatibilité : si clé = "(PARENT) szname", stocker aussi "szname" seul (anciens configs)
                 -- Backward compat: if key = "(PARENT) szname", also store bare "szname" (old configs)
                 local shortZone=zone:match("^%b() (.+)$")
-                if shortZone then _stockageCache[shortZone]=count end
+                if shortZone then _stockageCache[shortZone]=entry end
             end
         elseif arg1 and arg1:sub(1,4)=="CMD:" then
             handleCommand(arg1:sub(5))

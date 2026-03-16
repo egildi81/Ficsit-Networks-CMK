@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.7"
+local VERSION = "1.6.8"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -523,10 +523,11 @@ while true do
         -- Relai vers DISPATCH : zone + totalItems pour le monitoring buffer
         -- Relay to DISPATCH: zone + totalItems for buffer monitoring
         if dispatchAddr and ok2 and parsed and parsed.totalItems then
-            -- Format : BUF:zone:totalItems:slotsTotal (slotsTotal=0 si inconnu)
-            -- Format: BUF:zone:totalItems:slotsTotal (slotsTotal=0 if unknown)
+            -- Format : BUF:zone:totalItems:slotsTotal:slotsUsed
+            -- Format: BUF:zone:totalItems:slotsTotal:slotsUsed
             local cap=parsed.slotsTotal or 0
-            pcall(function()net:send(dispatchAddr,69,"BUF:"..arg1..":"..tostring(parsed.totalItems)..":"..tostring(cap))end)
+            local used=parsed.slotsUsed or 0
+            pcall(function()net:send(dispatchAddr,69,"BUF:"..arg1..":"..tostring(parsed.totalItems)..":"..tostring(cap)..":"..tostring(used))end)
             -- Relai sous-zones individuelles si présentes
             -- Relay individual subzones if present
             if parsed.subzones then
@@ -534,7 +535,8 @@ while true do
                     if sz.name and sz.totalItems then
                         local fqName="("..arg1..") "..sz.name
                         local szCap=sz.slotsTotal or 0
-                        pcall(function()net:send(dispatchAddr,69,"BUF:"..fqName..":"..tostring(sz.totalItems)..":"..tostring(szCap))end)
+                        local szUsed=sz.slotsUsed or 0
+                        pcall(function()net:send(dispatchAddr,69,"BUF:"..fqName..":"..tostring(sz.totalItems)..":"..tostring(szCap)..":"..tostring(szUsed))end)
                     end
                 end
             end
