@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 print("=== GET_LOG v"..VERSION.." BOOT ===")
 
 -- === INITIALISATION MATÉRIEL ===
@@ -119,17 +119,20 @@ while true do
     if e == "Trigger" and src == btn then
         -- Bouton panel : toggle écran / Panel button: toggle screen
         screenOn = not screenOn
+        print("Bouton : écran "..(screenOn and "ON" or "OFF"))
         draw()
 
     elseif e == "NetworkMessage" and port == 52 then
         -- STARTER allume le système → écran ON / STARTER starts system → screen ON
         if msg == "SCREEN_ON" then
             screenOn = true
+            print("SCREEN_ON reçu de STARTER → écran ON")
             draw()
         end
 
     elseif e == "NetworkMessage" and port == 50 then
         -- SHUTDOWN : efface l'écran et s'arrête / SHUTDOWN: clear screen and stop
+        print("SHUTDOWN reçu → arrêt")
         gpu:drawRect({x=0,y=0}, {x=sw,y=sh}, BG, BG, 0)
         gpu:flush()
         computer.stop()

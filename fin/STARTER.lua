@@ -1,6 +1,6 @@
 -- STARTER.lua : panneau de démarrage — contrôle la séquence d'allumage/extinction des ordinateurs
 -- Séquence ON : sw1 → sw2 | Séquence OFF : sw2 → sw1 | Mauvais ordre → son d'erreur
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 local panel1 = component.proxy(component.findComponent("PANEL_L")[1])
 local net    = computer.getPCIDevices(classes.NetworkCard)[1]
 
@@ -291,48 +291,43 @@ while true do
 
     -- Mise à jour adresse GET_LOG si redémarre / Update GET_LOG address if it restarts
     if e == "NetworkMessage" and a4 == 52 and a6 == "GET_LOG_HELLO" then
-        getlogAddr = a3  -- sender = adresse réseau GET_LOG / sender = GET_LOG network address
+        getlogAddr = a3
+        print("GET_LOG_HELLO reçu — adresse capturée")
+    elseif e == "NetworkMessage" then
+        print("NET port="..tostring(a4).." msg="..tostring(a6))
     end
 
     if e == "ChangeState" then
         -- a3==false → switch ALLUMÉ, a3==true → ÉTEINT (convention FIN panel toggle)
         -- a3==false → switch ON, a3==true → OFF (FIN panel toggle convention)
         local isNowOn = (a3 == false)
+        local swName = src==swL and "SW1" or (src==swR and "SW2" or "?")
+        print(swName.." "..(isNowOn and "ON" or "OFF").." | état="..seqState)
 
         if src == swL then
             if isNowOn then
-                -- SW1 vient d'être allumé
-                if     seqState == "idle"     then seqState = "armed"       -- ✓ correct : attend SW2
-                elseif seqState == "armed"    then                           -- déjà armé, ignoré
-                elseif seqState == "shutdown" then playError()              -- ✗ wrong order
-                elseif seqState == "on"       then playError()              -- ✗ wrong order
+                if     seqState == "idle"     then seqState = "armed"
+                elseif seqState == "shutdown" then playError()
+                elseif seqState == "on"       then playError()
                 end
             else
-                -- SW1 vient d'être éteint
-                if     seqState == "shutdown" then seqState = "idle"; stopAll()  -- ✓ correct
-                elseif seqState == "idle"     then                           -- boot/reset, ignoré
-                elseif seqState == "armed"    then seqState = "idle"; playError() -- ✗ annulation
-                elseif seqState == "on"       then playError()              -- ✗ wrong order
+                if     seqState == "shutdown" then seqState = "idle"; stopAll()
+                elseif seqState == "armed"    then seqState = "idle"; playError()
+                elseif seqState == "on"       then playError()
                 end
             end
 
         elseif src == swR then
             if isNowOn then
-                -- SW2 vient d'être allumé
-                if     seqState == "armed"    then seqState = "on"; startAll()  -- ✓ correct
-                elseif seqState == "on"       then                           -- déjà on, ignoré
-                elseif seqState == "idle"     then playError()              -- ✗ SW1 pas allumé
-                elseif seqState == "shutdown" then playError()              -- ✗ wrong order
+                if     seqState == "armed"    then seqState = "on"; startAll()
+                elseif seqState == "idle"     then playError()
+                elseif seqState == "shutdown" then playError()
                 end
             else
-                -- SW2 vient d'être éteint
-                if     seqState == "on"       then seqState = "shutdown"    -- ✓ correct : attend SW1
-                elseif seqState == "idle"     then                           -- boot/reset, ignoré
-                elseif seqState == "armed"    then                           -- SW2 était déjà off, ignoré
-                elseif seqState == "shutdown" then                           -- déjà en shutdown, ignoré
-                end
+                if seqState == "on" then seqState = "shutdown" end
             end
         end
+        print("→ nouvel état="..seqState)
 
     elseif e == "valueChanged" then
         for i, pot in ipairs(pots) do
