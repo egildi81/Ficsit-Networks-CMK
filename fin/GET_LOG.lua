@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 print("=== GET_LOG v"..VERSION.." BOOT ===")
 
 -- === INITIALISATION MATÉRIEL ===
@@ -20,14 +20,22 @@ event.listen(net)
 -- Single panel button — manually toggle screen on/off
 local PANEL_NICK = "GETLOG_PANEL"
 local btn = nil
-pcall(function()
+local ok_btn, err_btn = pcall(function()
     local ids = component.findComponent(PANEL_NICK)
-    if ids and ids[1] then
-        local panel = component.proxy(ids[1])
-        btn = panel:getModule(0, 0, 0)
-        if btn then event.listen(btn) end
+    if not ids or not ids[1] then
+        print("WARN: panel '"..PANEL_NICK.."' introuvable")
+        return
     end
+    local panel = component.proxy(ids[1])
+    btn = panel:getModule(0, 0, 0)
+    if not btn then
+        print("WARN: module (0,0,0) introuvable sur "..PANEL_NICK)
+        return
+    end
+    event.listen(btn)
+    print("Bouton panel OK — en écoute")
 end)
+if not ok_btn then print("ERR init bouton: "..tostring(err_btn)) end
 
 -- === ÉTAT ÉCRAN ===
 -- Éteint au boot — allumé par STARTER (port 52 net:send) ou bouton
@@ -115,6 +123,12 @@ end
 draw()  -- fond noir au boot / black screen at boot
 while true do
     local e, src, sender, port, script, msg = event.pull(30)
+
+    if e ~= nil and e ~= "NetworkMessage" then
+        -- Debug : log tout event non-réseau pour identifier le nom exact du bouton
+        -- Debug: log all non-network events to identify exact button event name
+        print("EVT e='"..tostring(e).."' src="..tostring(src))
+    end
 
     if e == "Trigger" and src == btn then
         -- Bouton panel : toggle écran / Panel button: toggle screen
