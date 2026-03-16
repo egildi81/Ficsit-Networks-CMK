@@ -3,15 +3,19 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.2"
-print("=== GET_LOG v"..VERSION.." BOOT ===")
+local VERSION = "1.2.3"
 
 -- === INITIALISATION MATÉRIEL ===
 local gpu = computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
 local scr = component.proxy(component.findComponent("MAP_SCREEN")[1])
 local net = computer.getPCIDevices(classes.NetworkCard)[1]
 gpu:bindScreen(scr)
-net:open(43)   -- port dédié aux logs / dedicated log port
+net:open(43)
+
+-- === LOG → GET_LOG (et web via LOGGER port 43) ===
+print=function(...)local t={}for i=1,select('#',...)do t[i]=tostring(select(i,...))end
+    pcall(function()net:broadcast(43,"GET_LOG",table.concat(t," "))end)end
+print("GET_LOG v"..VERSION.." démarré")   -- port dédié aux logs / dedicated log port
 net:open(50)   -- port SHUTDOWN (STARTER)
 net:open(52)   -- port SCREEN_ON (STARTER) / SCREEN_ON port from STARTER
 event.listen(net)
