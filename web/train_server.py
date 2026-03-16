@@ -1,4 +1,4 @@
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -328,7 +328,7 @@ def get_dispatch_report():
         issues.append({
             "type": "go_urgence",
             "severity": "medium",
-            "label": "GO en URGENCE (buf < 10 items)",
+            "label": "GO en URGENCE (slots ≤ MIN_BUF_SLOTS)",
             "count": len(go_urgence),
             "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in go_urgence[-5:]],
         })
@@ -391,14 +391,22 @@ def get_dispatch_report():
             "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in warns[-5:]],
         })
 
-    # Dernières décisions par route
+    # Dernières décisions par route — HOLD depuis log status, GO depuis log transition
     last_decisions = {}
     for e in dispatch:
-        m = re.match(r"\[([^\]]+)/attente\].*(-> (GO|HOLD).*)", e["msg"])
+        # HOLD : "[ROUTE/attente] ... -> HOLD (reason)"
+        m = re.match(r"\[([^\]]+)/\w+\].*(-> (GO|HOLD).*)", e["msg"])
         if m:
-            route   = m.group(1)
-            verdict = m.group(2)
+            route = m.group(1)
             last_decisions[route] = {"ts": e["ts"], "msg": e["msg"], "verdict": m.group(3)}
+        else:
+            # GO transition : "TRAIN_NAME GO [PARK->DELIVERY] buf=..."
+            m2 = re.search(r"GO \[([^\]]+)\]", e["msg"])
+            if m2 and " GO " in e["msg"]:
+                # extraire le nom de route depuis buf= et reconstruire depuis last_decisions existant
+                # utiliser la destination comme clé approximative
+                route = m2.group(1)
+                last_decisions[route] = {"ts": e["ts"], "msg": e["msg"], "verdict": "GO"}
 
     high_count   = sum(1 for i in issues if i["severity"] == "high")
     medium_count = sum(1 for i in issues if i["severity"] == "medium")
