@@ -261,6 +261,78 @@ function renderStats(trains, stats, updatedAt) {
 // ── Utilitaire : table Lua vide sérialisée en {} côté Python → toujours un tableau
 function toArr(v) { return Array.isArray(v) ? v : []; }
 
+// ── Rapport DISPATCH ─────────────────────────────────────────
+async function dpReport() {
+    document.getElementById('dp-report-body').innerHTML = 'Chargement…';
+    document.getElementById('dp-report-modal').classList.add('open');
+    try {
+        const r = await fetch('/api/dispatch/report');
+        const d = await r.json();
+        document.getElementById('dp-report-body').innerHTML = renderDpReport(d);
+    } catch(e) {
+        document.getElementById('dp-report-body').innerHTML = `<span style="color:#f44">Erreur : ${e}</span>`;
+    }
+}
+
+function closeDpReport() {
+    document.getElementById('dp-report-modal').classList.remove('open');
+}
+
+function renderDpReport(d) {
+    const SEV_COLOR = { high: '#f44', medium: '#fa0', low: '#888' };
+    const SEV_LABEL = { high: 'CRITIQUE', medium: 'ATTENTION', low: 'INFO' };
+
+    let html = `<div style="color:#666;font-size:0.76em;margin-bottom:10px">
+        ${esc(d.period.from)} → ${esc(d.period.to)} &nbsp;·&nbsp;
+        ${d.dispatch_count} logs DISPATCH sur ${d.total_analyzed} analysés
+    </div>`;
+
+    // Badge santé global
+    const statusColor = d.healthy ? '#33cc55' : (d.high_count > 0 ? '#f44' : '#fa0');
+    const statusText  = d.healthy ? '✓ Aucun problème détecté' :
+        `${d.high_count} critique(s) · ${d.medium_count} attention(s)`;
+    html += `<div style="padding:8px 12px;border-radius:6px;background:${statusColor}22;border:1px solid ${statusColor}44;color:${statusColor};font-weight:700;font-size:0.85em;margin-bottom:14px">${statusText}</div>`;
+
+    // Issues
+    if (d.issues.length === 0) {
+        html += `<div style="color:#555;font-size:0.82em">Aucune anomalie dans la fenêtre analysée.</div>`;
+    } else {
+        for (const issue of d.issues) {
+            const c = SEV_COLOR[issue.severity] || '#888';
+            const l = SEV_LABEL[issue.severity] || issue.severity;
+            html += `<div style="margin-bottom:12px;border-left:3px solid ${c};padding-left:10px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <span style="color:${c};font-size:0.7em;font-weight:700;letter-spacing:1px">${l}</span>
+                    <span style="color:#ccc;font-size:0.82em;font-weight:600">${esc(issue.label)}</span>
+                    <span style="color:#666;font-size:0.72em">${issue.count}×</span>
+                </div>`;
+            for (const e of issue.entries) {
+                html += `<div style="color:#888;font-size:0.72em;font-family:monospace;padding:2px 0;border-bottom:1px solid #1a1a1a;word-break:break-word">
+                    <span style="color:#555">${esc(e.ts)}</span> ${esc(e.msg)}
+                </div>`;
+            }
+            html += `</div>`;
+        }
+    }
+
+    // Dernières décisions par route
+    if (d.last_decisions.length > 0) {
+        html += `<div style="color:#00cccc;font-size:0.72em;font-weight:700;letter-spacing:1px;margin:14px 0 6px">DERNIÈRES DÉCISIONS</div>`;
+        for (const dec of d.last_decisions) {
+            const c = dec.verdict === 'GO' ? '#33cc55' : '#888';
+            const routeM = dec.msg.match(/^\[([^\]]+)\//);
+            const route = routeM ? routeM[1] : '?';
+            html += `<div style="font-family:monospace;font-size:0.72em;color:#777;padding:3px 0;border-bottom:1px solid #1a1a1a;word-break:break-word">
+                <span style="color:${c};font-weight:700">${esc(dec.verdict)}</span>
+                <span style="color:#00cccc88"> [${esc(route)}]</span>
+                <span style="color:#555"> ${esc(dec.ts)}</span><br>${esc(dec.msg)}
+            </div>`;
+        }
+    }
+
+    return html;
+}
+
 // ── Modal détail zone stockage ───────────────────────────────
 let _stockageCache = [];
 

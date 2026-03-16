@@ -116,6 +116,7 @@
         <span id="dp-badge-safe"   class="dp-badge" style="display:none">SAFE MODE</span>
         <button class="dp-btn" onclick="dpNewRoute()" title="Ajouter une nouvelle route">+ Route</button>
         <button class="dp-btn" onclick="sendDispatchCmd('reload',null,null)" title="Recharge la config depuis LOGGER">↺ Reload</button>
+        <button class="dp-btn" onclick="dpReport()" title="Rapport sur les 300 derniers logs DISPATCH">📊 Rapport</button>
         <span id="dp-save-status" style="font-size:0.76em;color:#888"></span>
     </div>
     <div id="dp-routes"></div>
@@ -178,6 +179,17 @@
         <span class="dp-status-title">LOGS FIN</span>
     </div>
     <div id="logs-list" style="font-family:monospace;font-size:0.78em;padding:6px 10px;display:flex;flex-direction:column;gap:2px;height:calc(100vh - 90px);overflow-y:auto;"></div>
+</div>
+
+<!-- ── MODAL RAPPORT DISPATCH ── -->
+<div id="dp-report-modal" onclick="if(event.target===this)closeDpReport()">
+    <div id="dp-report-panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <span style="color:#00cccc;font-weight:700;font-size:0.9em;letter-spacing:1.5px">RAPPORT DISPATCH</span>
+            <button class="stock-modal-close" onclick="closeDpReport()">✕</button>
+        </div>
+        <div id="dp-report-body">Chargement…</div>
+    </div>
 </div>
 
 <!-- ── MODAL DÉTAIL ZONE STOCKAGE ── -->
