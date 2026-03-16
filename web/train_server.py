@@ -98,8 +98,9 @@ def _append_logs_to_file(entries):
         except Exception:
             pass
 
-_log_ring     = _load_logs_from_file(5000)  # historique chargé au démarrage / history loaded at startup
-_LOG_RING_MAX = 10_000                       # cap mémoire / memory cap
+_log_ring       = _load_logs_from_file(5000)  # historique chargé au démarrage / history loaded at startup
+_LOG_RING_MAX   = 10_000                       # cap mémoire / memory cap
+_log_total_ever = len(_log_ring)               # compteur absolu cumulatif — ne décroît jamais / absolute cumulative counter — never decreases
 
 def _to_lua(obj):
     """Convertit un objet Python en chaîne table Lua (parseable par load('return '..s)() )."""
@@ -129,7 +130,7 @@ app = Flask(__name__)
 @app.route("/api/push", methods=["POST"])
 def receive_push():
     """Reçoit le snapshot trains + trips + stats + stockage de LOGGER (toutes les 2s)."""
-    global _cache, _cache_updated_at, _trips, _stats, _stockage, _log_ring
+    global _cache, _cache_updated_at, _trips, _stats, _stockage, _log_ring, _log_total_ever
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
@@ -152,6 +153,7 @@ def receive_push():
         ts = datetime.now(timezone.utc).strftime("%d/%m %H:%M:%S")
         parsed = [{"ts": ts, "tag": str(e.get("tag", "?")), "msg": str(e.get("msg", ""))} for e in new_logs]
         _log_ring.extend(parsed)
+        _log_total_ever += len(parsed)
         if len(_log_ring) > _LOG_RING_MAX:
             del _log_ring[:-_LOG_RING_MAX]
         _append_logs_to_file(parsed)
@@ -283,6 +285,135 @@ def get_data():
     })
 
 
+@app.route("/api/dispatch/report")
+def get_dispatch_report():
+    """Analyse les derniers logs DISPATCH et retourne un rapport structuré."""
+    import re
+    limit = min(int(request.args.get("limit", 300)), 2000)
+    entries = _log_ring[-limit:]
+    dispatch = [e for e in entries if e.get("tag") == "DISPATCH"]
+
+    period_from = entries[0]["ts"]  if entries  else "—"
+    period_to   = entries[-1]["ts"] if entries  else "—"
+
+    issues = []
+
+    # GO avec wagon=0 — trajet à vide (inutile)
+    go_empty = [e for e in dispatch if " GO " in e["msg"] and "wagon=0" in e["msg"]]
+    if go_empty:
+        issues.append({
+            "type": "go_wagon_vide",
+            "severity": "high",
+            "label": "GO avec wagon vide (wagon=0)",
+            "count": len(go_empty),
+            "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in go_empty[-5:]],
+        })
+
+    # buf=0 permanent (bug parsing ou buffer vraiment vide)
+    buf0_cycles = [e for e in dispatch if "buf=0(" in e["msg"]]
+    if len(buf0_cycles) >= 3:
+        issues.append({
+            "type": "buf_zero_permanent",
+            "severity": "high",
+            "label": "Buffer toujours à 0 (bug parsing ?)",
+            "count": len(buf0_cycles),
+            "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in buf0_cycles[-3:]],
+        })
+
+    # GO URGENCE
+    go_urgence = [e for e in dispatch if " GO " in e["msg"] and "URGENCE" in e["msg"]]
+    if go_urgence:
+        issues.append({
+            "type": "go_urgence",
+            "severity": "medium",
+            "label": "GO en URGENCE (buf < 10 items)",
+            "count": len(go_urgence),
+            "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in go_urgence[-5:]],
+        })
+
+    # GO avec buf > 500 (livraison potentiellement inutile)
+    go_high_buf = []
+    for e in dispatch:
+        if " GO " in e["msg"]:
+            m = re.search(r"buf=(\d+)", e["msg"])
+            if m and int(m.group(1)) > 500:
+                go_high_buf.append(e)
+    if go_high_buf:
+        issues.append({
+            "type": "go_buf_eleve",
+            "severity": "low",
+            "label": "GO alors que buf > 500 items",
+            "count": len(go_high_buf),
+            "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in go_high_buf[-5:]],
+        })
+
+    # TIMEOUT
+    timeouts = [e for e in dispatch if "TIMEOUT" in e["msg"]]
+    if timeouts:
+        issues.append({
+            "type": "timeout",
+            "severity": "medium",
+            "label": "TIMEOUT déclenché (wagon sous-chargé trop longtemps)",
+            "count": len(timeouts),
+            "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in timeouts[-5:]],
+        })
+
+    # Trains boucle (> 2 GO dans la fenêtre)
+    from collections import defaultdict
+    go_counts = defaultdict(list)
+    for e in dispatch:
+        m = re.match(r"(.+?) GO \[", e["msg"])
+        if m:
+            go_counts[m.group(1).strip()].append(e)
+    loopers = {k: v for k, v in go_counts.items() if len(v) > 2}
+    if loopers:
+        entries_list = []
+        for train, evts in sorted(loopers.items(), key=lambda x: -len(x[1])):
+            entries_list.append({"ts": evts[-1]["ts"], "msg": f"{train} : {len(evts)}x GO dans la fenêtre"})
+        issues.append({
+            "type": "boucle",
+            "severity": "medium",
+            "label": "Train(s) faisant de nombreux allers-retours",
+            "count": len(loopers),
+            "entries": entries_list,
+        })
+
+    # WARN / introuvable
+    warns = [e for e in dispatch if "WARN" in e["msg"] or "introuvable" in e["msg"]]
+    if warns:
+        issues.append({
+            "type": "warn",
+            "severity": "low",
+            "label": "Avertissements DISPATCH",
+            "count": len(warns),
+            "entries": [{"ts": e["ts"], "msg": e["msg"]} for e in warns[-5:]],
+        })
+
+    # Dernières décisions par route
+    last_decisions = {}
+    for e in dispatch:
+        m = re.match(r"\[([^\]]+)/attente\].*(-> (GO|HOLD).*)", e["msg"])
+        if m:
+            route   = m.group(1)
+            verdict = m.group(2)
+            last_decisions[route] = {"ts": e["ts"], "msg": e["msg"], "verdict": m.group(3)}
+
+    high_count   = sum(1 for i in issues if i["severity"] == "high")
+    medium_count = sum(1 for i in issues if i["severity"] == "medium")
+    healthy      = (high_count == 0 and medium_count == 0)
+
+    return jsonify({
+        "period":         {"from": period_from, "to": period_to},
+        "total_analyzed": len(entries),
+        "dispatch_count": len(dispatch),
+        "issues":         issues,
+        "last_decisions": list(last_decisions.values()),
+        "healthy":        healthy,
+        "high_count":     high_count,
+        "medium_count":   medium_count,
+    })
+
+
 @app.route("/api/logs")
 def get_logs():
     """Endpoint dédié logs FIN / Dedicated FIN logs endpoint.
@@ -291,15 +422,18 @@ def get_logs():
     Sans after → retourne les M dernières / without after: returns last M entries
     """
     limit = min(int(request.args.get("limit", 300)), 2000)
-    total = len(_log_ring)
+    ring_size = len(_log_ring)
+    # ring_start_abs = index absolu de _log_ring[0] / absolute index of _log_ring[0]
+    ring_start_abs = _log_total_ever - ring_size
     after = request.args.get("after")
     if after is None:
         # Chargement initial : dernières `limit` entrées / initial load: last `limit` entries
-        start = max(0, total - limit)
+        local_start = max(0, ring_size - limit)
     else:
-        start = max(0, min(int(after), total))
-    entries = _log_ring[start:start + limit]
-    return jsonify({"logs": entries, "total": total, "start": start})
+        # Convertir index absolu JS → index local dans le ring / convert JS absolute index → local ring index
+        local_start = max(0, int(after) - ring_start_abs)
+    entries = _log_ring[local_start:local_start + limit]
+    return jsonify({"logs": entries, "total": _log_total_ever, "start": ring_start_abs + local_start})
 
 
 @app.route("/")
