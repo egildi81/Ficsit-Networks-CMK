@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.10"
+local VERSION = "4.2.11"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -575,7 +575,7 @@ local function decide(rs, route, st, dock, stStr)
     -- GO = urgence + quota / GO = urgency + quota
     -- Urgence selon drain / Urgency based on drain:
     --   drain>0 (buffer se vide)   → GO si buffer vide avant arrivée / GO if buffer empty before arrival
-    --   drain<0 (buffer croît)     → toujours urgent (production active, vider au plus tôt) / always urgent (active production, pick up ASAP)
+    --   drain<0 (buffer croît)     → pas urgent si niveau suffisant, sinon GO / not urgent if level ok, else GO
     --   drain=0 (stable/inconnu)  :
     --     buf <= MIN_BUF_DISPATCH  → buffer vide/presque → urgence livraison / buffer empty/low → delivery urgent
     --     buf >  MIN_BUF_DISPATCH  → stable et suffisant → pas urgent / stable and sufficient → not urgent
@@ -583,7 +583,13 @@ local function decide(rs, route, st, dock, stStr)
     if drain>0 then
         tbvAdj=math.max(0,(curItems-wagonItems)/drain)
     elseif drain<0 then
-        tbvAdj=0      -- croissant → toujours "à temps" / growing → always "in time"
+        -- buffer croît : urgent seulement si niveau bas (production démarre mais stock vide)
+        -- buffer growing: urgent only if level low (production starting but stock empty)
+        if curItems<=MIN_BUF_DISPATCH then
+            tbvAdj=0         -- buffer bas malgré croissance → GO / buffer low despite growth → GO
+        else
+            tbvAdj=math.huge -- buffer croît et suffisant → HOLD / buffer growing and sufficient → HOLD
+        end
     else
         -- drain=0 : stable ou historique insuffisant — urgence si buffer bas ou vide
         -- drain=0: stable or insufficient history — urgent if buffer low or empty
@@ -775,6 +781,10 @@ while true do
                 local zone=rest:sub(1,sep-1)
                 local count=tonumber(rest:sub(sep+1)) or 0
                 _stockageCache[zone]=count
+                -- Compatibilité : si clé = "(PARENT) szname", stocker aussi "szname" seul (anciens configs)
+                -- Backward compat: if key = "(PARENT) szname", also store bare "szname" (old configs)
+                local shortZone=zone:match("^%b() (.+)$")
+                if shortZone then _stockageCache[shortZone]=count end
             end
         elseif arg1 and arg1:sub(1,4)=="CMD:" then
             handleCommand(arg1:sub(5))
