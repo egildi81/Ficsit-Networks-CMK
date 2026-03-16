@@ -262,13 +262,23 @@ function renderStats(trains, stats, updatedAt) {
 function toArr(v) { return Array.isArray(v) ? v : []; }
 
 // ── Check Perf ───────────────────────────────────────────────
-async function openCheckPerf() {
-    document.getElementById('perf-body').innerHTML = 'Chargement…';
+// ~11 entrées LOGGER/min → 1 min ≈ 70 entrées totales tous tags confondus
+const PERF_ENTRIES_PER_MIN = 70;
+
+function openCheckPerf() {
     document.getElementById('perf-modal').classList.add('open');
+    loadCheckPerf(15, document.querySelector('.perf-range-btn.active'));
+}
+
+async function loadCheckPerf(minutes, btn) {
+    document.querySelectorAll('.perf-range-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    document.getElementById('perf-body').innerHTML = 'Chargement…';
+    const limit = Math.min(Math.ceil(minutes * PERF_ENTRIES_PER_MIN), 3000);
     try {
-        const r = await fetch('/api/perf/trains');
+        const r = await fetch(`/api/perf/trains?limit=${limit}&minutes=${minutes}`);
         const d = await r.json();
-        document.getElementById('perf-body').innerHTML = renderCheckPerf(d);
+        document.getElementById('perf-body').innerHTML = renderCheckPerf(d, minutes);
     } catch(e) {
         document.getElementById('perf-body').innerHTML = `<span style="color:#f44">Erreur : ${e}</span>`;
     }
@@ -278,12 +288,15 @@ function closeCheckPerf() {
     document.getElementById('perf-modal').classList.remove('open');
 }
 
-function renderCheckPerf(d) {
+function renderCheckPerf(d, minutes) {
     const VERDICT_COLOR = { critical: '#f44', warning: '#fa0', info: '#888', ok: '#33cc55' };
     const VERDICT_ICON  = { critical: '🔴', warning: '🟠', info: '🟡', ok: '🟢' };
 
+    const dur = d.duration_min != null ? `${d.duration_min} min réels` : `~${minutes} min demandées`;
     let html = `<div style="color:#666;font-size:0.76em;margin-bottom:10px">
-        ${esc(d.period.from)} → ${esc(d.period.to)} &nbsp;·&nbsp; ${d.total_trips} trajets analysés
+        ${esc(d.period.from)} → ${esc(d.period.to)}
+        &nbsp;·&nbsp; <span style="color:#ffaa0088">${dur}</span>
+        &nbsp;·&nbsp; ${d.total_trips} trajets
     </div>`;
 
     for (const [i, t] of d.trains.entries()) {

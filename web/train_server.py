@@ -1,4 +1,4 @@
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -495,10 +495,22 @@ def get_perf_trains():
     period_from = entries[0]["ts"]  if entries else "—"
     period_to   = entries[-1]["ts"] if entries else "—"
 
+    # Durée réelle couverte par les entrées
+    duration_min = None
+    try:
+        from datetime import datetime
+        fmt = "%d/%m %H:%M:%S"
+        t0 = datetime.strptime(period_from, fmt)
+        t1 = datetime.strptime(period_to,   fmt)
+        duration_min = round((t1 - t0).total_seconds() / 60)
+    except Exception:
+        pass
+
     return jsonify({
-        "period": {"from": period_from, "to": period_to},
-        "total_trips": sum(r["trips"] for r in results),
-        "trains": results[:10],
+        "period":       {"from": period_from, "to": period_to},
+        "duration_min": duration_min,
+        "total_trips":  sum(r["trips"] for r in results),
+        "trains":       results[:10],
     })
 
 
