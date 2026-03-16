@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.2.12"
+local VERSION = "4.3.0"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -31,7 +31,8 @@ local MAX_BUF_HIST     = 6
 local ITEMS_PER_SLOT   = 100
 local GARE_ANCHOR_NICK   = "GARE_TEST"
 local PRIORITY_BCAST_SEC = 30
-local MIN_BUF_DISPATCH   = 10  -- items : seuil buffer vide (drain≤0) → GO immédiat
+local MIN_BUF_DISPATCH   = 10   -- items : seuil urgence buffer critique / critical buffer emergency threshold
+local TIMEOUT_ETA_FACTOR = 2.0  -- timeout = 2×(ETA+marge) si timing urgent sans charge suffisante / timeout if timing urgent without sufficient load
 
 -- === ÉTAT GLOBAL ===
 local routes     = {}
@@ -291,6 +292,7 @@ local function discoverRoute(route, trainMap)
                         obj=t, name=tname,
                         lastDock=nil, lastStation=nil, departTime=nil,
                         arrivedAt=nil, delivering=false, lastDecision=nil,
+                        timingUrgentSince=nil,
                         restoredFromHold=restoredFromHold,
                     }
                     if rs.trainCap==0 then rs.trainCap=autoDetectCap(rs.trains[key]) end
@@ -337,6 +339,7 @@ local function discoverRoute(route, trainMap)
                         obj=t, name=name,
                         lastDock=nil, lastStation=nil, departTime=nil,
                         arrivedAt=nil, delivering=false, lastDecision=nil,
+                        timingUrgentSince=nil,
                     }
                     if rs.trainCap==0 then rs.trainCap=autoDetectCap(rs.trains[key]) end
                     print("Route "..route.name.." — train: "..name)
@@ -564,58 +567,66 @@ end
 local function decide(rs, route, st, dock, stStr)
     -- atPark : docké AU PARK (dock~=0) OU en hold au PARK (timetable vide → dock=0 toujours)
     -- atPark: docked AT PARK (dock~=0) OR held at PARK (empty timetable → dock always 0)
+    -- ⚠ RÉGRESSION RÉCURRENTE — voir feedback_dispatch_atpark.md avant toute modification
     local atPark  = st.arrivedAt==rs.parkStr and (dock~=0 or not st.delivering)
     local isStuck = dock==0 and st.delivering and st.lastDecision=="hold"
     if not atPark and not isStuck then return end
 
-    local maxEnRoute=route.maxEnRoute or 1
-    local drain,tbv,curItems=getBufferStats(rs)
-    local avgETA,sigma=calcETA(rs)
-    local marge=math.max(MIN_MARGE_SEC,sigma*SIGMA_FACTOR)
-    local enRoute=countEnRoute(rs)-(isStuck and 1 or 0)
-    local wagonItems=rs.trainCap>0 and getWagonItems(st) or 0
-    -- GO = urgence + quota / GO = urgency + quota
-    -- Urgence selon drain / Urgency based on drain:
-    --   drain>0 (buffer se vide)   → GO si buffer vide avant arrivée / GO if buffer empty before arrival
-    --   drain<0 (buffer croît)     → pas urgent si niveau suffisant, sinon GO / not urgent if level ok, else GO
-    --   drain=0 (stable/inconnu)  :
-    --     buf <= MIN_BUF_DISPATCH  → buffer vide/presque → urgence livraison / buffer empty/low → delivery urgent
-    --     buf >  MIN_BUF_DISPATCH  → stable et suffisant → pas urgent / stable and sufficient → not urgent
-    local tbvAdj
-    if drain>0 then
-        tbvAdj=math.max(0,(curItems-wagonItems)/drain)
-    elseif drain<0 then
-        -- buffer croît : urgent seulement si niveau bas (production démarre mais stock vide)
-        -- buffer growing: urgent only if level low (production starting but stock empty)
-        if curItems<=MIN_BUF_DISPATCH then
-            tbvAdj=0         -- buffer bas malgré croissance → GO / buffer low despite growth → GO
-        else
-            tbvAdj=math.huge -- buffer croît et suffisant → HOLD / buffer growing and sufficient → HOLD
-        end
-    else
-        -- drain=0 : stable ou historique insuffisant — urgence si buffer bas ou vide
-        -- drain=0: stable or insufficient history — urgent if buffer low or empty
-        if curItems<=MIN_BUF_DISPATCH then
-            tbvAdj=0          -- buffer vide/bas → GO livrer / buffer empty/low → GO deliver
-        else
-            tbvAdj=math.huge  -- buffer suffisant et stable → pas urgent / buffer sufficient and stable → not urgent
-        end
-    end
-    local urgent = tbvAdj <= avgETA+marge
-    local shouldGo = urgent and (enRoute<maxEnRoute)
-    local decision=shouldGo and "go" or "hold"
+    local maxEnRoute = route.maxEnRoute or 1
+    local drain,_,curItems = getBufferStats(rs)
+    local avgETA,sigma = calcETA(rs)
+    local marge = math.max(MIN_MARGE_SEC, sigma*SIGMA_FACTOR)
+    local enRoute = countEnRoute(rs)-(isStuck and 1 or 0)
+    local wagonItems = rs.trainCap>0 and getWagonItems(st) or 0
+    local now = computer.millis()/1000
 
-    local now=computer.millis()/1000
+    -- URGENCE : buffer critique → GO immédiat / EMERGENCY: critical buffer → immediate GO
+    local emergency = curItems<=MIN_BUF_DISPATCH
+
+    -- TIMING : le buffer s'épuise avant l'arrivée du train / TIMING: buffer runs out before train arrives
+    -- Seul drain>0 est temporellement urgent (drain≤0 = buffer stable ou croissant)
+    -- Only drain>0 is time-critical (drain≤0 = buffer stable or growing)
+    local tbv = drain>0 and curItems/drain or math.huge
+    local timingUrgent = drain>0 and tbv<=(avgETA+marge)
+
+    -- CHARGE : le train apporte assez pour couvrir la consommation pendant le voyage
+    -- LOAD: train brings enough to cover buffer consumption during the trip
+    -- Référence : drain×(ETA+marge) — indépendant de trainCap et bufCap (tous deux gonflés par design)
+    -- Reference: drain×(ETA+marge) — independent of trainCap and bufCap (both inflated by design)
+    local loadThreshold = drain*(avgETA+marge)
+    local loadOk = drain<=0 or wagonItems>=loadThreshold
+
+    -- TIMEOUT : timing urgent depuis trop longtemps sans charge suffisante (production lente)
+    -- TIMEOUT: timing urgent too long without sufficient load (slow production)
+    -- Basé sur timingUrgentSince (pas parkSince — évite timeout immédiat après longue attente drain<0)
+    -- Based on timingUrgentSince (not parkSince — avoids immediate timeout after long drain<0 wait)
+    if timingUrgent and not loadOk then
+        if not st.timingUrgentSince then st.timingUrgentSince=now end
+    else
+        st.timingUrgentSince=nil
+    end
+    local timeout = timingUrgent and st.timingUrgentSince
+        and (now-st.timingUrgentSince)>=(TIMEOUT_ETA_FACTOR*(avgETA+marge))
+
+    local shouldGo = (emergency or timeout or (timingUrgent and loadOk)) and enRoute<maxEnRoute
+    local decision = shouldGo and "go" or "hold"
+
     if now-rs.lastStatusLog>=LOG_STATUS_SEC then
         rs.lastStatusLog=now
-        local dockStr=isStuck and "stuck" or (dock==1 and "charge" or "attente")
-        local fillStr=rs.trainCap>0 and string.format(" wagon=%d/%d",wagonItems,rs.trainCap) or ""
-        local tbvStr=tbvAdj==math.huge and "inf" or string.format("%.0f",tbvAdj).."s"
+        local dockStr = isStuck and "stuck" or (dock==1 and "charge" or "attente")
+        local tbvStr  = tbv==math.huge and "inf" or string.format("%.0fs",tbv)
+        local seuil   = string.format("%.0f",loadThreshold)
+        local why
+        if emergency       then why="URGENCE buf<"..MIN_BUF_DISPATCH
+        elseif timeout     then why="TIMEOUT "..string.format("%.0fs",now-st.timingUrgentSince)
+        elseif not timingUrgent then why="tbv="..tbvStr..">"..(avgETA+marge).."s"
+        elseif loadOk      then why="timing+charge ok"
+        else                    why="wagon="..wagonItems.."<seuil="..seuil
+        end
         print(string.format(
-            "[%s/%s] buf=%d(min%d)%s drain=%.2f tbv=%s ETA=%.0f+-%.0f marge=%.0f en=%d/%d -> %s",
-            route.name,dockStr,curItems,MIN_BUF_DISPATCH,fillStr,drain,tbvStr,
-            avgETA,sigma,marge,enRoute,maxEnRoute,
-            shouldGo and "GO" or "HOLD"
+            "[%s/%s] buf=%d(min%d) drain=%.2f tbv=%s seuil=%s wagon=%d ETA=%.0f+-%.0f en=%d/%d -> %s (%s)",
+            route.name,dockStr,curItems,MIN_BUF_DISPATCH,drain,tbvStr,seuil,wagonItems,
+            avgETA,sigma,enRoute,maxEnRoute,shouldGo and "GO" or "HOLD",why
         ))
     end
 
@@ -623,16 +634,17 @@ local function decide(rs, route, st, dock, stStr)
         st.lastDecision=decision
         if shouldGo then
             setRoute(st,rs,true)
-            local tbvStr=tbvAdj==math.huge and "inf" or string.format("%.0f",tbvAdj)
-            print(string.format("%s GO [%s->%s] buf=%d tbv=%ss",
-                st.name,route.park,route.delivery,curItems,tbvStr))
+            local why=emergency and "URGENCE" or (timeout and "TIMEOUT" or "timing+charge")
+            print(string.format("%s GO [%s->%s] buf=%d wagon=%d seuil=%.0f (%s)",
+                st.name,route.park,route.delivery,curItems,wagonItems,loadThreshold,why))
         else
             local reason
             if enRoute>=maxEnRoute then
                 reason=string.format("quota %d/%d",enRoute,maxEnRoute)
+            elseif not timingUrgent then
+                reason=string.format("tbv=%s > ETA+m=%.0fs",tbv==math.huge and "inf" or string.format("%.0f",tbv).."s",avgETA+marge)
             else
-                local tbvStr=tbvAdj==math.huge and "inf" or string.format("%.0f",tbvAdj).."s"
-                reason=string.format("buf=%d tbv=%s > ETA+m=%.0fs",curItems,tbvStr,avgETA+marge)
+                reason=string.format("wagon=%d < seuil=%.0f",wagonItems,loadThreshold)
             end
             print(st.name.." HOLD ("..reason..")")
         end
