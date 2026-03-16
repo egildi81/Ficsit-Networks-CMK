@@ -1,6 +1,6 @@
 -- STARTER.lua : panneau de démarrage — contrôle la séquence d'allumage/extinction des ordinateurs
 -- Séquence ON : sw1 → sw2 | Séquence OFF : sw2 → sw1 | Mauvais ordre → son d'erreur
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 local panel1 = component.proxy(component.findComponent("PANEL_L")[1])
 local net    = computer.getPCIDevices(classes.NetworkCard)[1]
 
@@ -15,6 +15,12 @@ local SOUND_STOP  = "W95Stop"     -- extinction des ordis → W95Stop.ogg
 local SOUND_ERROR = "W2kError"    -- mauvaise séquence    → W2kError.ogg
 
 local COMPUTERS_TO_CONTROL = { "GET_LOG", "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL", "DISPATCH" }
+
+-- Adresse réseau de GET_LOG — capturée à son boot via GET_LOG_HELLO (port 52)
+-- GET_LOG network address — captured at its boot via GET_LOG_HELLO (port 52)
+local getlogAddr = nil
+net:open(52)
+event.listen(net)
 
 local function findOpt(nick)
     local f = component.findComponent(nick)
@@ -42,6 +48,17 @@ local function startAll()
         pcall(function() c.case:startComputer() end)
     end
     if speaker then pcall(function() speaker:playSound(SOUND_START, 0) end) end
+    -- Attendre GET_LOG_HELLO pour récupérer son adresse (net:send, pas broadcast)
+    -- Wait for GET_LOG_HELLO to get its address (net:send, not broadcast)
+    local deadline = computer.millis() + 5000
+    while computer.millis() < deadline do
+        local e2,_,sender2,port2,_,msg2 = event.pull(0.5)
+        if e2=="NetworkMessage" and port2==52 and msg2=="GET_LOG_HELLO" then
+            getlogAddr = sender2
+            pcall(function() net:send(getlogAddr, 52, "SCREEN_ON") end)
+            break
+        end
+    end
     -- Allume l'animation du panel entier
     zoneL = true
     zoneR = true
@@ -262,12 +279,20 @@ while true do
         end
     end
 
-    -- Events switches + pots
-    local e, src, val = event.pull(0.2)
+    -- Events switches + pots + réseau
+    -- a3 = val(switch/pot) OU sender(NetworkMessage) selon le type d'événement
+    -- a3 = val(switch/pot) OR sender(NetworkMessage) depending on event type
+    local e, src, a3, a4, a5, a6 = event.pull(0.2)
+
+    -- Mise à jour adresse GET_LOG si redémarre / Update GET_LOG address if it restarts
+    if e == "NetworkMessage" and a4 == 52 and a6 == "GET_LOG_HELLO" then
+        getlogAddr = a3  -- sender = adresse réseau GET_LOG / sender = GET_LOG network address
+    end
+
     if e == "ChangeState" then
-        -- val==false → switch ALLUMÉ, val==true → ÉTEINT (convention FIN panel toggle)
-        -- Si ton panel envoie l'inverse, remplace (val == false) par (val == true)
-        local isNowOn = (val == false)
+        -- a3==false → switch ALLUMÉ, a3==true → ÉTEINT (convention FIN panel toggle)
+        -- a3==false → switch ON, a3==true → OFF (FIN panel toggle convention)
+        local isNowOn = (a3 == false)
 
         if src == swL then
             if isNowOn then
@@ -307,7 +332,7 @@ while true do
     elseif e == "valueChanged" then
         for i, pot in ipairs(pots) do
             if src == pot then
-                bgValues[i] = val / 100
+                bgValues[i] = a3 / 100
             end
         end
     end

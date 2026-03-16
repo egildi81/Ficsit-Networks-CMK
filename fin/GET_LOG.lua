@@ -1,39 +1,63 @@
 -- GET_LOG.lua : affiche les logs réseau de tous les scripts sur un écran dédié
 -- Écoute le port 43 (broadcast de logs depuis LOGGER, DETAIL, TRAIN_TAB, etc.)
--- Composants requis : GPU T2, écran nommé "MAP_SCREEN", NetworkCard
+-- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
+-- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 print("=== GET_LOG v"..VERSION.." BOOT ===")
 
 -- === INITIALISATION MATÉRIEL ===
-local gpu=computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
-local scr=component.proxy(component.findComponent("MAP_SCREEN")[1])
-local net=computer.getPCIDevices(classes.NetworkCard)[1]
+local gpu = computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
+local scr = component.proxy(component.findComponent("MAP_SCREEN")[1])
+local net = computer.getPCIDevices(classes.NetworkCard)[1]
 gpu:bindScreen(scr)
-net:open(43)   -- port dédié aux logs
+net:open(43)   -- port dédié aux logs / dedicated log port
 net:open(50)   -- port SHUTDOWN (STARTER)
+net:open(52)   -- port SCREEN_ON (STARTER) / SCREEN_ON port from STARTER
 event.listen(net)
 
+-- Bouton panel mono — allumer/éteindre l'écran manuellement
+-- Single panel button — manually toggle screen on/off
+local PANEL_NICK = "GETLOG_PANEL"
+local btn = nil
+pcall(function()
+    local ids = component.findComponent(PANEL_NICK)
+    if ids and ids[1] then
+        local panel = component.proxy(ids[1])
+        btn = panel:getModule(0, 0, 0)
+        if btn then event.listen(btn) end
+    end
+end)
+
+-- === ÉTAT ÉCRAN ===
+-- Éteint au boot — allumé par STARTER (port 52 net:send) ou bouton
+-- Off at boot — turned on by STARTER (port 52 net:send) or button
+local screenOn = false
+
+-- Annonce l'adresse à STARTER pour qu'il puisse faire net:send (pas broadcast)
+-- Announce address to STARTER so it can use net:send (not broadcast)
+pcall(function() net:broadcast(52, "GET_LOG", "GET_LOG_HELLO") end)
+
 -- === CONSTANTES AFFICHAGE ===
-local sw,sh=2400,1800
-local BG={r=0,g=0,b=0,a=1}
-local WH={r=1,g=1,b=1,a=1}
-local DI={r=0.3,g=0.3,b=0.3,a=1}
+local sw, sh = 2400, 1800
+local BG = {r=0,   g=0,   b=0,   a=1}
+local WH = {r=1,   g=1,   b=1,   a=1}
+local DI = {r=0.3, g=0.3, b=0.3, a=1}
 -- Palette (fond noir — toutes les couleurs sont vives)
 -- Color palette (black background — all colors are bright)
-local GR={r=0.2,g=1,  b=0.2,a=1}  -- vert   / green
-local BL={r=0.2,g=0.6,b=1,  a=1}  -- bleu   / blue
-local YE={r=1,  g=1,  b=0.2,a=1}  -- jaune  / yellow
-local OR={r=1,  g=0.5,b=0,  a=1}  -- orange
-local RE={r=1,  g=0.2,b=0.2,a=1}  -- rouge  / red
-local CY={r=0,  g=0.9,b=1,  a=1}  -- cyan
-local PU={r=0.8,g=0.4,b=1,  a=1}  -- violet / purple
-local MI={r=0.2,g=1,  b=0.7,a=1}  -- menthe / mint
-local PK={r=1,  g=0.4,b=0.8,a=1}  -- rose   / pink
+local GR = {r=0.2, g=1,   b=0.2, a=1}  -- vert   / green
+local BL = {r=0.2, g=0.6, b=1,   a=1}  -- bleu   / blue
+local YE = {r=1,   g=1,   b=0.2, a=1}  -- jaune  / yellow
+local OR = {r=1,   g=0.5, b=0,   a=1}  -- orange
+local RE = {r=1,   g=0.2, b=0.2, a=1}  -- rouge  / red
+local CY = {r=0,   g=0.9, b=1,   a=1}  -- cyan
+local PU = {r=0.8, g=0.4, b=1,   a=1}  -- violet / purple
+local MI = {r=0.2, g=1,   b=0.7, a=1}  -- menthe / mint
+local PK = {r=1,   g=0.4, b=0.8, a=1}  -- rose   / pink
 
 -- Couleur par script source (fond noir — ne pas mettre de couleurs sombres)
 -- Color per source script (black background — no dark colors)
-local COLORS={
+local COLORS = {
     LOGGER      = GR,  -- vert
     DETAIL      = BL,  -- bleu
     TRAIN_TAB   = YE,  -- jaune
@@ -45,57 +69,77 @@ local COLORS={
     STARTER     = RE,  -- rouge
 }
 
-local FONT=22              -- taille de police
-local LINE_H=32            -- hauteur d'une ligne en pixels
-local HEADER_H=50          -- hauteur de l'en-tête
-local MAX_LINES=math.floor((sh-HEADER_H)/LINE_H)  -- lignes visibles (~54)
-local lines={}             -- {src, msg, ts} — index 1 = le plus ancien, dernier = le plus récent
-local t0=computer.millis()
--- Retourne le temps écoulé depuis le démarrage en H:MM:SS
+local FONT     = 22
+local LINE_H   = 32
+local HEADER_H = 50
+local MAX_LINES = math.floor((sh - HEADER_H) / LINE_H)
+local lines = {}
+local t0 = computer.millis()
+
 local function fmtTime()
-    local s=math.floor((computer.millis()-t0)/1000)
-    return string.format("%d:%02d:%02d",math.floor(s/3600),math.floor(s/60)%60,s%60)
+    local s = math.floor((computer.millis() - t0) / 1000)
+    return string.format("%d:%02d:%02d", math.floor(s/3600), math.floor(s/60)%60, s%60)
 end
 
--- Ajoute une ligne à la fin (le plus récent en bas)
-local function addLine(src,msg)
-    table.insert(lines,{src=src,msg=msg,ts=fmtTime()})
-    if #lines>MAX_LINES then table.remove(lines,1) end  -- supprime le plus vieux
+local function addLine(src, msg)
+    table.insert(lines, {src=src, msg=msg, ts=fmtTime()})
+    if #lines > MAX_LINES then table.remove(lines, 1) end
 end
 
--- Dessine l'écran complet
+-- Dessine l'écran — fond noir si éteint, logs si allumé
+-- Draws screen — black if off, logs if on
 local function draw()
-    gpu:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
+    if not screenOn then
+        gpu:drawRect({x=0,y=0}, {x=sw,y=sh}, BG, BG, 0)
+        gpu:flush()
+        return
+    end
+    gpu:drawRect({x=0,y=0}, {x=sw,y=sh}, BG, BG, 0)
     -- En-tête
-    gpu:drawRect({x=0,y=0},{x=sw,y=HEADER_H},BG,{r=0.08,g=0.08,b=0.08,a=1},0)
-    gpu:drawText({x=20,y=12},"LOGS RÉSEAU",26,OR,false)
-    gpu:drawText({x=sw-200,y=14},#lines.." lignes",20,DI,false)
-    -- Lignes de log : du plus ancien (haut) au plus récent (bas)
-    local y=HEADER_H+6
-    for _,l in ipairs(lines) do
-        local col=COLORS[l.src] or WH
-        gpu:drawText({x=20,y=y},l.ts,FONT,YE,false)           -- horodatage
-        gpu:drawText({x=200,y=y},"["..l.src.."]",FONT,col,false) -- source
-        gpu:drawText({x=390,y=y},l.msg,FONT,WH,false)            -- message
-        y=y+LINE_H
+    gpu:drawRect({x=0,y=0}, {x=sw,y=HEADER_H}, BG, {r=0.08,g=0.08,b=0.08,a=1}, 0)
+    gpu:drawText({x=20,y=12}, "LOGS RÉSEAU", 26, OR, false)
+    gpu:drawText({x=sw-200,y=14}, #lines.." lignes", 20, DI, false)
+    -- Lignes de log
+    local y = HEADER_H + 6
+    for _, l in ipairs(lines) do
+        local col = COLORS[l.src] or WH
+        gpu:drawText({x=20,  y=y}, l.ts,              FONT, YE,  false)
+        gpu:drawText({x=200, y=y}, "["..l.src.."]",   FONT, col, false)
+        gpu:drawText({x=390, y=y}, l.msg,             FONT, WH,  false)
+        y = y + LINE_H
     end
     gpu:flush()
 end
 
 -- === BOUCLE PRINCIPALE ===
-draw()
+draw()  -- fond noir au boot / black screen at boot
 while true do
-    local e,src,sender,port,script,msg=event.pull(30)
-    if e=="NetworkMessage" and port==50 then
-        gpu:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0)
+    local e, src, sender, port, script, msg = event.pull(30)
+
+    if e == "Trigger" and src == btn then
+        -- Bouton panel : toggle écran / Panel button: toggle screen
+        screenOn = not screenOn
+        draw()
+
+    elseif e == "NetworkMessage" and port == 52 then
+        -- STARTER allume le système → écran ON / STARTER starts system → screen ON
+        if msg == "SCREEN_ON" then
+            screenOn = true
+            draw()
+        end
+
+    elseif e == "NetworkMessage" and port == 50 then
+        -- SHUTDOWN : efface l'écran et s'arrête / SHUTDOWN: clear screen and stop
+        gpu:drawRect({x=0,y=0}, {x=sw,y=sh}, BG, BG, 0)
         gpu:flush()
         computer.stop()
-    elseif e=="NetworkMessage" and port==43 then
-        addLine(tostring(script),tostring(msg))
+
+    elseif e == "NetworkMessage" and port == 43 then
+        addLine(tostring(script), tostring(msg))
         print("["..tostring(script).."] "..tostring(msg))
         draw()
+
     else
-        -- Timeout : redessine quand même (indicateur de vie)
-        draw()
+        draw()  -- timeout : redessine (indicateur de vie) / timeout: redraw (heartbeat)
     end
 end
