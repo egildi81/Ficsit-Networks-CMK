@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.3.1"
+local VERSION = "4.3.2"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -580,8 +580,9 @@ local function decide(rs, route, st, dock, stStr)
     local wagonItems = rs.trainCap>0 and getWagonItems(st) or 0
     local now = computer.millis()/1000
 
-    -- URGENCE : buffer critique → GO immédiat / EMERGENCY: critical buffer → immediate GO
-    local emergency = curItems<=MIN_BUF_DISPATCH
+    -- URGENCE : buffer critique → GO immédiat SI wagon chargé (wagon=0 = livraison inutile)
+    -- EMERGENCY: critical buffer → immediate GO only IF wagon has items (wagon=0 = useless trip)
+    local emergency = curItems<=MIN_BUF_DISPATCH and wagonItems>0
 
     -- TIMING : le buffer s'épuise avant l'arrivée du train / TIMING: buffer runs out before train arrives
     -- Seul drain>0 est temporellement urgent (drain≤0 = buffer stable ou croissant)
@@ -607,6 +608,7 @@ local function decide(rs, route, st, dock, stStr)
     end
     local timeout = timingUrgent and st.timingUrgentSince
         and (now-st.timingUrgentSince)>=(TIMEOUT_ETA_FACTOR*(avgETA+marge))
+        and wagonItems>0  -- inutile d'envoyer à vide même en timeout / pointless to send empty even on timeout
 
     local shouldGo = (emergency or timeout or (timingUrgent and loadOk)) and enRoute<maxEnRoute
     local decision = shouldGo and "go" or "hold"
@@ -617,11 +619,12 @@ local function decide(rs, route, st, dock, stStr)
         local tbvStr  = tbv==math.huge and "inf" or string.format("%.0fs",tbv)
         local seuil   = string.format("%.0f",loadThreshold)
         local why
-        if emergency       then why="URGENCE buf<"..MIN_BUF_DISPATCH
-        elseif timeout     then why="TIMEOUT "..string.format("%.0fs",now-st.timingUrgentSince)
+        if curItems<=MIN_BUF_DISPATCH and wagonItems==0 then why="URGENCE buf<"..MIN_BUF_DISPATCH.." wagon vide → attente chargement"
+        elseif emergency       then why="URGENCE buf<"..MIN_BUF_DISPATCH
+        elseif timeout         then why="TIMEOUT "..string.format("%.0fs",now-st.timingUrgentSince)
         elseif not timingUrgent then why="tbv="..tbvStr..">"..(avgETA+marge).."s"
-        elseif loadOk      then why="timing+charge ok"
-        else                    why="wagon="..wagonItems.."<seuil="..seuil
+        elseif loadOk           then why="timing+charge ok"
+        else                        why="wagon="..wagonItems.."<seuil="..seuil
         end
         print(string.format(
             "[%s/%s] buf=%d(min%d) drain=%.2f tbv=%s seuil=%s wagon=%d ETA=%.0f+-%.0f en=%d/%d -> %s (%s)",
