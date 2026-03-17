@@ -682,7 +682,9 @@ function renderStockageInfo(zoneConfig, centralData) {
 
         let itemsBlock;
         if (z.subzones && z.subzones.length > 0) {
-            itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
+            const visibleSz = _stockCompact ? z.subzones.slice(0, 4) : z.subzones;
+            const hiddenCount = _stockCompact ? z.subzones.length - visibleSz.length : 0;
+            itemsBlock = `<div class="stock-subzones">${visibleSz.map(sz => {
                 const sf = sz.fillRate ?? 0, sc = sf >= 80 ? '#ee3333' : sf >= 50 ? '#eeee22' : '#22ee22';
                 const top3 = sz.items.slice(0, 3);
                 const szOffline = sz.hasStale ? '<span class="stock-offline-badge">Hors ligne</span>' : '';
@@ -692,7 +694,7 @@ function renderStockageInfo(zoneConfig, centralData) {
                     ${_stockCompact ? '' : `<div class="stock-subzone-meta">${sz.slotsUsed} / ${sz.slotsTotal} slots · ${sz.totalItems} items</div>
                     ${top3.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}`}
                 </div>`;
-            }).join('')}</div>`;
+            }).join('')}${hiddenCount > 0 ? `<div style="color:#555;font-size:0.68em;padding:3px 6px">+${hiddenCount} autre${hiddenCount > 1 ? 's' : ''}…</div>` : ''}</div>`;
         } else {
             const top = _stockCompact ? [] : z.items.slice(0, 3);
             itemsBlock = `<div class="stock-items">${top.length
