@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan / scan interval (seconds)
@@ -163,6 +163,9 @@ local function scanAll()
     local containerData = {}  -- détail par conteneur pour le web / per-container detail for web
 
     for _, c in ipairs(allContainers) do
+        -- Yield entre chaque conteneur : laisse le jeu respirer, évite le lag sur les convoyeurs
+        -- Yield between each container: lets the game breathe, prevents conveyor lag
+        event.pull(0)
         local ok, proxy = pcall(function() return component.proxy(c.id) end)
         if ok and proxy then
             local ok2, invs = pcall(function() return proxy:getInventories() end)
