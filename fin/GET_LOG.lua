@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.4"
+local VERSION = "1.2.5"
 
 -- === INITIALISATION MATÉRIEL ===
 local gpu = computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
@@ -66,6 +66,8 @@ local CY = {r=0,   g=0.9, b=1,   a=1}  -- cyan
 local PU = {r=0.8, g=0.4, b=1,   a=1}  -- violet / purple
 local MI = {r=0.2, g=1,   b=0.7, a=1}  -- menthe / mint
 local PK = {r=1,   g=0.4, b=0.8, a=1}  -- rose   / pink
+local AZ = {r=0.4, g=0.8, b=1,   a=1}  -- azur   / azure   (CENTRAL)
+local LI = {r=0.7, g=1,   b=0.2, a=1}  -- lime   / lime    (satellites SAT:*)
 
 -- Couleur par script source (fond noir — ne pas mettre de couleurs sombres)
 -- Color per source script (black background — no dark colors)
@@ -79,6 +81,7 @@ local COLORS = {
     TRAIN_MAP   = MI,  -- menthe
     POWER_MON   = PK,  -- rose
     STARTER     = RE,  -- rouge
+    CENTRAL     = AZ,  -- azur
 }
 
 local FONT     = 22
@@ -114,10 +117,11 @@ local function draw()
     -- Lignes de log
     local y = HEADER_H + 6
     for _, l in ipairs(lines) do
-        local col = COLORS[l.src] or WH
+        -- SAT:* = satellites (préfixe dynamique) / SAT:* = satellites (dynamic prefix)
+        local col = COLORS[l.src] or (l.src:sub(1,4)=="SAT:" and LI or WH)
         gpu:drawText({x=20,  y=y}, l.ts,              FONT, YE,  false)
         gpu:drawText({x=200, y=y}, "["..l.src.."]",   FONT, col, false)
-        gpu:drawText({x=390, y=y}, l.msg,             FONT, WH,  false)
+        gpu:drawText({x=500, y=y}, l.msg,             FONT, WH,  false)
         y = y + LINE_H
     end
     gpu:flush()
