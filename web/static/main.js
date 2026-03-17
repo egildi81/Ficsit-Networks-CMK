@@ -1198,11 +1198,6 @@ let _dpKnownBuffers  = new Map();  // Map<value, label> — value=nom réel, lab
 let _dpKnownTrains   = new Set();
 
 function _dpUpdateLists(data) {
-    // Réinitialiser les buffers à chaque update pour rester synchro avec la zone config
-    // Reset buffers on each update to stay in sync with zone config
-    _dpKnownBuffers.clear();
-    const dlBufEl = document.getElementById('dp-dl-buffers');
-    if (dlBufEl) dlBufEl.innerHTML = '';
     if (data.trips) {
         Object.values(data.trips).forEach(segs => {
             Object.keys(segs).forEach(seg => {
