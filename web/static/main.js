@@ -1,4 +1,4 @@
-const VERSION = "1.4.3";
+const VERSION = "1.4.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -676,20 +676,21 @@ function renderStockageInfo(zoneConfig, centralData) {
 
         let itemsBlock;
         if (z.subzones && z.subzones.length > 0) {
-            const parts = _stockCompact ? z.subzones.slice(0, 3) : z.subzones;
-            itemsBlock = `<div class="stock-subzones">${parts.map(sz => {
+            itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
                 const sf = sz.fillRate ?? 0, sc = sf >= 80 ? '#ee3333' : sf >= 50 ? '#eeee22' : '#22ee22';
+                const top3 = sz.items.slice(0, 3);
                 return `<div class="stock-subzone">
                     <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${sc}">${sf}%</span></div>
                     <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${sf}%;background:${sc}"></div></div>
-                    ${_stockCompact ? '' : `<div class="stock-subzone-meta">${sz.slotsUsed} / ${sz.slotsTotal} slots · ${sz.totalItems} items</div>`}
+                    ${_stockCompact ? '' : `<div class="stock-subzone-meta">${sz.slotsUsed} / ${sz.slotsTotal} slots · ${sz.totalItems} items</div>
+                    ${top3.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}`}
                 </div>`;
             }).join('')}</div>`;
         } else {
-            const top = _stockCompact ? z.items.slice(0, 3) : z.items.slice(0, 8);
+            const top = _stockCompact ? [] : z.items.slice(0, 3);
             itemsBlock = `<div class="stock-items">${top.length
                 ? top.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
-                : '<div class="stock-empty">Aucun item</div>'}</div>`;
+                : _stockCompact ? '' : '<div class="stock-empty">Aucun item</div>'}</div>`;
         }
         return `
             <div class="stock-card${stale ? ' stock-stale' : ''}" onclick="openStockModal('${esc(z.zone)}')" title="Voir tous les items" style="cursor:pointer">
