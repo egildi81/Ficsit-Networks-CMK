@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.3"
+local VERSION = "1.1.0"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -173,8 +173,6 @@ local function aggregateStats()
     result.fillRate = result.slotsTotal > 0
         and math.floor(result.slotsUsed / result.slotsTotal * 1000) / 10 or 0
     for _, d in pairs(result.items) do result.totalItems = result.totalItems + d.count end
-    -- Pas de champ subzones si une seule / no subzones field if only one
-    if #result.subzones <= 1 then result.subzones = nil end
     return result
 end
 
@@ -186,10 +184,45 @@ local function pushLogger(stats)
 end
 
 -- === PUSH WEB (HTTP POST /api/stockage/push) ===
--- Content-Type obligatoire pour POST FIN sinon exception silencieuse / Content-Type mandatory for FIN POST or silent exception
-local function pushWeb(stats)
+-- Envoie les données par conteneur depuis chaque satellite actif.
+-- Sends per-container data from each active satellite.
+-- Content-Type obligatoire pour POST FIN / Content-Type mandatory for FIN POST
+local function pushWeb()
+    local cutoff = computer.millis() - SAT_TIMEOUT * 1000
+    local allContainers = {}
+    local totalSlots, usedSlots, totalItems = 0, 0, 0
+    for addr, sat in pairs(satellites) do
+        if sat.lastSeen and sat.lastSeen >= cutoff and sat.data then
+            local cs = sat.data.containers
+            if type(cs) == "table" then
+                for _, c in ipairs(cs) do
+                    totalSlots = totalSlots + (c.slotsTotal or 0)
+                    usedSlots  = usedSlots  + (c.slotsUsed  or 0)
+                    totalItems = totalItems + (c.totalItems  or 0)
+                    table.insert(allContainers, {
+                        satellite  = sat.nick,
+                        nick       = c.nick,
+                        slotsTotal = c.slotsTotal,
+                        slotsUsed  = c.slotsUsed,
+                        fillRate   = c.fillRate,
+                        totalItems = c.totalItems,
+                        items      = c.items,
+                    })
+                end
+            end
+        end
+    end
+    local fillRate = totalSlots > 0 and math.floor(usedSlots / totalSlots * 1000) / 10 or 0
+    local payload = {
+        ts         = computer.millis() / 1000,
+        slotsTotal = totalSlots,
+        slotsUsed  = usedSlots,
+        fillRate   = fillRate,
+        totalItems = totalItems,
+        containers = allContainers,
+    }
     local ok, f = pcall(function()
-        return inet:request(WEB_URL.."/api/stockage/push", "POST", toJson(stats),
+        return inet:request(WEB_URL.."/api/stockage/push", "POST", toJson(payload),
             "Content-Type", "application/json")
     end)
     if not ok then print("ERR inet:request push") return end
@@ -238,7 +271,7 @@ while true do
     if now - lastPush >= PUSH_INTERVAL * 1000 then
         local stats = aggregateStats()
         pushLogger(stats)
-        pushWeb(stats)
+        pushWeb()  -- collecte les données par conteneur / collects per-container data
         lastPush = computer.millis()
         local n = 0
         for _ in pairs(satellites) do n = n + 1 end

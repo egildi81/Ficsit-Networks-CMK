@@ -9,12 +9,10 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.2"
+local VERSION = "1.1.0"
 
 -- === CONFIGURATION ===
-local SCAN_INTERVAL = 60    -- secondes entre chaque scan en mode normal / normal scan interval (seconds)
-local SCAN_FAST     = 2     -- secondes en mode rapide (buffer dispatch) / fast mode interval (seconds)
-local FAST_EXPIRY   = 90    -- secondes sans commande FAST → retour mode normal / seconds without FAST → revert
+local SCAN_INTERVAL = 60    -- secondes entre chaque scan / scan interval (seconds)
 local DISC_TIMEOUT  = 15000 -- ms attente CENTRAL au boot / ms to wait for CENTRAL at boot
 
 -- Classes de containers à découvrir (ajuster selon le jeu) / Container classes to discover (adjust per game)
@@ -162,6 +160,7 @@ end
 local function scanAll()
     local slotsTotal, slotsUsed = 0, 0
     local allItems = {}
+    local containerData = {}  -- détail par conteneur pour le web / per-container detail for web
 
     for _, c in ipairs(allContainers) do
         local ok, proxy = pcall(function() return component.proxy(c.id) end)
@@ -175,6 +174,18 @@ local function scanAll()
                     if not allItems[id] then allItems[id]={name=d.name,count=0,max=d.max} end
                     allItems[id].count = allItems[id].count + d.count
                 end
+                -- Agréger les stats par conteneur / Per-container stats
+                local cTotal = 0
+                for _, d in pairs(items) do cTotal = cTotal + d.count end
+                local cFill = total > 0 and math.floor(used / total * 1000) / 10 or 0
+                table.insert(containerData, {
+                    nick       = c.nick,
+                    slotsTotal = total,
+                    slotsUsed  = used,
+                    fillRate   = cFill,
+                    totalItems = cTotal,
+                    items      = items,
+                })
             else
                 print("WARN: inventaire inaccessible: "..c.nick)
             end
@@ -188,7 +199,6 @@ local function scanAll()
     return {
         nick = NICK,
         ts   = computer.millis() / 1000,
-        -- Une seule zone par satellite en v1 / Single zone per satellite in v1
         zones = {{
             name       = "",
             slotsTotal = slotsTotal,
@@ -197,12 +207,13 @@ local function scanAll()
             totalItems = totalItems,
             items      = allItems,
         }},
+        containers = containerData,  -- détail par conteneur pour le web / per-container detail for web
     }
 end
 
 -- === BOUCLE PRINCIPALE / MAIN LOOP ===
-local fastMode   = false
-local fastExpiry = 0
+-- Pas de mode rapide pour le stockage — 60s est largement suffisant
+-- No fast mode for storage — 60s is more than enough
 print(string.format("Satellite prêt — %d container(s) | Scan: %ds", #allContainers, SCAN_INTERVAL))
 
 while true do
@@ -214,14 +225,11 @@ while true do
 
     -- Log périodique / Periodic log
     local z = data.zones[1]
-    print(string.format("%s (v%s) : %.1f%% (%d/%d slots | %d items)%s",
-        NICK, VERSION, z.fillRate, z.slotsUsed, z.slotsTotal, z.totalItems,
-        fastMode and " [RAPIDE]" or ""))
+    print(string.format("%s (v%s) : %.1f%% (%d/%d slots | %d items)",
+        NICK, VERSION, z.fillRate, z.slotsUsed, z.slotsTotal, z.totalItems))
 
     -- Attente événements / Wait for events
-    local interval = fastMode and SCAN_FAST or SCAN_INTERVAL
-    local deadline = computer.millis() + interval * 1000
-
+    local deadline = computer.millis() + SCAN_INTERVAL * 1000
     repeat
         local remaining = (deadline - computer.millis()) / 1000
         if remaining <= 0 then break end
@@ -237,31 +245,13 @@ while true do
                     -- CENTRAL (re)démarré / CENTRAL (re)started
                     centralAddr = sndr
                     print("CENTRAL (re)détecté: "..sndr)
-                    -- Se réenregistrer + renvoyer la liste de containers / Re-register + re-send container list
                     pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allNicks)) end)
 
-                elseif sndr == centralAddr then
-                    if a1 == "FAST_MODE" then
-                        -- CENTRAL active le scan rapide pour ce satellite / CENTRAL activates fast scan for this satellite
-                        fastExpiry = computer.millis() + FAST_EXPIRY * 1000
-                        if not fastMode then
-                            fastMode = true
-                            deadline = 0  -- scan immédiat / immediate scan
-                            print("Mode RAPIDE activé — scan "..SCAN_FAST.."s")
-                        end
-
-                    elseif a1 == "IDENTIFY" then
-                        -- CENTRAL nous a perdus, on se réenregistre / CENTRAL lost us, re-register
-                        pcall(function() net:send(sndr, PORT_SAT_DISC, "SATELLITE_HERE", NICK) end)
-                    end
+                elseif a1 == "IDENTIFY" then
+                    -- CENTRAL nous a perdus, on se réenregistre / CENTRAL lost us, re-register
+                    pcall(function() net:send(sndr, PORT_SAT_DISC, "SATELLITE_HERE", NICK) end)
                 end
             end
         end
     until computer.millis() >= deadline
-
-    -- Expiry mode rapide / Fast mode expiry
-    if fastMode and computer.millis() > fastExpiry then
-        fastMode = false
-        print("Mode RAPIDE expiré → scan "..SCAN_INTERVAL.."s")
-    end
 end
