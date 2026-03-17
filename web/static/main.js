@@ -11,7 +11,7 @@ const LOG_TAG_COLORS = {
     TRAIN_TAB:  '#cccc00',
     DISPATCH:   '#00cccc',
     STOCKAGE:   '#aa44aa',
-    CENTRAL:    '#4499cc',
+    CENTRAL:    '#ffc800',
     TRAIN_STATS:'#ff8800',
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
@@ -1414,7 +1414,7 @@ function _appendLogEntries(entries) {
     if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     entries.forEach(e => {
-        const col = LOG_TAG_COLORS[e.tag] || (e.tag && e.tag.startsWith('SAT:') ? '#44cc88' : '#888');
+        const col = LOG_TAG_COLORS[e.tag] || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : '#888');
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
         div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
