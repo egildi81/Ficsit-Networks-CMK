@@ -278,7 +278,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 .stock-section-title { color: #ff8800; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
 .stock-purge-btn {
-    background: none; border: 1px solid #333; outline: none; cursor: pointer;
+    background: none; border: 1px solid #444; outline: none; cursor: pointer;
     color: #888; font-size: 0.76em; font-weight: 600; letter-spacing: 0.5px;
     padding: 4px 12px; border-radius: 4px; transition: color .15s, border-color .15s;
 }
@@ -302,12 +302,13 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stk-btn-del:hover { color: #cc3333 !important; border-color: #cc3333 !important; }
 .stk-drop-area { min-height: 44px; padding: 6px; display: flex; flex-wrap: wrap; gap: 5px; transition: background .15s, outline .15s; border-radius: 4px; }
 .stk-drop-area.drag-over { background: #161616; outline: 1px dashed #ff8800; }
-.stk-drop-hint { color: #333; font-size: 0.7em; font-style: italic; align-self: center; padding: 2px 4px; pointer-events: none; }
+.stk-drop-hint { color: #666; font-size: 0.7em; font-style: italic; align-self: center; padding: 2px 4px; pointer-events: none; }
 .stk-cont-card { background: #0d0d0d; border: 1px solid #222; border-radius: 5px; padding: 5px 8px; cursor: grab; width: 180px; transition: border-color .15s, opacity .15s; user-select: none; }
-.stk-cont-card:hover { border-color: #333; }
+.stk-cont-card:hover { border-color: #444; }
 .stk-cont-card.dragging { opacity: 0.3; cursor: grabbing; }
-.stk-cont-nick { color: #ccc; font-size: 0.78em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stk-cont-meta { color: #555; font-size: 0.68em; margin: 2px 0; }
+.stk-cont-nick { color: #ccc; font-size: 0.78em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.stk-cont-sat  { color: #4499cc; font-size: 0.68em; font-weight: 400; margin: 1px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stk-cont-fill { color: #777; font-size: 0.68em; margin-bottom: 3px; }
 .stk-cont-bar-bg { background: #1a1a1a; height: 3px; border-radius: 2px; overflow: hidden; }
 .stk-cont-bar { height: 100%; border-radius: 2px; }
 .stk-cfg-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }

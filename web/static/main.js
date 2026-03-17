@@ -1,4 +1,4 @@
-const VERSION = "1.4.4";
+const VERSION = "1.4.5";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -746,20 +746,20 @@ function _stkRenameZone(id, v)        { const z = _stkZones.find(z => z.id === i
 function _stkRenameMainLabel(id, v)   { const z = _stkZones.find(z => z.id === id); if (z) z.mainLabel = v; }
 function _stkRenameSz(zid, sid, v)    { const z = _stkZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
 
-function _stkContCard(c, zoneId, szId) {
+function _stkContCard(c) {
     const fill = c.fillRate ?? 0, color = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
     return `<div class="stk-cont-card" draggable="true"
                  ondragstart="_stkDragStart(event,'${esc(c.nick)}')" ondragend="_stkDragEnd(event)"
                  title="${esc(c.satellite || '')} — ${c.slotsUsed ?? 0}/${c.slotsTotal ?? 0} slots">
         <div class="stk-cont-nick">${esc(c.nick)}</div>
-        <div class="stk-cont-meta">${esc(c.satellite || '')}${fill > 0 ? ' · ' + fill + '%' : ''}</div>
-        ${fill > 0 ? `<div class="stk-cont-bar-bg"><div class="stk-cont-bar" style="width:${fill}%;background:${color}"></div></div>` : ''}
+        ${c.satellite ? `<div class="stk-cont-sat">${esc(c.satellite)}</div>` : ''}
+        ${fill > 0 ? `<div class="stk-cont-fill">${fill}%</div><div class="stk-cont-bar-bg"><div class="stk-cont-bar" style="width:${fill}%;background:${color}"></div></div>` : ''}
     </div>`;
 }
 function _stkDropArea(zoneId, szId, nickList) {
     const cards = nickList.map(nick => {
         const c = _stkAllConts.find(c => c.nick === nick) || { nick, satellite: '', fillRate: 0, slotsTotal: 0, slotsUsed: 0 };
-        return _stkContCard(c, zoneId, szId);
+        return _stkContCard(c);
     }).join('');
     return `<div class="stk-drop-area"
                  ondragover="event.preventDefault()"
@@ -798,7 +798,7 @@ function _stkRenderConfig() {
                 </div>`).join('')}
         </div>`).join('') || '<div class="stock-empty" style="margin-top:8px">Cliquez sur "+ Zone" pour commencer</div>';
 
-    const poolCards = pool.map(c => _stkContCard(c, -1, -1)).join('')
+    const poolCards = pool.map(c => _stkContCard(c)).join('')
         || '<div class="stk-drop-hint">Tous assignés</div>';
 
     el.innerHTML = `
