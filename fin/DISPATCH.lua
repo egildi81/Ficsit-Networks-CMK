@@ -1,194 +1,139 @@
--- DISPATCH.lua : dispatch intelligent entre deux gares
--- Contrôle par réécriture de timetable (pas setSelfDriving — ignoré à dock=2).
--- Hold  : timetable vide + selfDriving=false → train retenu (la gare peut forcer dock=2→0)
--- Go    : selfDriving=true + timetable [PARK, DELIVERY] → charge à ST1 PUIS livre à ST2
--- Stuck : si la gare force quand même le départ (lastDecision=="hold"), decide() gère la récupération.
--- Go    : déclenché si tbvAdj ≤ ETA+marge. tbvAdj = temps avant (curItems - trainCap) = 0.
--- À chaque arrivée au PARK : timetable vidée + selfDriving coupé immédiatement.
--- Timetable train : ST1 ↔ ST2 (2 stops).
+-- DISPATCH.lua : dispatch intelligent multi-routes, config depuis LOGGER/Web
+-- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
+-- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "2.8.1"
+local VERSION = "4.3.5"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
--- === CONFIGURATION ===
-local ST1_NAME       = "ST1"           -- gare 1
-local ST2_NAME       = "ST2"           -- gare 2 (buffer à monitorer)
-local PARK_NAME      = "ST1"           -- gare de stationnement : "ST1" ou "ST2"
-local BUF_CONTAINER  = "DISPATCH_BUF"  -- nick du conteneur à ST2
-local MAX_EN_ROUTE   = 1               -- nb max de trains simultanément en livraison
-local ETA_WINDOW     = 10              -- trajets mémorisés pour l'ETA
-local SIGMA_FACTOR   = 2.0             -- marge = sigma * SIGMA_FACTOR
-local MIN_MARGE_SEC  = 10              -- marge minimale (secondes)
-local DEFAULT_ETA    = 30              -- ETA par défaut avant historique (secondes)
-local POLL_SEC       = 2               -- fréquence du loop principal
-local BUF_SAMPLE_SEC = 10              -- intervalle entre échantillons buffer
-local LOG_STATUS_SEC = 15              -- intervalle entre logs de statut
-local MAX_BUF_HIST   = 6               -- historique buffer (~60s de débit)
-local TRAIN_CAP_ITEMS = 0              -- capacité train en items (0 = auto-détection, -1 = désactivé)
-local ITEMS_PER_SLOT  = 100            -- items par slot cargo (pour auto-détection)
+-- === MATÉRIEL ===
+local net = computer.getPCIDevices(classes.NetworkCard)[1]
+if not net then error("DISPATCH: NetworkCard introuvable") end
+event.listen(net)
+net:open(44) net:open(53) net:open(55) net:open(69)
 
--- === COMPOSANTS ===
-local function findComp(name)
-    local list = component.findComponent(name)
-    if list and list[1] then return component.proxy(list[1]) end
-    return nil
+-- === LOG → GET_LOG ===
+print = function(...)
+    local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
+    pcall(function()net:broadcast(43,"DISPATCH",table.concat(t," "))end)
+end
+print("DISPATCH v"..VERSION.." démarré")
+
+-- === CONSTANTES ===
+local BUF_SAMPLE_SEC   = 5
+local LOG_STATUS_SEC   = 15
+local STATUS_BCAST_SEC = 5
+local SAFE_RETRY_SEC   = 30
+local ETA_WINDOW       = 10
+local SIGMA_FACTOR     = 2.0
+local MIN_MARGE_SEC    = 10
+local DEFAULT_ETA      = 30
+local MAX_BUF_HIST     = 6
+local ITEMS_PER_SLOT   = 100
+local GARE_ANCHOR_NICK   = "GARE_TEST"
+local PRIORITY_BCAST_SEC = 30
+local MIN_BUF_SLOTS      = 2    -- slots occupés : seuil urgence (adaptatif selon taille de stack) / occupied slots: emergency threshold (adapts to item stack size)
+local DOCK_TIME_SEC      = 20   -- temps approx chargement/déchargement en gare (ajouté à l'ETA effectif) / approx loading/unloading time at station (added to effective ETA)
+local TIMEOUT_ETA_FACTOR = 2.0  -- timeout = 2×(ETA+marge) si timing urgent sans charge suffisante / timeout if timing urgent without sufficient load
+
+-- === ÉTAT GLOBAL ===
+local routes     = {}
+local routeState = {}
+local configOk   = false
+local safeMode   = false
+local lastStatusBcast    = 0
+local lastSafeRetry      = -SAFE_RETRY_SEC
+local _lastConfigPayload = nil
+local _trainSnapshot     = {}
+local lastPriorityBcast  = 0
+local _stockageCache     = {}  -- {[zoneName]={items,slotsUsed}} mis à jour depuis port 69 BUF / {[zoneName]={items,slotsUsed}} updated from port 69 BUF
+local _globalStationMap  = {}  -- {[stName]=stObj} collecté depuis timetables de tous les trains au boot / {[stName]=stObj} collected from all train timetables at boot
+
+-- === SÉRIALISEUR ===
+local function ser(v)
+    local t=type(v)
+    if t=="string"  then return string.format("%q",v)
+    elseif t=="number"  then return tostring(v)
+    elseif t=="boolean" then return tostring(v)
+    elseif t=="table" then
+        local p={}
+        for k,val in pairs(v) do
+            local ks=type(k)=="string" and string.format("[%q]",k) or "["..k.."]"
+            table.insert(p,ks.."="..ser(val))
+        end
+        return "{"..table.concat(p,",").."}"
+    end
+    return "nil"
 end
 
-local sta1 = findComp(ST1_NAME)
-if not sta1 then error("DISPATCH: station introuvable: "..ST1_NAME) end
-print("Station "..ST1_NAME.." OK")
+-- === HELPERS TRAIN ===
 
-local bufBox = findComp(BUF_CONTAINER)
-if not bufBox then error("DISPATCH: conteneur introuvable: "..BUF_CONTAINER) end
-print("Buffer "..BUF_CONTAINER.." OK")
-
-local sta1FINId = sta1.id
-local sta1Str   = nil
-local sta2Str   = nil
-
--- Objets station sauvegardés pour réécriture des timetables
-local parkStObj  = nil    -- objet RailroadStation du PARK
-local delivStObj = nil    -- objet RailroadStation de la gare de livraison
-local parkRS     = nil    -- ruleSet (nil en FIN, non accessible)
-local delivRS    = nil    -- ruleSet (nil en FIN, non accessible)
-
--- === HELPERS ===
+-- dockState depuis snapshot LOGGER — fallback FIN direct si absent du snapshot
 local function getDock(st)
-    local v = nil; pcall(function() v = st.obj.dockState end); return v
+    local snap=_trainSnapshot[st.name]
+    if snap then return snap.dockState end
+    local v=0 pcall(function()v=st.obj.dockState or 0 end) return v
+end
+
+-- Nom de la prochaine station depuis snapshot LOGGER — fallback FIN direct
+local function getCurrentStopStr(st)
+    local snap=_trainSnapshot[st.name]
+    if snap then return snap.station end
+    local s=nil
+    pcall(function()
+        local tt=st.obj:getTimeTable()
+        local ci=tt:getCurrentStop()
+        local stp=tt:getStop(ci)
+        if stp then s=stp.station.name end
+    end)
+    return s
 end
 
 local function setSelfDriving(st, val)
-    pcall(function() st.obj:setSelfDriving(val) end)
+    pcall(function()st.obj:setSelfDriving(val)end)
 end
 
--- Réécrit la timetable du train ET gère selfDriving.
--- deliver=true  → selfDriving=true  + timetable [PARK, DELIVERY]
--- deliver=false → selfDriving=false + timetable vide (hold stable, pas de flip-flop)
--- NOTE: préserver la timetable testé en v2.8.0 → rejeté (gare force départ quand même,
---       + flip-flop go/hold toggle selfDriving en mid-loading → instable)
-local function setRoute(st, deliver)
-    setSelfDriving(st, deliver)
-    local ok, err = pcall(function()
-        local tt = st.obj:getTimeTable()
+local function clearTimetable(st)
+    pcall(function()
+        local tt=st.obj:getTimeTable()
         if not tt then return end
-        local stops = tt:getStops()
-        for i = #stops, 1, -1 do tt:removeStop(i - 1) end
+        local stops=tt:getStops()
+        for i=#stops,1,-1 do tt:removeStop(i-1) end
+    end)
+end
+
+-- deliver=true → selfDriving=true + timetable [PARK→DELIVERY]
+-- deliver=false → selfDriving=false + timetable vide (hold)
+local function setRoute(st, rs, deliver)
+    -- Guard nil stations — addStop(nil) crash le serveur dédié (exception C++ FIN non rattrapable)
+    -- Guard nil stations — addStop(nil) crashes dedicated server (uncatchable C++ FIN exception)
+    if deliver and (not rs.parkStObj or not rs.delivStObj) then
+        print("WARN setRoute "..st.name.." : station nil, GO annulé (route mal configurée)")
+        setSelfDriving(st, false)
+        return
+    end
+    setSelfDriving(st, deliver)
+    local ok,err=pcall(function()
+        local tt=st.obj:getTimeTable()
+        if not tt then return end
+        local stops=tt:getStops()
+        for i=#stops,1,-1 do tt:removeStop(i-1) end
         if deliver then
-            tt:addStop(0, parkStObj, parkRS)
-            tt:addStop(1, delivStObj, delivRS)
+            tt:addStop(0,rs.parkStObj,nil)
+            tt:addStop(1,rs.delivStObj,nil)
         end
     end)
     if not ok then print("WARN setRoute "..st.name.." : "..tostring(err)) end
 end
 
--- === DÉCOUVERTE DES TRAINS ===
-local function discoverTrains()
-    local found = {}
-    local all = {}
-    pcall(function() all = sta1:getTrackGraph():getTrains() end)
-    print("Trains sur graphe: "..#all)
-    for _, t in ipairs(all) do
-        local name = "???"
-        pcall(function() name = t:getName() end)
-        local stops = {}
-        pcall(function()
-            local tt = t:getTimetable()
-            if tt then stops = tt:getStops() end
-        end)
-        local hasST1 = false
-        for _, stop in ipairs(stops) do
-            local s = stop.station
-            if not s then break end
-            local ss = tostring(s)
-            if s.id == sta1FINId then
-                hasST1 = true
-                if not sta1Str then
-                    sta1Str = ss
-                    print("ST1 résolu: "..ss)
-                end
-                if not parkStObj then
-                    parkStObj = s
-                    pcall(function() parkRS = stop.ruleSet end)
-                    print("PARK stObj OK (ruleSet="..(parkRS and "oui" or "nil")..")")
-                end
-            else
-                if not sta2Str then
-                    sta2Str = ss
-                    print("ST2 résolu: "..ss)
-                end
-                if not delivStObj then
-                    delivStObj = s
-                    pcall(function() delivRS = stop.ruleSet end)
-                    print("DELIVERY stObj OK (ruleSet="..(delivRS and "oui" or "nil")..")")
-                end
-            end
-        end
-        if hasST1 then
-            found[tostring(t)] = {
-                obj=t, name=name,
-                lastDock=nil, lastStation=nil, departTime=nil,
-                arrivedAt=nil,      -- station physique courante
-                delivering=false,   -- true si en route vers DELIVERY
-                lastDecision=nil    -- "hold" ou "go" — pour éviter les réécritures inutiles
-            }
-            print("Train géré: "..name)
-        end
-    end
-    return found
-end
-
-local trains = discoverTrains()
-local count = 0; for _ in pairs(trains) do count = count + 1 end
-if count == 0 then error("DISPATCH: aucun train passant par "..ST1_NAME.." trouvé") end
-if not sta2Str then error("DISPATCH: impossible de résoudre ST2 depuis les timetables") end
-if not parkStObj  then error("DISPATCH: objet station PARK non résolu") end
-if not delivStObj then error("DISPATCH: objet station DELIVERY non résolu") end
-
-local parkStr, deliveryStr
-if PARK_NAME == ST1_NAME then
-    parkStr = sta1Str; deliveryStr = sta2Str
-elseif PARK_NAME == ST2_NAME then
-    parkStr = sta2Str; deliveryStr = sta1Str
-else
-    error("DISPATCH: PARK_NAME doit être ST1_NAME ou ST2_NAME")
-end
-print(count.." train(s) géré(s) | PARK="..PARK_NAME)
-
--- === CAPACITÉ TRAIN ===
-local trainCap = TRAIN_CAP_ITEMS
-if trainCap == 0 then
-    -- Auto-détection depuis les inventaires des wagons
-    for _, st in pairs(trains) do
-        local cap = 0
-        pcall(function()
-            for _, v in ipairs(st.obj:getVehicles()) do
-                pcall(function()
-                    for _, inv in ipairs(v:getInventories()) do
-                        cap = cap + inv.size * ITEMS_PER_SLOT
-                    end
-                end)
-            end
-        end)
-        if cap > 0 then trainCap = cap; break end
-    end
-end
-if trainCap > 0 then
-    print("Capacité train: "..trainCap.." items (mode capacité ON)")
-elseif trainCap == 0 then
-    print("WARN: capacité train non détectée — configurer TRAIN_CAP_ITEMS manuellement ou laisser 0 pour mode ETA seul")
-end
-
--- === INVENTAIRE WAGON ===
--- Lit le nombre d'items actuellement chargés dans le train (via ses wagons).
 local function getWagonItems(st)
-    local total = 0
+    local total=0
     pcall(function()
-        for _, v in ipairs(st.obj:getVehicles()) do
+        for _,v in ipairs(st.obj:getVehicles()) do
             pcall(function()
-                for _, inv in ipairs(v:getInventories()) do
-                    for i = 0, inv.size-1 do
-                        local stack = inv:getStack(i)
-                        if stack and stack.count then total = total + stack.count end
+                for _,inv in ipairs(v:getInventories()) do
+                    for i=0,inv.size-1 do
+                        local ok,stack=pcall(function()return inv:getStack(i)end)
+                        if ok and stack and stack.count then total=total+stack.count end
                     end
                 end
             end)
@@ -197,271 +142,755 @@ local function getWagonItems(st)
     return total
 end
 
--- Initialisation de l'état courant AVANT boot recovery
--- (timetable originale encore intacte → getCurrentStop() = prochain stop = inverse de la position physique)
-for _, st in pairs(trains) do
-    local dock = nil
-    pcall(function() dock = st.obj.dockState end)
-    local stStr = nil
+local function autoDetectCap(st)
+    local cap=0
     pcall(function()
-        local tt = st.obj:getTimeTable()
-        if tt then
-            local stp = tt:getStop(tt:getCurrentStop())
-            if stp then stStr = tostring(stp.station) end
+        for _,v in ipairs(st.obj:getVehicles()) do
+            pcall(function()
+                for _,inv in ipairs(v:getInventories()) do cap=cap+inv.size*ITEMS_PER_SLOT end
+            end)
         end
     end)
-    st.lastDock    = dock
-    st.lastStation = stStr
-    if dock ~= 0 then
-        if stStr == deliveryStr then
-            st.arrivedAt = parkStr
-            print(st.name.." : boot détecté @ PARK")
-        elseif stStr == parkStr then
-            st.arrivedAt = deliveryStr
-            print(st.name.." : boot détecté @ DELIVERY")
-        else
-            print(st.name.." : boot position inconnue (stStr="..(stStr or "nil")..")")
+    return cap
+end
+
+-- === DÉCOUVERTE TRAINS ===
+-- Accès FIN direct limité au boot/reconfiguration uniquement
+
+-- Scan unique du graphe au boot → map {nom → {obj, duplicate}}
+local function buildTrainMap()
+    local map={}
+    local anchId=component.findComponent(GARE_ANCHOR_NICK)
+    if not anchId or not anchId[1] then
+        print("WARN buildTrainMap: ancrage '"..GARE_ANCHOR_NICK.."' introuvable")
+        return map
+    end
+    local anch=component.proxy(anchId[1])
+    _globalStationMap={}  -- reset à chaque buildTrainMap / reset on each buildTrainMap
+    local graph=nil
+    pcall(function()
+        local all=anch:getTrackGraph():getTrains()
+        graph=anch:getTrackGraph()
+        print("buildTrainMap: "..#all.." trains sur le graphe")
+        for _,t in ipairs(all) do
+            local name="???"
+            pcall(function()name=t:getName()end)
+            if map[name] then
+                map[name].duplicate=true
+                print("WARN buildTrainMap: nom dupliqué '"..name.."'")
+            else
+                map[name]={obj=t,duplicate=false}
+            end
+            -- Collecter les objets station depuis toutes les timetables (même si le train cible est en hold)
+            -- Collect station objects from all timetables (even if target train is in hold)
+            pcall(function()
+                local tt=t:getTimeTable()
+                if not tt then return end
+                for _,stop in ipairs(tt:getStops()) do
+                    local s=stop.station
+                    if s then
+                        local sname="" pcall(function()sname=s.name end)
+                        if sname~="" and not _globalStationMap[sname] then
+                            _globalStationMap[sname]=s
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+    -- Tentative getStations() sur le graphe — découvre les stations sans passer par les timetables
+    -- Try getStations() on the graph — discovers stations without going through timetables
+    -- (utile si le train cible est en hold avec timetable vide / useful if target train is in hold with empty timetable)
+    if graph then
+        pcall(function()
+            local allStations=graph:getStations()
+            local n=0
+            for _,s in ipairs(allStations) do
+                local sname="" pcall(function()sname=s.name end)
+                if sname~="" and not _globalStationMap[sname] then
+                    _globalStationMap[sname]=s
+                    n=n+1
+                end
+            end
+            if n>0 then print("buildTrainMap: +"..n.." station(s) via getStations()") end
+        end)
+    end
+    return map
+end
+
+local function discoverRoute(route, trainMap)
+    local rs={
+        trains={},
+        parkStObj=nil, delivStObj=nil,
+        parkStr=route.park, delivStr=route.delivery,
+        bufBox=nil, bufName=route.buffer,  -- bufName = nick STOCKAGE computer pour cache relai LOGGER / STOCKAGE computer nick for LOGGER relay cache
+        trainCap=0,
+        etaHistory={}, bufHistory={},
+        lastBufSample=0, lastStatusLog=0,
+    }
+
+    local bufId=component.findComponent(route.buffer)
+    if bufId and bufId[1] then
+        rs.bufBox=component.proxy(bufId[1])
+    else
+        print("WARN route "..route.name.." : buffer '"..route.buffer.."' introuvable")
+    end
+
+    -- Stations via findComponent — fonctionne même si timetable vide
+    local parkId=component.findComponent(route.park)
+    if parkId and parkId[1] then rs.parkStObj=component.proxy(parkId[1]) end
+    local delivId=component.findComponent(route.delivery)
+    if delivId and delivId[1] then rs.delivStObj=component.proxy(delivId[1]) end
+    -- Fallback 2 : _globalStationMap (collecté depuis toutes les timetables au boot)
+    -- Fallback 2: _globalStationMap (collected from all timetables at boot)
+    if not rs.parkStObj  then rs.parkStObj  = _globalStationMap[route.park]     end
+    if not rs.delivStObj then rs.delivStObj = _globalStationMap[route.delivery]  end
+    if not rs.parkStObj  then print("WARN route "..route.name.." : station PARK '"..route.park.."' introuvable") end
+    if not rs.delivStObj then print("WARN route "..route.name.." : station DELIVERY '"..route.delivery.."' introuvable") end
+
+    -- Mode assignation : route.trains fourni → lookup par nom dans trainMap
+    if route.trains and #route.trains>0 then
+        for _,tname in ipairs(route.trains) do
+            local entry=trainMap[tname]
+            if not entry then
+                print("WARN route "..route.name.." : train '"..tname.."' introuvable")
+            elseif entry.duplicate then
+                print("WARN route "..route.name.." : train '"..tname.."' nom dupliqué → ignoré")
+            else
+                local t=entry.obj
+                local key=tostring(t)
+                local stops={} pcall(function()local tt=t:getTimeTable() if tt then stops=tt:getStops() end end)
+                -- Capture station objects depuis timetable — plus fiable que findComponent
+                -- Capture station objects from timetable — more reliable than findComponent
+                for _,stop in ipairs(stops) do
+                    local s=stop.station
+                    if s then
+                        local sname="" pcall(function()sname=s.name end)
+                        if sname==route.park     and not rs.parkStObj  then rs.parkStObj=s  end
+                        if sname==route.delivery and not rs.delivStObj then rs.delivStObj=s end
+                    end
+                end
+                local restoredFromHold=false
+                local skipTrain=false
+                if #stops<2 then
+                    if rs.parkStObj and rs.delivStObj then
+                        pcall(function()
+                            local tt=t:getTimeTable()
+                            local ex=tt:getStops()
+                            for i=#ex,1,-1 do tt:removeStop(i-1) end
+                            tt:addStop(0,rs.parkStObj,nil)
+                            tt:addStop(1,rs.delivStObj,nil)
+                        end)
+                        restoredFromHold=true
+                        print("Route "..route.name.." — train '"..tname.."' : timetable restaurée (hold)")
+                    else
+                        print("WARN route "..route.name.." — '"..tname.."' : 0 stops + stations introuvables")
+                        skipTrain=true
+                    end
+                end
+                if not skipTrain then
+                    rs.trains[key]={
+                        obj=t, name=tname,
+                        lastDock=nil, lastStation=nil, departTime=nil,
+                        arrivedAt=nil, delivering=false, lastDecision=nil,
+                        timingUrgentSince=nil,
+                        restoredFromHold=restoredFromHold,
+                    }
+                    if rs.trainCap==0 then rs.trainCap=autoDetectCap(rs.trains[key]) end
+                    print("Route "..route.name.." — train: "..tname..(restoredFromHold and " [hold]" or ""))
+                end
+            end
         end
     else
-        print(st.name.." : boot en transit")
+        -- Fallback scan timetable (aucun route.trains configuré)
+        local anchId=component.findComponent(GARE_ANCHOR_NICK)
+        if not anchId or not anchId[1] then
+            print("WARN: ancrage '"..GARE_ANCHOR_NICK.."' introuvable")
+            return rs
+        end
+        local anch=component.proxy(anchId[1])
+        pcall(function()
+            local all=anch:getTrackGraph():getTrains()
+            print("Route "..route.name.." — "..#all.." trains (scan fallback)")
+            for _,t in ipairs(all) do
+                local tt=t:getTimeTable()
+                if not tt then goto cont_scan end
+                local stops=tt:getStops()
+                if not stops or #stops<2 then goto cont_scan end
+                local hasPark,hasDeliv=false,false
+                for _,stop in ipairs(stops) do
+                    local s=stop.station
+                    if not s then break end
+                    local sname="" pcall(function()sname=s.name end)
+                    if sname==route.park then
+                        hasPark=true
+                        -- Capture l'objet station depuis timetable si findComponent a échoué
+                        -- Capture station object from timetable if findComponent failed
+                        if not rs.parkStObj then rs.parkStObj=s end
+                    elseif sname==route.delivery then
+                        hasDeliv=true
+                        if not rs.delivStObj then rs.delivStObj=s end
+                    end
+                end
+                if hasPark and hasDeliv then
+                    local name="???"
+                    pcall(function()name=t:getName()end)
+                    local key=tostring(t)
+                    rs.trains[key]={
+                        obj=t, name=name,
+                        lastDock=nil, lastStation=nil, departTime=nil,
+                        arrivedAt=nil, delivering=false, lastDecision=nil,
+                        timingUrgentSince=nil,
+                    }
+                    if rs.trainCap==0 then rs.trainCap=autoDetectCap(rs.trains[key]) end
+                    print("Route "..route.name.." — train: "..name)
+                end
+                ::cont_scan::
+            end
+        end)
+    end
+
+    return rs
+end
+
+-- === LIBÉRATION TRAINS (route supprimée) ===
+local function releaseRoute(rs, rname)
+    for _,st in pairs(rs.trains) do
+        if rs.parkStObj and rs.delivStObj then
+            pcall(function()
+                local tt=st.obj:getTimeTable()
+                local stops=tt:getStops()
+                for i=#stops,1,-1 do tt:removeStop(i-1) end
+                tt:addStop(0,rs.parkStObj,nil)
+                tt:addStop(1,rs.delivStObj,nil)
+            end)
+        end
+        setSelfDriving(st,true)
+        print(st.name.." libéré (route '"..rname.."' supprimée)")
     end
 end
 
--- Boot recovery
--- → trains au PARK : timetable vide + selfDriving=false → hold immédiat
--- → trains à DELIVERY ou en transit : timetable originale conservée, rentreront naturellement
-for _, st in pairs(trains) do
-    if st.arrivedAt == parkStr then
-        setRoute(st, false)
-        print(st.name.." : boot recovery @ PARK → hold (timetable vide, selfDriving OFF)")
-    else
-        setSelfDriving(st, true)
-        print(st.name.." : boot recovery → timetable originale, rentre au PARK")
+-- === PRIORITÉ BUFFERS → STOCKAGE (port 55) ===
+local function broadcastPriorityBuffers()
+    local buffers={}
+    for _,r in ipairs(routes) do
+        if r.buffer and r.buffer~="" then table.insert(buffers,r.buffer) end
+    end
+    if #buffers==0 then return end
+    lastPriorityBcast=computer.millis()/1000
+    pcall(function()net:broadcast(55,ser({priority=buffers}))end)
+    print("Buffers prioritaires: "..table.concat(buffers,", "))
+end
+
+-- === SAFE MODE ===
+local function enterSafeMode()
+    if safeMode then return end
+    safeMode=true
+    print("SAFE MODE : config indisponible — tous trains → PARK + hold")
+    for _,rs in pairs(routeState) do
+        for _,st in pairs(rs.trains) do
+            setSelfDriving(st,false)
+            clearTimetable(st)
+        end
     end
 end
 
-local function getCurrentStopStr(st)
-    local s = nil
+local function exitSafeMode()
+    if not safeMode then return end
+    safeMode=false
+    print("SAFE MODE levé")
+end
+
+-- === APPLICATION CONFIG ===
+local function applyConfig(newRoutes)
+    if type(newRoutes)~="table" or #newRoutes==0 then
+        print("WARN applyConfig : routes vides ou invalides")
+        return false
+    end
+    routes=newRoutes
+
+    -- Scan unique du graphe pour toutes les routes
+    local trainMap=buildTrainMap()
+    routeState={}
+    for _,r in ipairs(routes) do
+        routeState[r.name]=discoverRoute(r,trainMap)
+    end
+
+    -- Boot recovery : repositionner chaque train
+    for _,r in ipairs(routes) do
+        local rs=routeState[r.name]
+        if not rs or not rs.parkStr then goto cont end
+        for _,st in pairs(rs.trains) do
+            -- Train restauré depuis hold → forcément au PARK
+            if st.restoredFromHold then
+                local dock=getDock(st)
+                local stStr=getCurrentStopStr(st)
+                st.lastDock=dock        -- évite nil~=0=true → fausse transition Départ / avoids nil~=0=true → false Depart transition
+                st.lastStation=stStr
+                st.arrivedAt=rs.parkStr
+                setRoute(st,rs,false)
+                print(st.name.." boot → hold @ PARK (restauré hold)")
+            else
+                local dock=getDock(st)
+                local stStr=getCurrentStopStr(st)
+                st.lastDock=dock
+                st.lastStation=stStr
+                if dock~=0 then
+                    -- getCurrentStop = prochain stop = inverse de la position physique
+                    if stStr==rs.delivStr then
+                        st.arrivedAt=rs.parkStr
+                        print(st.name.." boot @ PARK ("..r.name..")")
+                    elseif stStr==rs.parkStr then
+                        st.arrivedAt=rs.delivStr
+                        print(st.name.." boot @ DELIVERY ("..r.name..")")
+                    end
+                end
+                if st.arrivedAt==rs.parkStr then
+                    setRoute(st,rs,false)
+                    print(st.name.." boot → hold @ PARK")
+                else
+                    setSelfDriving(st,true)
+                    print(st.name.." boot → selfDriving=true")
+                end
+            end
+        end
+        ::cont::
+    end
+
+    configOk=true
+    exitSafeMode()
+    print("Config appliquée : "..#routes.." route(s)")
+    return true
+end
+
+-- === BUFFER PAR ROUTE ===
+local function countBufferItems(rs)
+    -- Préférer les données STOCKAGE relayées par LOGGER (source authoritative)
+    -- Prefer STOCKAGE data relayed by LOGGER (authoritative source)
+    if rs.bufName and _stockageCache[rs.bufName] then
+        return _stockageCache[rs.bufName].items or 0
+    end
+    -- Fallback : lecture directe FIN (si STOCKAGE pas encore connecté ou pas en mode rapide)
+    -- Fallback: direct FIN read (if STOCKAGE not yet connected or not in fast mode)
+    if not rs.bufBox then return 0 end
+    local total=0
     pcall(function()
-        local tt  = st.obj:getTimeTable()
-        local ci  = tt:getCurrentStop()
-        local stp = tt:getStop(ci)
-        if stp then s = tostring(stp.station) end
-    end)
-    return s
-end
-
-local function countEnRoute()
-    local n = 0
-    for _, st in pairs(trains) do
-        if st.delivering then n = n + 1 end
-    end
-    return n
-end
-
--- === BUFFER ===
-local function countBufferItems()
-    local total = 0
-    pcall(function()
-        local inv = bufBox:getInventories()[1]
-        if inv then
-            for i = 0, inv.size-1 do
-                local s = inv:getStack(i)
-                if s and s.count then total = total + s.count end
+        local invs=rs.bufBox:getInventories()
+        for _,inv in ipairs(invs) do
+            for i=0,inv.size-1 do
+                local ok,s=pcall(function()return inv:getStack(i)end)
+                if ok and s and s.count then total=total+s.count end
             end
         end
     end)
     return total
 end
 
-local bufHistory = {}
-
-local function addBufSample(val)
-    table.insert(bufHistory, {t=computer.millis()/1000, v=val})
-    if #bufHistory > MAX_BUF_HIST then table.remove(bufHistory, 1) end
-end
-
-local function getBufferStats()
-    local cur = countBufferItems()
-    if cur == 0 then return 0, 0, 0 end
-    if #bufHistory < 2 then return 0, math.huge, cur end
-    local old, new = bufHistory[1], bufHistory[#bufHistory]
-    local dt = new.t - old.t
-    if dt <= 0 then return 0, math.huge, cur end
-    local drain = (old.v - new.v) / dt
-    if drain <= 0 then return drain, math.huge, cur end
-    return drain, cur / drain, cur
-end
-
--- === ETA ===
-local etaHistory = {}
-
-local function addETA(dur)
-    table.insert(etaHistory, dur)
-    if #etaHistory > ETA_WINDOW then table.remove(etaHistory, 1) end
-end
-
-local function calcETA()
-    if #etaHistory == 0 then return DEFAULT_ETA, DEFAULT_ETA * 0.5 end
-    local sum = 0
-    for _, v in ipairs(etaHistory) do sum = sum + v end
-    local avg = sum / #etaHistory
-    local varSum = 0
-    for _, v in ipairs(etaHistory) do varSum = varSum + (v - avg)^2 end
-    return avg, math.sqrt(varSum / #etaHistory)
-end
-
--- === TRANSITIONS ===
-local function checkTransition(st, dock, stStr)
-    if st.lastDock == 0 and dock ~= 0 then
-        st.arrivedAt = st.lastStation
-        if st.arrivedAt == parkStr then
-            -- Arrivée au PARK : hold immédiat (timetable vide + selfDriving=false)
-            setRoute(st, false)
-            st.lastDecision = nil
-            print(st.name.." ARRIVÉE "..PARK_NAME.." → hold (timetable vide, selfDriving OFF)")
-        elseif st.arrivedAt == deliveryStr and st.departTime then
-            local dur = computer.millis()/1000 - st.departTime
-            addETA(dur)
-            local avg, sigma = calcETA()
-            print(string.format("%s ARRIVÉE %s | trajet=%.0fs avg=%.0fs σ=%.0fs n=%d",
-                st.name, ST2_NAME, dur, avg, sigma, #etaHistory))
-            st.departTime = nil
-        end
+-- Slots occupés dans le buffer — depuis cache STOCKAGE ou lecture FIN directe
+-- Occupied slots in buffer — from STOCKAGE cache or direct FIN read
+local function getBufferSlotsUsed(rs)
+    if rs.bufName and _stockageCache[rs.bufName] then
+        return _stockageCache[rs.bufName].slotsUsed or 0
     end
-    if st.lastDock ~= 0 and dock == 0 then
-        if st.arrivedAt == parkStr then
-            st.departTime = computer.millis() / 1000
-            if st.lastDecision == "hold" then
-                -- Gare a forcé dock=2→0 malgré selfDriving=false → stuck
-                print("WARN "..st.name.." : gare a forcé le départ (hold override, selfDriving=false) → stuck")
-            else
-                print(st.name.." DÉPART "..PARK_NAME.." → "..
-                      (PARK_NAME == ST1_NAME and ST2_NAME or ST1_NAME))
+    if not rs.bufBox then return 0 end
+    local used=0
+    pcall(function()
+        for _,inv in ipairs(rs.bufBox:getInventories()) do
+            for i=0,inv.size-1 do
+                local ok,s=pcall(function()return inv:getStack(i)end)
+                if ok and s and s.count and s.count>0 then used=used+1 end
             end
-            st.delivering = true
-        elseif st.arrivedAt == deliveryStr then
-            st.delivering = false
         end
-        st.arrivedAt = nil
+    end)
+    return used
+end
+
+local function addBufSample(rs,val)
+    table.insert(rs.bufHistory,{t=computer.millis()/1000,v=val})
+    if #rs.bufHistory>MAX_BUF_HIST then table.remove(rs.bufHistory,1) end
+end
+
+-- Retourne drain(/s), temps avant vide (s), items actuels
+local function getBufferStats(rs)
+    local cur=countBufferItems(rs)
+    if cur==0 then return 0,0,0 end
+    if #rs.bufHistory<2 then return 0,math.huge,cur end
+    local old,new=rs.bufHistory[1],rs.bufHistory[#rs.bufHistory]
+    local dt=new.t-old.t
+    if dt<=0 then return 0,math.huge,cur end
+    local drain=(old.v-new.v)/dt
+    if drain<=0 then return drain,math.huge,cur end
+    return drain,cur/drain,cur
+end
+
+-- === ETA PAR ROUTE ===
+local function addETA(rs,dur)
+    table.insert(rs.etaHistory,dur)
+    if #rs.etaHistory>ETA_WINDOW then table.remove(rs.etaHistory,1) end
+end
+
+local function calcETA(rs)
+    if #rs.etaHistory==0 then return DEFAULT_ETA,DEFAULT_ETA*0.5 end
+    local sum=0
+    for _,v in ipairs(rs.etaHistory) do sum=sum+v end
+    local avg=sum/#rs.etaHistory
+    local varSum=0
+    for _,v in ipairs(rs.etaHistory) do varSum=varSum+(v-avg)^2 end
+    return avg,math.sqrt(varSum/#rs.etaHistory)
+end
+
+local function countEnRoute(rs)
+    local n=0
+    for _,st in pairs(rs.trains) do if st.delivering then n=n+1 end end
+    return n
+end
+
+-- === TRANSITIONS DOCK STATE ===
+local function checkTransition(rs, route, st, dock, stStr)
+    -- Arrivée : transit → gare
+    if st.lastDock==0 and dock~=0 then
+        -- lastStation pendant dock=0 = destination en cours = station d'arrivée réelle
+        st.arrivedAt=st.lastStation
+        if st.arrivedAt==rs.parkStr then
+            setRoute(st,rs,false)
+            st.lastDecision=nil
+            print(st.name.." ARRIVÉE "..route.park.." → hold")
+        elseif st.arrivedAt==rs.delivStr and st.departTime then
+            local dur=computer.millis()/1000-st.departTime
+            addETA(rs,dur)
+            local avg,sigma=calcETA(rs)
+            print(string.format("%s ARRIVÉE %s | trajet=%.0fs avg=%.0fs s=%.0fs",
+                st.name,route.delivery,dur,avg,sigma))
+            st.departTime=nil
+        end
     end
-    st.lastDock    = dock
-    st.lastStation = stStr
+    -- Départ : gare → transit
+    if st.lastDock~=0 and dock==0 then
+        if st.arrivedAt==rs.parkStr then
+            st.departTime=computer.millis()/1000
+            if st.lastDecision=="hold" then
+                print("WARN "..st.name.." : gare a forcé départ malgré hold")
+            else
+                print(st.name.." DÉPART "..route.park.." → "..route.delivery)
+            end
+            st.delivering=true
+        elseif st.arrivedAt==rs.delivStr then
+            st.delivering=false
+        end
+        st.arrivedAt=nil
+    end
+    st.lastDock=dock
+    st.lastStation=stStr
 end
 
 -- === DÉCISION DISPATCH ===
-local lastStatusLog = 0
-
-local function decide(st, dock, stStr)
-    -- Cas 1 : train docké au PARK (normal)
-    local atPark  = st.arrivedAt == parkStr and dock ~= 0
-    -- Cas 2 : train stuck (gare a forcé dock=2→0 malgré selfDriving=false en hold)
-    local isStuck = dock == 0 and st.delivering and st.lastDecision == "hold"
+local function decide(rs, route, st, dock, stStr)
+    -- atPark : docké AU PARK (dock~=0) OU en hold au PARK (timetable vide → dock=0 toujours)
+    -- atPark: docked AT PARK (dock~=0) OR held at PARK (empty timetable → dock always 0)
+    -- ⚠ RÉGRESSION RÉCURRENTE — voir feedback_dispatch_atpark.md avant toute modification
+    local atPark  = st.arrivedAt==rs.parkStr and (dock~=0 or not st.delivering)
+    local isStuck = dock==0 and st.delivering and st.lastDecision=="hold"
     if not atPark and not isStuck then return end
 
-    local drain, tbv, curItems = getBufferStats()
-    local avgETA, sigma        = calcETA()
-    local marge                = math.max(MIN_MARGE_SEC, sigma * SIGMA_FACTOR)
-    -- Un train stuck ne livre rien : ne pas le compter dans le quota enRoute
-    local enRoute    = countEnRoute() - (isStuck and 1 or 0)
-    -- wagonItems = items réellement chargés (lu depuis le wagon, même si stuck)
-    local wagonItems = trainCap > 0 and getWagonItems(st) or 0
-    local trainFull  = trainCap <= 0 or wagonItems >= trainCap
-    -- tbvAdj : temps avant buffer < livraison réelle du train (floor = wagonItems).
-    -- Train à moitié plein → floor plus petit → urgence déclenchée plus tôt.
-    -- trainCap inconnu → floor=0 → tbvAdj=tbv brut (vers 0).
-    local tbvAdj  = drain > 0 and math.max(0, (curItems - wagonItems) / drain) or tbv
-    local urgent  = tbvAdj <= avgETA + marge
-    local shouldGo   = urgent and (enRoute < MAX_EN_ROUTE)
-    local decision   = shouldGo and "go" or "hold"
+    local maxEnRoute = route.maxEnRoute or 1
+    local drain,_,curItems = getBufferStats(rs)
+    local avgETA,sigma = calcETA(rs)
+    local marge = math.max(MIN_MARGE_SEC, sigma*SIGMA_FACTOR)
+    -- ETA effectif = transit + chargement/déchargement (~DOCK_TIME_SEC) / Effective ETA = transit + loading/unloading (~DOCK_TIME_SEC)
+    local effectiveETA = avgETA + marge + DOCK_TIME_SEC
+    local enRoute = countEnRoute(rs)-(isStuck and 1 or 0)
+    local wagonItems = rs.trainCap>0 and getWagonItems(st) or 0
+    local slotsUsed  = getBufferSlotsUsed(rs)
+    local now = computer.millis()/1000
 
-    local now = computer.millis() / 1000
-    if now - lastStatusLog >= LOG_STATUS_SEC then
-        lastStatusLog = now
-        local dockStr  = isStuck and "stuck" or (dock == 1 and "chargement" or "attente")
-        local fillStr  = trainCap > 0
-            and string.format(" wagon=%d/%d", wagonItems, trainCap)
-            or ""
+    -- URGENCE : buffer critique (≤ MIN_BUF_SLOTS slots occupés, adaptatif selon stack size)
+    -- EMERGENCY: critical buffer (≤ MIN_BUF_SLOTS occupied slots, adapts to item stack size)
+    -- Ex: stack×100 → 2 slots = 200 items | stack×500 → 2 slots = 1000 items
+    -- Only if wagon has items — wagon=0 = useless trip / seulement si wagon chargé
+    local emergency = slotsUsed<=MIN_BUF_SLOTS and wagonItems>0
+
+    -- TIMING : le buffer s'épuise avant l'arrivée effective du train (transit + dock)
+    -- TIMING: buffer runs out before train effectively arrives (transit + dock)
+    -- Seul drain>0 est temporellement urgent (drain≤0 = buffer stable ou croissant)
+    -- Only drain>0 is time-critical (drain≤0 = buffer stable or growing)
+    local tbv = drain>0 and curItems/drain or math.huge
+    local timingUrgent = drain>0 and tbv<=effectiveETA
+
+    -- CHARGE : le train apporte assez pour couvrir la consommation pendant le voyage effectif
+    -- LOAD: train brings enough to cover buffer consumption during the effective trip
+    -- Référence : drain×effectiveETA — indépendant de trainCap et bufCap (tous deux gonflés par design)
+    -- Reference: drain×effectiveETA — independent of trainCap and bufCap (both inflated by design)
+    local loadThreshold = drain*effectiveETA
+    local loadOk = drain<=0 or wagonItems>=loadThreshold
+
+    -- TIMEOUT : timing urgent depuis trop longtemps sans charge suffisante (production lente)
+    -- TIMEOUT: timing urgent too long without sufficient load (slow production)
+    -- Basé sur timingUrgentSince (pas parkSince — évite timeout immédiat après longue attente drain<0)
+    -- Based on timingUrgentSince (not parkSince — avoids immediate timeout after long drain<0 wait)
+    if timingUrgent and not loadOk then
+        if not st.timingUrgentSince then st.timingUrgentSince=now end
+    else
+        st.timingUrgentSince=nil
+    end
+    local timeout = timingUrgent and st.timingUrgentSince
+        and (now-st.timingUrgentSince)>=(TIMEOUT_ETA_FACTOR*effectiveETA)
+        and wagonItems>0  -- inutile d'envoyer à vide même en timeout / pointless to send empty even on timeout
+
+    local shouldGo = (emergency or timeout or (timingUrgent and loadOk)) and enRoute<maxEnRoute
+    local decision = shouldGo and "go" or "hold"
+
+    if now-rs.lastStatusLog>=LOG_STATUS_SEC then
+        rs.lastStatusLog=now
+        local dockStr = isStuck and "stuck" or (dock==1 and "charge" or "attente")
+        local tbvStr  = tbv==math.huge and "inf" or string.format("%.0fs",tbv)
+        local seuil   = string.format("%.0f",loadThreshold)
+        local why
+        if slotsUsed<=MIN_BUF_SLOTS and wagonItems==0 then why="URGENCE slots≤"..MIN_BUF_SLOTS.." wagon vide → attente chargement"
+        elseif emergency       then why="URGENCE slots≤"..MIN_BUF_SLOTS
+        elseif timeout         then why="TIMEOUT "..string.format("%.0fs",now-st.timingUrgentSince)
+        elseif not timingUrgent then why="tbv="..tbvStr..">"..string.format("%.4fs",effectiveETA)
+        elseif loadOk           then why="timing+charge ok"
+        else                        why="wagon="..wagonItems.."<seuil="..seuil
+        end
         print(string.format(
-            "STATUS[PARK/%s] | buf=%d%s drain=%.2f/s tbv=%s(adj=%s) ETA=%.0f±%.0fs marge=%.0fs enRoute=%d/%d full=%s → %s",
-            dockStr, curItems, fillStr, drain,
-            tbv    == math.huge and "∞" or string.format("%.0f", tbv).."s",
-            tbvAdj == math.huge and "∞" or string.format("%.0f", tbvAdj).."s",
-            avgETA, sigma, marge, enRoute, MAX_EN_ROUTE,
-            tostring(trainFull),
-            shouldGo and "LIBÉRER" or "RETENIR"
+            "[%s/%s] buf=%d slots=%d(min%d) drain=%.2f tbv=%s seuil=%s wagon=%d ETA=%.0f+-%.0f(+%ds) en=%d/%d -> %s (%s)",
+            route.name,dockStr,curItems,slotsUsed,MIN_BUF_SLOTS,drain,tbvStr,seuil,wagonItems,
+            avgETA,sigma,DOCK_TIME_SEC,enRoute,maxEnRoute,shouldGo and "GO" or "HOLD",why
         ))
     end
 
-    -- Réécrire la timetable uniquement si la décision change
-    if decision ~= st.lastDecision then
-        st.lastDecision = decision
+    if decision~=st.lastDecision then
+        st.lastDecision=decision
         if shouldGo then
-            setRoute(st, true)   -- selfDriving=true + [PARK→DELIVERY]
-            if isStuck then
-                print(string.format("%s RECOVERY stuck → LIBÉRÉ (buf=%d tbv=%s)",
-                    st.name, curItems,
-                    tbv == math.huge and "∞" or string.format("%.0f", tbv).."s"))
-            else
-                print(string.format("%s → LIBÉRÉ → route [PARK→DELIVERY] (wagon=%d/%d tbvAdj=%.0fs ≤ %.0fs)",
-                    st.name, wagonItems, trainCap, tbvAdj, avgETA + marge))
-            end
+            setRoute(st,rs,true)
+            local why=emergency and "URGENCE" or (timeout and "TIMEOUT" or "timing+charge")
+            print(string.format("%s GO [%s->%s] buf=%d slots=%d wagon=%d seuil=%.0f (%s)",
+                st.name,route.park,route.delivery,curItems,slotsUsed,wagonItems,loadThreshold,why))
         else
-            -- hold : timetable déjà vidée à l'arrivée (checkTransition ou boot recovery)
             local reason
-            if enRoute >= MAX_EN_ROUTE then
-                reason = string.format("quota enRoute=%d/%d", enRoute, MAX_EN_ROUTE)
-            elseif not trainFull then
-                reason = string.format("chargement %d/%d items", wagonItems, trainCap)
+            if enRoute>=maxEnRoute then
+                reason=string.format("quota %d/%d",enRoute,maxEnRoute)
+            elseif not timingUrgent then
+                reason=string.format("tbv=%s > ETA+m+dock=%.0fs",tbv==math.huge and "inf" or string.format("%.0f",tbv).."s",effectiveETA)
             else
-                reason = string.format("tbvAdj=%s > ETA+marge=%.0fs",
-                    tbvAdj == math.huge and "∞" or string.format("%.0f", tbvAdj).."s",
-                    avgETA + marge)
+                reason=string.format("wagon=%d < seuil=%.0f",wagonItems,loadThreshold)
             end
-            print(st.name.." → EN ATTENTE ("..reason..")")
+            print(st.name.." HOLD ("..reason..")")
         end
     end
 end
 
+-- === COMMANDES WEB ===
+local function handleCommand(cmdStr)
+    local ok,cmd=pcall(function()return (load("return "..cmdStr))()end)
+    if not ok or type(cmd)~="table" then
+        print("WARN CMD parse: "..tostring(cmdStr)) ; return
+    end
+    local c=cmd.cmd or ""
+    print("CMD: "..c.." train="..(cmd.train or "?").." route="..(cmd.route or "?"))
 
--- === MAIN LOOP ===
-addBufSample(countBufferItems())
-local lastBufSample = computer.millis() / 1000
-local lastLoopLog   = -15
-print(string.format("Boucle démarrée | trains=%d park=%s poll=%ds",
-    count, PARK_NAME, POLL_SEC))
+    local targetSt,targetRs=nil,nil
+    for _,r in ipairs(routes) do
+        local rs=routeState[r.name]
+        if rs then
+            for _,st in pairs(rs.trains) do
+                if st.name==cmd.train or cmd.train==nil then
+                    targetSt=st ; targetRs=rs ; break
+                end
+            end
+        end
+        if targetSt then break end
+    end
+
+    if c=="force_go" and targetSt then
+        setRoute(targetSt,targetRs,true)
+        targetSt.lastDecision="go" ; targetSt.delivering=true
+        print("CMD force_go OK: "..targetSt.name)
+    elseif c=="force_hold" and targetSt then
+        setRoute(targetSt,targetRs,false)
+        targetSt.lastDecision="hold"
+        print("CMD force_hold OK: "..targetSt.name)
+    elseif c=="recovery" and targetSt then
+        setRoute(targetSt,targetRs,false)
+        targetSt.lastDecision=nil ; targetSt.delivering=false ; targetSt.arrivedAt=nil
+        setSelfDriving(targetSt,true)
+        print("CMD recovery OK: "..targetSt.name)
+    elseif c=="reload" then
+        pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
+        print("CMD reload : DISPATCH_HELLO envoyé")
+    else
+        print("CMD inconnue: "..c)
+    end
+end
+
+-- === BROADCAST STATUS → LOGGER ===
+local function broadcastStatus()
+    local routesSummary={}
+    for _,r in ipairs(routes) do
+        local rs=routeState[r.name]
+        if not rs then goto cont end
+        local trainsList={}
+        for _,st in pairs(rs.trains) do
+            local dock=getDock(st)
+            local phase
+            if dock~=0 then
+                phase=st.arrivedAt==rs.parkStr  and "PARK"     or
+                      st.arrivedAt==rs.delivStr and "DELIVERY" or "GARE"
+            else
+                if st.arrivedAt==rs.parkStr and not st.delivering then
+                    phase="PARK"   -- hold : timetable vide → dock=0 / hold: empty timetable → dock=0
+                else
+                    phase=st.delivering and "EN_ROUTE" or "TRANSIT"
+                end
+            end
+            table.insert(trainsList,{
+                name=st.name, phase=phase,
+                decision=st.lastDecision or "nil",
+                delivering=st.delivering,
+            })
+        end
+        local drain,tbv,curItems=getBufferStats(rs)
+        local avgETA,sigma=calcETA(rs)
+        table.insert(routesSummary,{
+            name=r.name, trains=trainsList,
+            buffer={items=curItems,drain=drain,tbv=tbv==math.huge and -1 or tbv},
+            eta={avg=avgETA,sigma=sigma,n=#rs.etaHistory},
+            enRoute=countEnRoute(rs), maxEnRoute=r.maxEnRoute or 1,
+        })
+        ::cont::
+    end
+    pcall(function()net:broadcast(69,ser({
+        v=VERSION, configOk=configOk, safeMode=safeMode,
+        routes=routesSummary,
+        ts=math.floor(computer.millis()/1000),
+    }))end)
+end
+
+-- === BOUCLE PRINCIPALE ===
+pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
+print("DISPATCH_HELLO envoyé — en attente config LOGGER")
+
+local nextTick         = computer.millis()+2000
+local lastBufSampleAll = 0
 
 while true do
-    local now = computer.millis() / 1000
+    local remaining=math.max(0.05,(nextTick-computer.millis())/1000)
+    local e,_,sender,port,arg1=event.pull(remaining)
 
-    if now - lastBufSample >= BUF_SAMPLE_SEC then
-        addBufSample(countBufferItems())
-        lastBufSample = now
-    end
-
-    for _, st in pairs(trains) do
-        local dock  = getDock(st)
-        local stStr = getCurrentStopStr(st)
-
-        if now - lastLoopLog >= 15 then
-            lastLoopLog = now
-            local phase
-            if dock ~= 0 then
-                phase = (st.arrivedAt == parkStr) and "PARK" or
-                        (st.arrivedAt == deliveryStr) and "DELIVERY" or "gare?"
-            else
-                phase = stStr == nil      and "→?(vide)" or
-                        stStr == parkStr  and "→PARK"     or
-                        stStr == deliveryStr and "→DELIVERY" or "→?"
+    if e=="NetworkMessage" and port==44 then
+        local ok,snap=pcall(function()return (load("return "..arg1))()end)
+        if ok and type(snap)=="table" then
+            for name,data in pairs(snap) do
+                _trainSnapshot[name]={
+                    dockState=data.dockState or 0,
+                    station  =data.station   or "",
+                }
             end
-            print(string.format("DBG %s dock=%s phase=%s delivering=%s decision=%s",
-                st.name, tostring(dock), phase,
-                tostring(st.delivering), tostring(st.lastDecision)))
         end
 
-        checkTransition(st, dock, stStr)
-        decide(st, dock, stStr)
+    elseif e=="NetworkMessage" and port==53 then
+        if configOk and arg1==_lastConfigPayload then goto continue_loop end
+        local ok,parsed=pcall(function()return (load("return "..arg1))()end)
+        if ok and type(parsed)=="table" then
+            print("Config reçue ("..#parsed.." route(s))")
+            if configOk then
+                local newNames={}
+                for _,r in ipairs(parsed) do newNames[r.name]=true end
+                for rname,rs in pairs(routeState) do
+                    if not newNames[rname] then
+                        print("Route '"..rname.."' supprimée")
+                        releaseRoute(rs,rname)
+                    end
+                end
+            end
+            _lastConfigPayload=arg1
+            applyConfig(parsed)
+            broadcastPriorityBuffers()
+        else
+            print("WARN port 53 : parse config échoué")
+        end
+        ::continue_loop::
+
+    elseif e=="NetworkMessage" and port==55 then
+        if arg1=="PRIORITY_REQUEST" and configOk then
+            broadcastPriorityBuffers()
+        end
+
+    elseif e=="NetworkMessage" and port==69 then
+        if arg1=="LOGGER_READY" then
+            pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
+            print("LOGGER_READY → DISPATCH_HELLO renvoyé")
+        elseif arg1 and arg1:sub(1,4)=="BUF:" then
+            -- Format : BUF:zone:totalItems:slotsTotal:slotsUsed / Format: BUF:zone:totalItems:slotsTotal:slotsUsed
+            local rest=arg1:sub(5)
+            local sep=rest:find(":")
+            if sep then
+                local zone=rest:sub(1,sep-1)
+                local after=rest:sub(sep+1)
+                local sep2=after:find(":")
+                local count = tonumber(sep2 and after:sub(1,sep2-1) or after) or 0
+                -- Extraire slotsUsed (4ème champ, après slotsTotal) / Extract slotsUsed (4th field, after slotsTotal)
+                local su=0
+                if sep2 then
+                    local after2=after:sub(sep2+1)
+                    local sep3=after2:find(":")
+                    su=tonumber(sep3 and after2:sub(sep3+1) or nil) or 0
+                end
+                -- Entrée directe (depuis STOCKAGE computer) = canonique / Direct entry (from STOCKAGE computer) = canonical
+                local entry={items=count, slotsUsed=su, canonical=true}
+                _stockageCache[zone]=entry
+                -- Compatibilité : si clé = "(PARENT) szname", stocker aussi "szname" seul SEULEMENT si pas d'entrée canonique
+                -- Backward compat: if key = "(PARENT) szname", also store bare "szname" ONLY if no canonical entry exists
+                -- Évite la collision : données parent-zone ne doivent pas écraser les données directes (plus fraîches)
+                -- Avoids collision: parent-zone data must not overwrite direct STOCKAGE computer data (more authoritative)
+                local shortZone=zone:match("^%b() (.+)$")
+                if shortZone and not (_stockageCache[shortZone] and _stockageCache[shortZone].canonical) then
+                    _stockageCache[shortZone]={items=count, slotsUsed=su}
+                end
+            end
+        elseif arg1 and arg1:sub(1,4)=="CMD:" then
+            handleCommand(arg1:sub(5))
+        end
     end
 
-    event.pull(POLL_SEC)
+    if computer.millis()>=nextTick then
+        nextTick=nextTick+2000
+        local now=computer.millis()/1000
+
+        if not configOk then
+            if now-lastSafeRetry>=SAFE_RETRY_SEC then
+                lastSafeRetry=now
+                enterSafeMode()
+                pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
+                print("Retry DISPATCH_HELLO...")
+            end
+        else
+            if now-lastBufSampleAll>=BUF_SAMPLE_SEC then
+                lastBufSampleAll=now
+                for _,r in ipairs(routes) do
+                    local rs=routeState[r.name]
+                    if rs then addBufSample(rs,countBufferItems(rs)) end
+                end
+            end
+            for _,r in ipairs(routes) do
+                local rs=routeState[r.name]
+                if not rs or not rs.parkStr then goto cont end
+                for _,st in pairs(rs.trains) do
+                    local dock=getDock(st)
+                    local stStr=getCurrentStopStr(st)
+                    checkTransition(rs,r,st,dock,stStr)
+                    decide(rs,r,st,dock,stStr)
+                end
+                ::cont::
+            end
+        end
+
+        if now-lastStatusBcast>=STATUS_BCAST_SEC then
+            lastStatusBcast=now
+            pcall(broadcastStatus)
+        end
+        if configOk and now-lastPriorityBcast>=PRIORITY_BCAST_SEC then
+            broadcastPriorityBuffers()
+        end
+    end
 end

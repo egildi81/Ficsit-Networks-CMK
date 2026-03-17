@@ -8,10 +8,18 @@
 -- Port 48 : réception données STOCKAGE (STOCKAGE → LOGGER)
 -- Port 49 : requêtes point-à-point → réponse via net:send(addr, 49, data)
 -- Port 51 : réception stats power (POWER_MON → LOGGER)
+-- Port 53 : config dispatch broadcast → DISPATCH
+-- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
+
+local VERSION = "1.6.8"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
-local inet=computer.getPCIDevices(classes.FINInternetCard)[1]
+local inets=computer.getPCIDevices(classes.FINInternetCard)
+local inetPush   = inets[1]  -- POST /api/push  (état trains, toutes les 2s)
+local inetTrips  = inets[2]  -- POST /api/trips (historique, sur trajet)
+local inetConfig = inets[3]  -- GET  /api/dispatch/routes.lua
+local inetCmd    = inets[4]  -- GET  /api/dispatch/command.lua
 local WEB_URL="http://127.0.0.1:8081"
 local staList=component.findComponent("GARE_TEST")
 if not staList or not staList[1] then pcall(function()net:broadcast(43,"LOGGER","ERREUR: GARE_TEST non trouvee")end) end
@@ -22,6 +30,11 @@ net:open(46)
 net:open(48)
 net:open(49)
 net:open(51)
+net:open(53)
+net:open(69)
+net:open(43)  -- écoute tous les logs FIN pour le dashboard web / listen to all FIN logs for web dashboard
+
+print("=== LOGGER v"..VERSION.." BOOT ===")
 
 -- === LOG (broadcast port 43 → GET_LOG) ===
 local function log(msg)
@@ -32,10 +45,29 @@ print=function(...)
     log(table.concat(t," "))
 end
 
+-- === HTTP — 1 InternetCard dédiée par endpoint, f:await() obligatoire en FIN ===
+-- f:get() ne déclenche pas la requête et reste "pending" indéfiniment — toujours f:await()
+-- f:get() does not trigger the request and stays "pending" forever — always use f:await()
+
 local saved={}         -- historique des trajets en mémoire (source primaire)
 local stockageData={}  -- données STOCKAGE par adresse : [addr]={name,ts,raw}
 local powerData=nil    -- dernière donnée reçue de POWER_MON (port 51)
 local _knownDups={}    -- zones déjà signalées comme dupliquées (évite spam GET_LOG)
+
+-- === DISPATCH ===
+-- === RING BUFFER LOGS → WEB ===
+local _logRing        = {}   -- entrées {ts,tag,msg} de tous les scripts FIN / entries from all FIN scripts
+local _logRingSentIdx = 0    -- index du dernier log envoyé via HTTP / index of last log sent via HTTP
+local LOG_RING_MAX    = 1000 -- capacité max du ring / max ring capacity
+
+local dispatchAddr    = nil   -- adresse DISPATCH (découverte via port 69 DISPATCH_HELLO)
+local dispatchStatus  = {}    -- état temps réel reçu de DISPATCH (port 69)
+local dispatchRoutes       = nil   -- config routes fetchée depuis le web (nil = pas encore chargée)
+local lastDispatchPayload  = nil   -- dernier payload envoyé à DISPATCH (dédup — évite re-apply si inchangé)
+local lastConfigFetch      = -999  -- uptime (s) du dernier fetch config
+local lastCmdPoll     = 0     -- uptime (s) du dernier poll commande
+local CONFIG_FETCH_SEC = 15   -- intervalle refresh config (s)
+local CMD_POLL_SEC     = 5    -- intervalle poll commande web (s)
 
 -- === SÉRIALISEURS ===
 local function ser(v)
@@ -164,19 +196,71 @@ local function computeStats()
     }
 end
 
+-- === DISPATCH : config + commandes ===
+
+-- Envoie la config routes à DISPATCH — force=true ignore la dédup (ex: reconnexion DISPATCH)
+-- Sends route config to DISPATCH — force=true bypasses dedup (e.g. DISPATCH reconnection)
+-- Retourne true si la config a été envoyée, false si inchangée / Returns true if config was sent, false if unchanged
+local function broadcastDispatchConfig(force)
+    if not dispatchRoutes then return false end
+    local ok,payload=pcall(function()return ser(dispatchRoutes)end)
+    if not ok or not payload then return false end
+    if not force and payload==lastDispatchPayload then return false end  -- config inchangée → skip
+    lastDispatchPayload=payload
+    if dispatchAddr then
+        pcall(function()net:send(dispatchAddr,53,payload)end)
+    else
+        pcall(function()net:broadcast(53,payload)end)
+    end
+    return true
+end
+
+-- Fetch config depuis le serveur web — NON BLOQUANT : fire → future → process au tick suivant
+-- Fetch config from web server — NON-BLOCKING: fire → future → process on next tick
+-- Fetch config (bloquant ~50ms sur HTTP local) — f:await() obligatoire en FIN
+local function startFetchConfig()
+    if not inetConfig then return end
+    lastConfigFetch=computer.millis()/1000
+    local ok,f=pcall(function()return inetConfig:request(WEB_URL.."/api/dispatch/routes.lua","GET","")end)
+    if not ok or not f then return end
+    local ok2,code,body=pcall(function()return f:await()end)
+    if not ok2 or type(body)~="string" or body=="" or body=="nil" then return end
+    local ok3,parsed=pcall(function()return (load("return "..body))()end)
+    if ok3 and type(parsed)=="table" then
+        dispatchRoutes=parsed
+        if broadcastDispatchConfig() then
+            log("DISPATCH: config envoyée ("..#parsed.." route(s))")
+        end
+    else
+        log("DISPATCH: parse config échoué: "..body:sub(1,60))
+    end
+end
+
+-- Poll commande web (bloquant ~50ms sur HTTP local) — f:await() obligatoire en FIN
+local function startPollCmd()
+    if not inetCmd or not dispatchAddr then return end
+    local ok,f=pcall(function()return inetCmd:request(WEB_URL.."/api/dispatch/command.lua","GET","")end)
+    if not ok or not f then return end
+    local ok2,code,body=pcall(function()return f:await()end)
+    if not ok2 or type(body)~="string" or body=="" or body=="nil" then return end
+    pcall(function()net:send(dispatchAddr,69,"CMD:"..body)end)
+    log("DISPATCH: commande forwardée → "..body:sub(1,60))
+end
+
+local function checkDispatch() end  -- conservé pour compatibilité / kept for compatibility
+
 -- === PUSH HTTP VERS PYTHON ===
 local function postTrips()
-    if not inet then return end
+    if not inetTrips then return end
     local ok,body=pcall(function()return toJson(saved)end)
     if ok and body then
-        pcall(function()
-            inet:request(WEB_URL.."/api/trips","POST",body,"Content-Type","application/json")
-        end)
+        local ok2,f=pcall(function()return inetTrips:request(WEB_URL.."/api/trips","POST",body,"Content-Type","application/json")end)
+        if ok2 and f then pcall(function()f:await()end) end
     end
 end
 
 local function postState(cs)
-    if not inet then return end
+    if not inetPush then return end
     local trainArr={} for _,s in pairs(state) do table.insert(trainArr,s) end
     -- Déduplication par nom de zone : si même nom depuis 2 adresses, garder le plus récent
     local byZone={}
@@ -237,13 +321,16 @@ local function postState(cs)
         end
         table.insert(stockArr,entry)
     end
+    -- Logs nouveaux depuis le dernier push / New logs since last push
+    local newLogs={}
+    for i=_logRingSentIdx+1,#_logRing do table.insert(newLogs,_logRing[i]) end
+    _logRingSentIdx=#_logRing
     local ok,body=pcall(function()
-        return toJson({trains=trainArr,trips=saved,stats=cs,stockage=stockArr,power=powerData})
+        return toJson({trains=trainArr,stats=cs,stockage=stockArr,power=powerData,dispatch=dispatchStatus,logs=newLogs})
     end)
     if not ok or not body then return end
-    pcall(function()
-        inet:request(WEB_URL.."/api/push","POST",body,"Content-Type","application/json")
-    end)
+    local ok2,f=pcall(function()return inetPush:request(WEB_URL.."/api/push","POST",body,"Content-Type","application/json")end)
+    if ok2 and f then pcall(function()f:await()end) end
 end
 
 -- === LECTURE DE L'INVENTAIRE D'UN TRAIN ===
@@ -310,7 +397,11 @@ local function tick()
         local ok2,m=pcall(function()return t:getMaster()end)
         if ok2 and m then
             local tn=t:getName()
-            local dk=m.isDocked
+            -- dockState entier (0=transit,1=chargement,2=prêt) — inclus dans snapshot port 44 pour DISPATCH
+            -- dockState integer (0=transit,1=loading,2=ready) — included in port 44 snapshot for DISPATCH
+            local dockInt=0
+            pcall(function()dockInt=t.dockState or 0 end)
+            local dk=dockInt~=0  -- booléen pour la logique interne LOGGER / boolean for LOGGER internal logic
             local cur="?"
             local hasTT=false
             pcall(function()
@@ -327,8 +418,10 @@ local function tick()
             local spd=0
             pcall(function()spd=math.abs(math.floor(m:getMovement().speed/100*3.6))end)
             local nv=wagons(t)
-            local st=dk and "docked" or (spd>10 and "moving" or "stopped")
-            state[tn]={name=tn,speed=spd,status=st,station=cur,wagons=nv}
+            local status=dk and "docked" or (spd>10 and "moving" or "stopped")
+            -- dockState inclus dans snapshot : DISPATCH lit l'état sans poll FIN direct
+            -- dockState included in snapshot: DISPATCH reads state without direct FIN polling
+            state[tn]={name=tn,speed=spd,status=status,station=cur,wagons=nv,dockState=dockInt}
             local it=inv(t)
             for _,cnt in pairs(it) do currentTotalInv=currentTotalInv+cnt end
             if dk then
@@ -389,9 +482,11 @@ end
 -- === DÉMARRAGE ===
 local trainCount=0
 if sta then pcall(function()trainCount=#sta:getTrackGraph():getTrains()end) end
-log("LOGGER démarré - "..trainCount.." trains")
+log("LOGGER v"..VERSION.." démarré - "..trainCount.." trains | "..#inets.." InternetCard(s)")
 -- Beacon : annonce à tous les STOCKAGE que LOGGER est prêt (sender = adresse LOGGER)
 pcall(function()net:broadcast(46,"LOGGER_ADDR")end)
+-- Annonce à DISPATCH que LOGGER (re)démarre → DISPATCH répondra DISPATCH_HELLO
+pcall(function()net:broadcast(69,"LOGGER_READY")end)
 
 -- === BOUCLE PRINCIPALE ===
 local ticks=0
@@ -425,6 +520,27 @@ while true do
     elseif e=="NetworkMessage" and port==48 then
         local ok2,parsed=pcall(function()return (load("return "..arg2))()end)
         stockageData[sender]={name=arg1,ts=computer.millis()/1000,stats=ok2 and parsed or nil}
+        -- Relai vers DISPATCH : zone + totalItems pour le monitoring buffer
+        -- Relay to DISPATCH: zone + totalItems for buffer monitoring
+        if dispatchAddr and ok2 and parsed and parsed.totalItems then
+            -- Format : BUF:zone:totalItems:slotsTotal:slotsUsed
+            -- Format: BUF:zone:totalItems:slotsTotal:slotsUsed
+            local cap=parsed.slotsTotal or 0
+            local used=parsed.slotsUsed or 0
+            pcall(function()net:send(dispatchAddr,69,"BUF:"..arg1..":"..tostring(parsed.totalItems)..":"..tostring(cap)..":"..tostring(used))end)
+            -- Relai sous-zones individuelles si présentes
+            -- Relay individual subzones if present
+            if parsed.subzones then
+                for _,sz in ipairs(parsed.subzones) do
+                    if sz.name and sz.totalItems then
+                        local fqName="("..arg1..") "..sz.name
+                        local szCap=sz.slotsTotal or 0
+                        local szUsed=sz.slotsUsed or 0
+                        pcall(function()net:send(dispatchAddr,69,"BUF:"..fqName..":"..tostring(sz.totalItems)..":"..tostring(szCap)..":"..tostring(szUsed))end)
+                    end
+                end
+            end
+        end
 
     -- Stats power reçues de POWER_MON
     elseif e=="NetworkMessage" and port==51 then
@@ -432,6 +548,33 @@ while true do
         if ok2 and parsed then
             parsed.ts=parsed.ts or math.floor(computer.millis()/1000)
             powerData=parsed
+        end
+
+    -- DISPATCH → status / hello
+    elseif e=="NetworkMessage" and port==69 then
+        if arg1=="DISPATCH_HELLO" then
+            dispatchAddr=sender
+            log("DISPATCH connecté addr="..tostring(sender))
+            -- DISPATCH vient de se connecter : force l'envoi même si config inchangée
+            -- DISPATCH just connected: force send even if config hasn't changed
+            if dispatchRoutes then
+                broadcastDispatchConfig(true)
+            else
+                startFetchConfig()
+            end
+        elseif arg1 and arg1:sub(1,4)~="CMD:" then
+            -- Status broadcast de DISPATCH (table Lua sérialisée)
+            local ok2,parsed=pcall(function()return (load("return "..arg1))()end)
+            if ok2 and type(parsed)=="table" then dispatchStatus=parsed end
+        end
+
+    -- Logs de tous les scripts FIN → ring buffer pour dashboard web / All FIN scripts logs → ring buffer for web dashboard
+    elseif e=="NetworkMessage" and port==43 then
+        local entry={ts=math.floor(computer.millis()),tag=tostring(arg1),msg=tostring(arg2 or "")}
+        table.insert(_logRing,entry)
+        if #_logRing>LOG_RING_MAX then
+            table.remove(_logRing,1)
+            if _logRingSentIdx>0 then _logRingSentIdx=_logRingSentIdx-1 end
         end
 
     -- Requête point-à-point : répondre uniquement à l'expéditeur
@@ -453,6 +596,16 @@ while true do
         local ok,err=pcall(tick)
         if not ok then log("ERR tick: "..tostring(err)) end
         ticks=ticks+1
+        checkDispatch()
+        local nowSec=computer.millis()/1000
+        if nowSec-lastConfigFetch>=CONFIG_FETCH_SEC then
+            lastConfigFetch=nowSec
+            startFetchConfig()
+        end
+        if nowSec-lastCmdPoll>=CMD_POLL_SEC and dispatchAddr then
+            lastCmdPoll=nowSec
+            startPollCmd()
+        end
         if ticks>=30 then
             ticks=0
             local ok2,err2=pcall(broadcastAll)

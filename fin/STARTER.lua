@@ -1,7 +1,13 @@
 -- STARTER.lua : panneau de démarrage — contrôle la séquence d'allumage/extinction des ordinateurs
 -- Séquence ON : sw1 → sw2 | Séquence OFF : sw2 → sw1 | Mauvais ordre → son d'erreur
+local VERSION = "1.2.2"
 local panel1 = component.proxy(component.findComponent("PANEL_L")[1])
 local net    = computer.getPCIDevices(classes.NetworkCard)[1]
+
+-- === LOG → GET_LOG ===
+print=function(...)local t={}for i=1,select('#',...)do t[i]=tostring(select(i,...))end
+    pcall(function()net:broadcast(43,"STARTER",table.concat(t," "))end)end
+print("STARTER v"..VERSION.." démarré")
 
 local swL = panel1:getModule(2, 6, 0)
 local swR = panel1:getModule(8, 6, 0)
@@ -13,7 +19,13 @@ local SOUND_START = "MS95Start"   -- démarrage des ordis  → MS95Start.ogg
 local SOUND_STOP  = "W95Stop"     -- extinction des ordis → W95Stop.ogg
 local SOUND_ERROR = "W2kError"    -- mauvaise séquence    → W2kError.ogg
 
-local COMPUTERS_TO_CONTROL = { "GET_LOG", "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL" }
+local COMPUTERS_TO_CONTROL = { "GET_LOG", "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL", "DISPATCH" }
+
+-- Adresse réseau de GET_LOG — capturée à son boot via GET_LOG_HELLO (port 52)
+-- GET_LOG network address — captured at its boot via GET_LOG_HELLO (port 52)
+local getlogAddr = nil
+net:open(52)
+event.listen(net)
 
 local function findOpt(nick)
     local f = component.findComponent(nick)
@@ -41,6 +53,17 @@ local function startAll()
         pcall(function() c.case:startComputer() end)
     end
     if speaker then pcall(function() speaker:playSound(SOUND_START, 0) end) end
+    -- Attendre GET_LOG_HELLO pour récupérer son adresse (net:send, pas broadcast)
+    -- Wait for GET_LOG_HELLO to get its address (net:send, not broadcast)
+    local deadline = computer.millis() + 5000
+    while computer.millis() < deadline do
+        local e2,_,sender2,port2,_,msg2 = event.pull(0.5)
+        if e2=="NetworkMessage" and port2==52 and msg2=="GET_LOG_HELLO" then
+            getlogAddr = sender2
+            pcall(function() net:send(getlogAddr, 52, "SCREEN_ON") end)
+            break
+        end
+    end
     -- Allume l'animation du panel entier
     zoneL = true
     zoneR = true
@@ -261,52 +284,55 @@ while true do
         end
     end
 
-    -- Events switches + pots
-    local e, src, val = event.pull(0.2)
+    -- Events switches + pots + réseau
+    -- a3 = val(switch/pot) OU sender(NetworkMessage) selon le type d'événement
+    -- a3 = val(switch/pot) OR sender(NetworkMessage) depending on event type
+    local e, src, a3, a4, a5, a6 = event.pull(0.2)
+
+    -- Mise à jour adresse GET_LOG si redémarre / Update GET_LOG address if it restarts
+    if e == "NetworkMessage" and a4 == 52 and a6 == "GET_LOG_HELLO" then
+        getlogAddr = a3
+        print("GET_LOG_HELLO reçu — adresse capturée")
+    elseif e == "NetworkMessage" then
+        print("NET port="..tostring(a4).." msg="..tostring(a6))
+    end
+
     if e == "ChangeState" then
-        -- val==false → switch ALLUMÉ, val==true → ÉTEINT (convention FIN panel toggle)
-        -- Si ton panel envoie l'inverse, remplace (val == false) par (val == true)
-        local isNowOn = (val == false)
+        -- a3==false → switch ALLUMÉ, a3==true → ÉTEINT (convention FIN panel toggle)
+        -- a3==false → switch ON, a3==true → OFF (FIN panel toggle convention)
+        local isNowOn = (a3 == false)
+        local swName = src==swL and "SW1" or (src==swR and "SW2" or "?")
+        print(swName.." "..(isNowOn and "ON" or "OFF").." | état="..seqState)
 
         if src == swL then
             if isNowOn then
-                -- SW1 vient d'être allumé
-                if     seqState == "idle"     then seqState = "armed"       -- ✓ correct : attend SW2
-                elseif seqState == "armed"    then                           -- déjà armé, ignoré
-                elseif seqState == "shutdown" then playError()              -- ✗ wrong order
-                elseif seqState == "on"       then playError()              -- ✗ wrong order
+                if     seqState == "idle"     then seqState = "armed"
+                elseif seqState == "shutdown" then playError()
+                elseif seqState == "on"       then playError()
                 end
             else
-                -- SW1 vient d'être éteint
-                if     seqState == "shutdown" then seqState = "idle"; stopAll()  -- ✓ correct
-                elseif seqState == "idle"     then                           -- boot/reset, ignoré
-                elseif seqState == "armed"    then seqState = "idle"; playError() -- ✗ annulation
-                elseif seqState == "on"       then playError()              -- ✗ wrong order
+                if     seqState == "shutdown" then seqState = "idle"; stopAll()
+                elseif seqState == "armed"    then seqState = "idle"; playError()
+                elseif seqState == "on"       then playError()
                 end
             end
 
         elseif src == swR then
             if isNowOn then
-                -- SW2 vient d'être allumé
-                if     seqState == "armed"    then seqState = "on"; startAll()  -- ✓ correct
-                elseif seqState == "on"       then                           -- déjà on, ignoré
-                elseif seqState == "idle"     then playError()              -- ✗ SW1 pas allumé
-                elseif seqState == "shutdown" then playError()              -- ✗ wrong order
+                if     seqState == "armed"    then seqState = "on"; startAll()
+                elseif seqState == "idle"     then playError()
+                elseif seqState == "shutdown" then playError()
                 end
             else
-                -- SW2 vient d'être éteint
-                if     seqState == "on"       then seqState = "shutdown"    -- ✓ correct : attend SW1
-                elseif seqState == "idle"     then                           -- boot/reset, ignoré
-                elseif seqState == "armed"    then                           -- SW2 était déjà off, ignoré
-                elseif seqState == "shutdown" then                           -- déjà en shutdown, ignoré
-                end
+                if seqState == "on" then seqState = "shutdown" end
             end
         end
+        print("→ nouvel état="..seqState)
 
     elseif e == "valueChanged" then
         for i, pot in ipairs(pots) do
             if src == pot then
-                bgValues[i] = val / 100
+                bgValues[i] = a3 / 100
             end
         end
     end
