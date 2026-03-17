@@ -186,6 +186,8 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-item-pct  { color: #555; text-align: right; }
 .stock-empty { color: #888; font-size: 0.82em; font-style: italic; padding: 8px 0; }
 .stock-stale { opacity: 0.45; }
+.stock-offline-badge { background: #441111; color: #cc4444; font-size: 0.65em; font-weight: 700; letter-spacing: 0.8px; padding: 1px 6px; border-radius: 3px; margin: 0 6px; vertical-align: middle; text-transform: uppercase; }
+.stock-subzone-stale { opacity: 0.5; }
 .stock-card { cursor: grab; transition: border-color .15s, opacity .15s; }
 .stock-card:hover { border-color: #333; }
 .stock-card.dragging { opacity: 0.35; cursor: grabbing; }

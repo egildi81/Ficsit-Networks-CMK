@@ -1,4 +1,4 @@
-const VERSION = "1.4.5";
+const VERSION = "1.4.6";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -626,6 +626,7 @@ function renderStockage(stockage) {
 function renderStockageInfo(zoneConfig, centralData) {
     const grid = document.getElementById('stockage-grid');
     if (!grid) return;
+    if (_isDragging) return;  // ne pas re-render pendant un drag / do not re-render while dragging
     const zones = zoneConfig && zoneConfig.zones;
     if (!zones || !zones.length) {
         grid.innerHTML = '<div class="stock-empty">Aucune zone configurée — définissez vos zones dans l\'onglet Configuration</div>';
@@ -636,14 +637,16 @@ function renderStockageInfo(zoneConfig, centralData) {
     for (const c of ((centralData && centralData.containers) || [])) byNick[c.nick] = c;
 
     const now = Date.now() / 1000;
-    const stale = centralData && centralData.server_ts && (now - centralData.server_ts) > 120;
+    const payloadStale = centralData && centralData.server_ts && (now - centralData.server_ts) > 120;
 
-    // Agrège et retourne items comme tableau trié avec pct / Aggregate and return items as sorted array with pct
+    // Agrège, retourne items triés + flag hasStale si un conteneur est hors-ligne
+    // Aggregates, returns sorted items + hasStale flag if any container is offline
     function aggr(nicks) {
-        let slotsTotal = 0, slotsUsed = 0, totalItems = 0;
+        let slotsTotal = 0, slotsUsed = 0, totalItems = 0, hasStale = false;
         const itemsMap = {};
         for (const nick of nicks) {
             const c = byNick[nick]; if (!c) continue;
+            if (c.stale) { hasStale = true; continue; }  // satellite hors-ligne / offline satellite
             slotsTotal += c.slotsTotal || 0;
             slotsUsed  += c.slotsUsed  || 0;
             totalItems += c.totalItems  || 0;
@@ -655,7 +658,7 @@ function renderStockageInfo(zoneConfig, centralData) {
         const fillRate = slotsTotal > 0 ? Math.floor(slotsUsed / slotsTotal * 1000) / 10 : 0;
         const items = Object.values(itemsMap).sort((a, b) => b.count - a.count)
             .map(it => ({ ...it, pct: totalItems > 0 ? Math.round(it.count / totalItems * 100) : 0 }));
-        return { slotsTotal, slotsUsed, fillRate, totalItems, items };
+        return { slotsTotal, slotsUsed, fillRate, totalItems, items, hasStale };
     }
 
     // Construire le cache pour la modal (format compatible openStockModal)
@@ -668,19 +671,23 @@ function renderStockageInfo(zoneConfig, centralData) {
             if (zone.containers && zone.containers.length) subzones.push({ name: zone.mainLabel || 'Principal', ...aggr(zone.containers) });
             for (const sz of zone.subzones) subzones.push({ name: sz.name, ...aggr(sz.containers || []) });
         }
-        return { zone: zone.name, ...za, subzones };
+        const zoneHasStale = za.hasStale || subzones.some(s => s.hasStale);
+        return { zone: zone.name, ...za, subzones, hasStale: zoneHasStale };
     });
 
-    grid.innerHTML = _stockageCache.map(z => {
+    const sorted = _sortByOrder(_stockageCache);
+    grid.innerHTML = sorted.map(z => {
         const fill = z.fillRate, fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+        const offlineBadge = z.hasStale ? '<span class="stock-offline-badge">Hors ligne</span>' : '';
 
         let itemsBlock;
         if (z.subzones && z.subzones.length > 0) {
             itemsBlock = `<div class="stock-subzones">${z.subzones.map(sz => {
                 const sf = sz.fillRate ?? 0, sc = sf >= 80 ? '#ee3333' : sf >= 50 ? '#eeee22' : '#22ee22';
                 const top3 = sz.items.slice(0, 3);
-                return `<div class="stock-subzone">
-                    <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${sc}">${sf}%</span></div>
+                const szOffline = sz.hasStale ? '<span class="stock-offline-badge">Hors ligne</span>' : '';
+                return `<div class="stock-subzone${sz.hasStale ? ' stock-subzone-stale' : ''}">
+                    <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span>${szOffline}<span class="stock-subzone-fill" style="color:${sc}">${sf}%</span></div>
                     <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${sf}%;background:${sc}"></div></div>
                     ${_stockCompact ? '' : `<div class="stock-subzone-meta">${sz.slotsUsed} / ${sz.slotsTotal} slots · ${sz.totalItems} items</div>
                     ${top3.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}`}
@@ -693,13 +700,15 @@ function renderStockageInfo(zoneConfig, centralData) {
                 : _stockCompact ? '' : '<div class="stock-empty">Aucun item</div>'}</div>`;
         }
         return `
-            <div class="stock-card${stale ? ' stock-stale' : ''}" onclick="openStockModal('${esc(z.zone)}')" title="Voir tous les items" style="cursor:pointer">
-                <div class="stock-card-header"><span class="stock-zone">${esc(z.zone)}</span><span class="stock-fill" style="color:${fillColor}">${fill}%</span></div>
+            <div class="stock-card${payloadStale ? ' stock-stale' : ''}" draggable="true" data-zone="${esc(z.zone)}"
+                 onclick="openStockModal('${esc(z.zone)}')" title="Voir tous les items" style="cursor:pointer">
+                <div class="stock-card-header"><span class="stock-zone">${esc(z.zone)}</span>${offlineBadge}<span class="stock-fill" style="color:${fillColor}">${fill}%</span></div>
                 <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
                 <div class="stock-meta">${z.slotsUsed} / ${z.slotsTotal} slots · ${z.totalItems} items</div>
                 ${itemsBlock}
             </div>`;
     }).join('');
+    _setupStockageDrag();
 }
 
 // ── Config DnD ───────────────────────────────────────────────

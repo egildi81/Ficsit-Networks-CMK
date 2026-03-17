@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -200,13 +200,19 @@ local function pushWeb()
     local allContainers = {}
     local totalSlots, usedSlots, totalItems = 0, 0, 0
     for addr, sat in pairs(satellites) do
-        if sat.lastSeen and sat.lastSeen >= cutoff and sat.data then
+        -- Inclure tous les satellites avec données, y compris hors-ligne (marqués stale=true)
+        -- Include all satellites with data, including offline ones (marked stale=true)
+        if sat.data and sat.lastSeen then
+            local isStale = sat.lastSeen < cutoff
             local cs = sat.data.containers
             if type(cs) == "table" then
                 for _, c in ipairs(cs) do
-                    totalSlots = totalSlots + (c.slotsTotal or 0)
-                    usedSlots  = usedSlots  + (c.slotsUsed  or 0)
-                    totalItems = totalItems + (c.totalItems  or 0)
+                    -- Totaux uniquement pour les satellites actifs / Totals only for active satellites
+                    if not isStale then
+                        totalSlots = totalSlots + (c.slotsTotal or 0)
+                        usedSlots  = usedSlots  + (c.slotsUsed  or 0)
+                        totalItems = totalItems + (c.totalItems  or 0)
+                    end
                     table.insert(allContainers, {
                         satellite  = sat.nick,
                         nick       = c.nick,
@@ -215,6 +221,7 @@ local function pushWeb()
                         fillRate   = c.fillRate,
                         totalItems = c.totalItems,
                         items      = c.items,
+                        stale      = isStale or nil,  -- nil si actif → absent du JSON / nil if active → absent from JSON
                     })
                 end
             end
