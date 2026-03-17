@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.3"
+local VERSION = "1.1.4"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
@@ -59,11 +59,12 @@ print("=== STOCKAGE SATELLITE v"..VERSION.." BOOT — "..NICK.." ===")
 -- === SÉRIALISATION / SERIALIZATION ===
 local function ser(v)
     if type(v)=="table" then
-        local s="{"
+        -- table.concat évite les concaténations O(n²) / table.concat avoids O(n²) concatenations
+        local parts = {}
         for k,vv in pairs(v) do
-            s=s..(type(k)=="string" and ('["'..k..'"]') or "["..tostring(k).."]").."="..ser(vv)..","
+            table.insert(parts, (type(k)=="string" and ('["'..k..'"]') or "["..tostring(k).."]").."="..ser(vv))
         end
-        return s.."}"
+        return "{"..table.concat(parts,",").."}"
     elseif type(v)=="number" then
         return string.format("%.4g",v)
     else
@@ -139,9 +140,9 @@ local function scanInv(inv)
     local items = {}
     local used  = 0
     for i = 0, inv.size - 1 do
-        -- Yield tous les 16 slots : laisse le moteur respirer pendant le scan
-        -- Yield every 16 slots: lets the engine breathe during scan
-        if i > 0 and i % 16 == 0 then event.pull(0) end
+        -- Yield tous les 8 slots avec pause réelle : event.pull(0) est no-op sans événement
+        -- Yield every 8 slots with real pause: event.pull(0) is a no-op with no pending event
+        if i > 0 and i % 8 == 0 then event.pull(0.01) end
         local s = inv:getStack(i)
         if s.count > 0 then
             used = used + 1
@@ -172,8 +173,8 @@ local function scanAll(onlyNicks)
     for _, c in ipairs(allContainers) do
         -- En mode rapide : ignorer les containers non prioritaires / In fast mode: skip non-priority containers
         if onlyNicks and not onlyNicks[c.nick] then goto continue end
-        -- Yield entre chaque conteneur / Yield between containers
-        event.pull(0)
+        -- Pause réelle entre chaque conteneur / Real pause between containers
+        event.pull(0.01)
         local ok, proxy = pcall(function() return component.proxy(c.id) end)
         if ok and proxy then
             local ok2, invs = pcall(function() return proxy:getInventories() end)

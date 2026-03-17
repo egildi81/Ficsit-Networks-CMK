@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.3"
+local VERSION = "1.1.4"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -63,11 +63,12 @@ local dispatchAddr = nil
 -- === SÉRIALISATION Lua (pour net:send → LOGGER) / Lua serialization (for net:send → LOGGER) ===
 local function ser(v)
     if type(v)=="table" then
-        local s="{"
+        -- table.concat évite les concaténations O(n²) / table.concat avoids O(n²) concatenations
+        local parts = {}
         for k,vv in pairs(v) do
-            s=s..(type(k)=="string" and ('["'..k..'"]') or "["..tostring(k).."]").."="..ser(vv)..","
+            table.insert(parts, (type(k)=="string" and ('["'..k..'"]') or "["..tostring(k).."]").."="..ser(vv))
         end
-        return s.."}"
+        return "{"..table.concat(parts,",").."}"
     elseif type(v)=="number" then
         return string.format("%.4g",v)
     else
