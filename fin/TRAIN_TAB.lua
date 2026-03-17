@@ -28,6 +28,7 @@ end
 
 event.listen(net)
 net:open(44)  -- port snapshot LOGGER
+net:open(50)  -- port SHUTDOWN (STARTER)
 
 -- === INDICATOR POLE (optionnel) ===
 -- Nommer le panel en jeu : "TRAFFIC_POLE"
@@ -38,7 +39,6 @@ local POS_LED_G    = {x=0,y=0}   -- LED bas    (verte)
 local POS_LED_Y    = {x=1,y=0}   -- LED milieu (jaune)
 local POS_LED_O    = {x=2,y=0}   -- LED haut   (rouge)
 -- Sons custom (fichiers .ogg à placer dans %LOCALAPPDATA%\FactoryGame\Saved\SaveGames\Computers\Sounds\)
-local SOUNDS_BOOT   = {"RATP-Signal"}   -- au lancement du script
 local SOUND_GREEN   = "SNCF-Passage"   -- retour au vert
 local SOUND_YELLOW  = "RATP-Signal"    -- passage au jaune
 local SOUND_RED     = "SNCF-Panne"     -- passage au rouge (congestion)
@@ -203,6 +203,14 @@ end
 -- THREAD MANAGER
 -- ════════════════════════════════════════════════════════════
 local threads={}
+local shouldStop=false  -- flag levé par n'importe quelle coroutine, exécuté par runAll()
+
+local function shutdown()
+    for _,g in ipairs({gpuL,gpuC,gpuR}) do
+        pcall(function() g:drawRect({x=0,y=0},{x=sw,y=sh},BG,BG,0); g:flush() end)
+    end
+    computer.stop()
+end
 
 local function spawn(fn)
     table.insert(threads,coroutine.create(fn))
@@ -221,7 +229,10 @@ local function runAll()
                 table.remove(threads,i)
             end
         end
-        event.pull(0)  -- point de basculement entre threads
+        -- Point de basculement + interception SHUTDOWN depuis le thread principal
+        local e,_,_,port=event.pull(0)
+        if e=="NetworkMessage" and port==50 then shouldStop=true end
+        if shouldStop then shutdown() end
     end
 end
 
@@ -231,7 +242,9 @@ end
 spawn(function()
     while true do
         local e,_,_,port,stateStr=event.pull(0)
-        if e=="NetworkMessage" and port==44 and stateStr then
+        if e=="NetworkMessage" and port==50 then
+            shouldStop=true  -- délègue à runAll() pour exécuter depuis le thread principal
+        elseif e=="NetworkMessage" and port==44 and stateStr then
             local ok,fn=pcall(load,"return "..stateStr)
             if ok and fn then
                 local ok2,s=pcall(fn)
@@ -273,10 +286,5 @@ end)
 
 -- === DÉMARRAGE ===
 print("TRAIN_TAB démarré")
-if trafSpeaker then
-    for _,s in ipairs(SOUNDS_BOOT) do
-        pcall(function() trafSpeaker:playSound(s,0) end)
-    end
-end
 drawWaiting()
 runAll()

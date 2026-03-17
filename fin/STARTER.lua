@@ -1,7 +1,114 @@
+-- STARTER.lua : panneau de démarrage — contrôle la séquence d'allumage/extinction des ordinateurs
+-- Séquence ON : sw1 → sw2 | Séquence OFF : sw2 → sw1 | Mauvais ordre → son d'erreur
+local VERSION = "1.2.2"
 local panel1 = component.proxy(component.findComponent("PANEL_L")[1])
+local net    = computer.getPCIDevices(classes.NetworkCard)[1]
+
+-- === LOG → GET_LOG ===
+print=function(...)local t={}for i=1,select('#',...)do t[i]=tostring(select(i,...))end
+    pcall(function()net:broadcast(43,"STARTER",table.concat(t," "))end)end
+print("STARTER v"..VERSION.." démarré")
 
 local swL = panel1:getModule(2, 6, 0)
 local swR = panel1:getModule(8, 6, 0)
+
+-- === CONTRÔLE ORDINATEURS (séquence sw1→sw2 / sw2→sw1) ===
+-- Sons (noms de fichiers sans extension, à déposer sur le serveur FIN)
+-- Remplacer les valeurs ci-dessous par vos propres fichiers si besoin
+local SOUND_START = "MS95Start"   -- démarrage des ordis  → MS95Start.ogg
+local SOUND_STOP  = "W95Stop"     -- extinction des ordis → W95Stop.ogg
+local SOUND_ERROR = "W2kError"    -- mauvaise séquence    → W2kError.ogg
+
+local COMPUTERS_TO_CONTROL = { "GET_LOG", "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL", "DISPATCH" }
+
+-- Adresse réseau de GET_LOG — capturée à son boot via GET_LOG_HELLO (port 52)
+-- GET_LOG network address — captured at its boot via GET_LOG_HELLO (port 52)
+local getlogAddr = nil
+net:open(52)
+event.listen(net)
+
+local function findOpt(nick)
+    local f = component.findComponent(nick)
+    return (#f > 0) and component.proxy(f[1]) or nil
+end
+
+local speaker   = findOpt("TRAFFIC_SPEAKER")
+local computers = {}
+for _, nick in ipairs(COMPUTERS_TO_CONTROL) do
+    local c = findOpt(nick)
+    if c then table.insert(computers, {nick=nick, case=c}) end
+end
+
+-- Déclarées ici pour être accessibles dans startAll/stopAll
+local zoneL = false
+local zoneR = false
+local resetBigGauges  -- forward declaration (définie plus bas)
+
+local function playError()
+    if speaker then pcall(function() speaker:playSound(SOUND_ERROR, 0) end) end
+end
+
+local function startAll()
+    for _, c in ipairs(computers) do
+        pcall(function() c.case:startComputer() end)
+    end
+    if speaker then pcall(function() speaker:playSound(SOUND_START, 0) end) end
+    -- Attendre GET_LOG_HELLO pour récupérer son adresse (net:send, pas broadcast)
+    -- Wait for GET_LOG_HELLO to get its address (net:send, not broadcast)
+    local deadline = computer.millis() + 5000
+    while computer.millis() < deadline do
+        local e2,_,sender2,port2,_,msg2 = event.pull(0.5)
+        if e2=="NetworkMessage" and port2==52 and msg2=="GET_LOG_HELLO" then
+            getlogAddr = sender2
+            pcall(function() net:send(getlogAddr, 52, "SCREEN_ON") end)
+            break
+        end
+    end
+    -- Allume l'animation du panel entier
+    zoneL = true
+    zoneR = true
+end
+
+local function clearPanel()
+    -- Force le refresh immédiat de tous les éléments visuels (sans attendre le tick)
+    if displays then
+        for _, d in ipairs(displays) do pcall(function() d:setText("--") end) end
+    end
+    if leds then
+        for _, led in ipairs(leds) do pcall(function() led:setColor(0,0,0,0) end) end
+    end
+    if gauges then
+        for _, g in ipairs(gauges) do pcall(function() g.percent=0; g.limit=0 end) end
+    end
+    if bigGauges then
+        for _, g in ipairs(bigGauges) do pcall(function() g.percent=0; g.limit=0 end) end
+    end
+end
+
+local function stopAll()
+    if speaker then pcall(function() speaker:playSound(SOUND_STOP, 0) end) end
+    -- Signal SHUTDOWN aux scripts → chacun efface son GPU et s'arrête lui-même
+    if net then pcall(function() net:open(50); net:broadcast(50, "SHUTDOWN") end) end
+    -- Laisse 3s aux scripts pour finir leur draw en cours, vider leurs GPUs et s'arrêter
+    event.pull(3)
+    -- Fallback : force l'arrêt des ordinateurs restants
+    for _, c in ipairs(computers) do
+        pcall(function() c.case:stopComputer() end)
+    end
+    -- Éteint l'animation du panel entier
+    zoneL = false
+    zoneR = false
+    if resetBigGauges then resetBigGauges(true); resetBigGauges(false) end
+    clearPanel()
+end
+
+-- Machine à états séquence :
+--   idle     → sw1 ON  → armed
+--   armed    → sw2 ON  → on      + startAll()
+--   on       → sw2 OFF → shutdown
+--   shutdown → sw1 OFF → idle    + stopAll()
+-- Tout autre changement hors séquence → playError() (panel inchangé)
+local seqState = "idle"
 
 local displays = {
     panel1:getModule(0, 0, 0),   -- zone gauche
@@ -58,9 +165,6 @@ local leds = {
     panel1:getModule(10, 4, 0),  -- D
 }
 
-local zoneL = false
-local zoneR = false
-
 local dispZone  = {true, true, true, false, false, false}
 local gaugeZone = {true, true, true, true, true, false, false, false, false, false}
 local bgZone    = {true, true, false, false}
@@ -94,20 +198,18 @@ end
 
 local bgValues = {0, 0, 0, 0}
 
--- Reset bigGauges et pots à 0 au démarrage
 for i, g in ipairs(bigGauges) do
     g.percent = 0
     g.limit = 0
-    
 end
 
-local function resetBigGauges(isLeft)
+-- Définition réelle de resetBigGauges (forward-déclarée plus haut)
+resetBigGauges = function(isLeft)
     for i, g in ipairs(bigGauges) do
         if bgZone[i] == isLeft then
             bgValues[i] = 0
             g.percent = 0
             g.limit = 0
-            
         end
     end
 end
@@ -115,6 +217,10 @@ end
 event.listen(swL)
 event.listen(swR)
 for _, pot in ipairs(pots) do event.listen(pot) end
+
+-- Absorbe les événements initiaux que FIN envoie au boot (état courant des switchs)
+-- Sans ça, les switchs en position ON/OFF déclenchent la séquence au démarrage
+do local t0=computer.millis() repeat event.pull(0.05) until computer.millis()-t0>=300 end
 
 local tick = 0
 
@@ -178,21 +284,55 @@ while true do
         end
     end
 
-    -- Events switches + pots
-    local e, src, val = event.pull(0.2)
+    -- Events switches + pots + réseau
+    -- a3 = val(switch/pot) OU sender(NetworkMessage) selon le type d'événement
+    -- a3 = val(switch/pot) OR sender(NetworkMessage) depending on event type
+    local e, src, a3, a4, a5, a6 = event.pull(0.2)
+
+    -- Mise à jour adresse GET_LOG si redémarre / Update GET_LOG address if it restarts
+    if e == "NetworkMessage" and a4 == 52 and a6 == "GET_LOG_HELLO" then
+        getlogAddr = a3
+        print("GET_LOG_HELLO reçu — adresse capturée")
+    elseif e == "NetworkMessage" then
+        print("NET port="..tostring(a4).." msg="..tostring(a6))
+    end
+
     if e == "ChangeState" then
+        -- a3==false → switch ALLUMÉ, a3==true → ÉTEINT (convention FIN panel toggle)
+        -- a3==false → switch ON, a3==true → OFF (FIN panel toggle convention)
+        local isNowOn = (a3 == false)
+        local swName = src==swL and "SW1" or (src==swR and "SW2" or "?")
+        print(swName.." "..(isNowOn and "ON" or "OFF").." | état="..seqState)
+
         if src == swL then
-            zoneL = not val
-            if not zoneL then resetBigGauges(true) end
+            if isNowOn then
+                if     seqState == "idle"     then seqState = "armed"
+                elseif seqState == "shutdown" then playError()
+                elseif seqState == "on"       then playError()
+                end
+            else
+                if     seqState == "shutdown" then seqState = "idle"; stopAll()
+                elseif seqState == "armed"    then seqState = "idle"; playError()
+                elseif seqState == "on"       then playError()
+                end
+            end
+
+        elseif src == swR then
+            if isNowOn then
+                if     seqState == "armed"    then seqState = "on"; startAll()
+                elseif seqState == "idle"     then playError()
+                elseif seqState == "shutdown" then playError()
+                end
+            else
+                if seqState == "on" then seqState = "shutdown" end
+            end
         end
-        if src == swR then
-            zoneR = not val
-            if not zoneR then resetBigGauges(false) end
-        end
+        print("→ nouvel état="..seqState)
+
     elseif e == "valueChanged" then
         for i, pot in ipairs(pots) do
             if src == pot then
-                bgValues[i] = val / 100
+                bgValues[i] = a3 / 100
             end
         end
     end
