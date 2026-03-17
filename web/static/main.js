@@ -1,4 +1,4 @@
-const VERSION = "1.3.8";
+const VERSION = "1.3.9";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -477,7 +477,7 @@ let _stockCompact = true;
 function toggleStockView() {
     _stockCompact = !_stockCompact;
     document.getElementById('stock-view-btn').textContent = _stockCompact ? 'Vue détaillée' : 'Vue compacte';
-    renderStockage(_stockageCache);
+    renderStockageInfo(_stockageZoneConfig, _stockageCentralCache);
 }
 
 // ── Purge manuelle des zones inactives ────────────────────────
@@ -622,31 +622,146 @@ function renderStockage(stockage) {
     _setupStockageDrag();
 }
 
-// ── Config satellites stockage ────────────────────────────────
-function renderStockageConfig(discovery) {
-    const grid = document.getElementById('stockage-config-grid');
+// ── INFO zones configurées ────────────────────────────────────
+function renderStockageInfo(zoneConfig, centralData) {
+    const grid = document.getElementById('stockage-grid');
     if (!grid) return;
-    if (!discovery || !discovery.length) {
-        grid.innerHTML = '<div class="stock-empty">Aucun satellite découvert</div>';
+    if (!zoneConfig || !zoneConfig.length) {
+        grid.innerHTML = '<div class="stock-empty">Aucune zone configurée — définissez vos zones dans l\'onglet Configuration</div>';
         return;
     }
+    // Lookup subzones par nick satellite / Lookup subzones by satellite nick
+    const subzoneByNick = {};
+    for (const sz of ((centralData && centralData.subzones) || [])) subzoneByNick[sz.name] = sz;
+
     const now = Date.now() / 1000;
-    grid.innerHTML = discovery.map(sat => {
-        const stale = sat.server_ts && (now - sat.server_ts) > 300;
-        const containers = sat.containers || [];
+    const stale = centralData && centralData.server_ts && (now - centralData.server_ts) > 120;
+
+    // Grouper les entrées de config par zone / Group config entries by zone
+    const zoneOrder = [], zoneMap = {};
+    for (const entry of zoneConfig) {
+        if (!zoneMap[entry.zone]) {
+            zoneMap[entry.zone] = { zone: entry.zone, slotsTotal: 0, slotsUsed: 0, totalItems: 0, items: {}, subzoneList: [] };
+            zoneOrder.push(entry.zone);
+        }
+        const z = zoneMap[entry.zone];
+        const sz = subzoneByNick[entry.satellite];
+        if (sz) {
+            z.slotsTotal += sz.slotsTotal || 0;
+            z.slotsUsed  += sz.slotsUsed  || 0;
+            z.totalItems += sz.totalItems  || 0;
+            for (const [id, item] of Object.entries(sz.items || {})) {
+                if (!z.items[id]) z.items[id] = { name: item.name, count: 0 };
+                z.items[id].count += item.count;
+            }
+            z.subzoneList.push({ name: entry.label || entry.satellite, fillRate: sz.fillRate || 0,
+                slotsUsed: sz.slotsUsed, slotsTotal: sz.slotsTotal, totalItems: sz.totalItems });
+        }
+    }
+    if (!zoneOrder.length) {
+        grid.innerHTML = '<div class="stock-empty">Aucune donnée CENTRAL disponible</div>';
+        return;
+    }
+    grid.innerHTML = zoneOrder.map(zoneName => {
+        const z = zoneMap[zoneName];
+        const fill = z.slotsTotal > 0 ? Math.floor(z.slotsUsed / z.slotsTotal * 1000) / 10 : 0;
+        const fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+        const topItems = Object.values(z.items).sort((a, b) => b.count - a.count).slice(0, 5);
+        let itemsBlock;
+        if (z.subzoneList.length > 1) {
+            itemsBlock = `<div class="stock-subzones">${z.subzoneList.map(sz => {
+                const szFill = sz.fillRate ?? 0;
+                const szColor = szFill >= 80 ? '#ee3333' : szFill >= 50 ? '#eeee22' : '#22ee22';
+                return `<div class="stock-subzone">
+                    <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${szColor}">${szFill}%</span></div>
+                    <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${szFill}%;background:${szColor}"></div></div>
+                    <div class="stock-subzone-meta">${sz.slotsUsed ?? '?'} / ${sz.slotsTotal ?? '?'} slots · ${sz.totalItems ?? '?'} items</div>
+                </div>`;
+            }).join('')}</div>`;
+        } else {
+            const inner = topItems.length
+                ? topItems.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span></div>`).join('')
+                : '<div class="stock-empty">Aucun item</div>';
+            itemsBlock = `<div class="stock-items">${inner}</div>`;
+        }
         return `
             <div class="stock-card${stale ? ' stock-stale' : ''}">
                 <div class="stock-card-header">
-                    <span class="stock-zone">${esc(sat.satellite)}</span>
-                    <span style="color:#666;font-size:0.75em">${containers.length} container(s)</span>
+                    <span class="stock-zone">${esc(zoneName)}</span>
+                    <span class="stock-fill" style="color:${fillColor}">${fill}%</span>
                 </div>
-                <div class="stock-meta" style="color:#666;font-size:0.72em;margin-bottom:4px">${esc(sat.addr)}</div>
-                <div class="stock-items">${containers.length
-                    ? containers.map(c => `<div class="stock-item-row"><span class="stock-item-name">${esc(c)}</span></div>`).join('')
-                    : '<div class="stock-empty">Aucun container</div>'
-                }</div>
+                <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
+                <div class="stock-meta">${z.slotsUsed} / ${z.slotsTotal} slots · ${z.totalItems} items</div>
+                ${itemsBlock}
             </div>`;
     }).join('');
+}
+
+// ── Config satellites → zones ─────────────────────────────────
+function renderStockageConfig(discovery, zoneConfig) {
+    const grid = document.getElementById('stockage-config-grid');
+    if (!grid) return;
+    if (!discovery || !discovery.length) {
+        grid.innerHTML = '<div class="stock-empty">Aucun satellite découvert — démarrez STOCKAGE_CENTRAL et les satellites</div>';
+        return;
+    }
+    // Lookup config courante par satellite / Current config lookup by satellite
+    const cfgBySat = {};
+    for (const entry of (zoneConfig || [])) cfgBySat[entry.satellite] = entry;
+
+    const now = Date.now() / 1000;
+    grid.innerHTML = `
+        <div style="grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:8px 0">
+            <button class="stock-purge-btn" onclick="_saveStockageZoneConfig()">Sauvegarder</button>
+            <span id="stk-cfg-status" style="font-size:0.78em;color:#888"></span>
+        </div>
+        ${discovery.map(sat => {
+            const cfg = cfgBySat[sat.satellite] || {};
+            const containers = sat.containers || [];
+            const stale = sat.server_ts && (now - sat.server_ts) > 300;
+            return `
+                <div class="stock-card${stale ? ' stock-stale' : ''}">
+                    <div class="stock-card-header">
+                        <span class="stock-zone">${esc(sat.satellite)}</span>
+                        <span style="color:#666;font-size:0.75em">${containers.length} conteneur(s)</span>
+                    </div>
+                    <div style="margin:6px 0 8px">
+                        <div style="margin-bottom:4px">
+                            <label style="color:#999;font-size:0.78em;display:block;margin-bottom:2px">Zone</label>
+                            <input class="sat-zone-input" data-sat="${esc(sat.satellite)}" value="${esc(cfg.zone || '')}"
+                                   placeholder="ex: Matériaux" style="background:#1a1a1a;border:1px solid #333;color:#fff;padding:4px 8px;border-radius:4px;width:100%;box-sizing:border-box;font-size:0.84em">
+                        </div>
+                        <div>
+                            <label style="color:#999;font-size:0.78em;display:block;margin-bottom:2px">Label (sous-zone, optionnel)</label>
+                            <input class="sat-label-input" data-sat="${esc(sat.satellite)}" value="${esc(cfg.label || '')}"
+                                   placeholder="ex: Minerais bruts" style="background:#1a1a1a;border:1px solid #333;color:#aaa;padding:4px 8px;border-radius:4px;width:100%;box-sizing:border-box;font-size:0.84em">
+                        </div>
+                    </div>
+                    <div style="color:#555;font-size:0.72em;margin-bottom:4px">${esc(sat.addr)}</div>
+                    <div class="stock-items">${containers.length
+                        ? containers.map(c => `<div class="stock-item-row"><span class="stock-item-name">${esc(c)}</span></div>`).join('')
+                        : '<div class="stock-empty">Aucun conteneur</div>'}
+                    </div>
+                </div>`;
+        }).join('')}`;
+}
+
+function _saveStockageZoneConfig() {
+    const cfg = [];
+    document.querySelectorAll('.sat-zone-input').forEach(inp => {
+        const sat  = inp.dataset.sat;
+        const zone = inp.value.trim();
+        if (!zone) return;
+        const labelInp = document.querySelector(`.sat-label-input[data-sat="${CSS.escape(sat)}"]`);
+        cfg.push({ satellite: sat, zone, label: labelInp ? labelInp.value.trim() : '' });
+    });
+    fetch('/api/stockage/zone-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) })
+        .then(() => {
+            _stockageZoneConfig = cfg;
+            _prevJson.stockage_info = null;  // forcer re-render INFO / force INFO re-render
+            const st = document.getElementById('stk-cfg-status');
+            if (st) { st.textContent = 'Sauvegardé ✓'; setTimeout(() => { if (st) st.textContent = ''; }, 2000); }
+        });
 }
 
 // ── Power ─────────────────────────────────────────────────────
@@ -810,7 +925,9 @@ function _drawPowerChart() {
 
 // ── Diff par section — évite les renders inutiles si les données n'ont pas changé
 // ── Per-section diff — skips renders when data is unchanged
-const _prevJson = { trains: null, trips: null, stats: null, stockage: null, stockage_discovery: null, power: null, dispatch: null };
+const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null };
+let _stockageZoneConfig  = [];   // config persistée : [{satellite, zone, label}, ...]
+let _stockageCentralCache = null; // dernières données CENTRAL pour toggleStockView
 
 // ── Boucle de rafraîchissement ───────────────────────────────
 let errors = 0;
@@ -864,17 +981,22 @@ async function refresh() {
         const _tj  = JSON.stringify(data.trains        || []);
         const _rj  = JSON.stringify(data.trips         || {});
         const _sj  = JSON.stringify(data.stats         || {});
-        const _zj  = JSON.stringify(data.stockage           || []);
-        const _zdj = JSON.stringify(data.stockage_discovery || []);
-        const _pj  = JSON.stringify(data.power              || null);
+        const _zij  = JSON.stringify({ c: data.stockage_central || null, z: data.stockage_zone_config || [] });
+        const _zdj  = JSON.stringify(data.stockage_discovery || []);
+        const _pj   = JSON.stringify(data.power              || null);
         const _dj  = JSON.stringify({ d: data.dispatch || null, r: data.dispatch_routes ?? null });
 
         const rTimes = {};
         if (_tj !== _prevJson.trains)   { _prevJson.trains   = _tj;  rTimes.trains   = _t('trains',   () => renderTrains(data.trains || [])); }
         if (_rj !== _prevJson.trips)    { _prevJson.trips    = _rj;  rTimes.trips    = _t('trips',    () => renderTrips(data.trips || {})); }
         if (_sj !== _prevJson.stats)    { _prevJson.stats    = _sj;  rTimes.stats    = _t('stats',    () => renderStats(data.trains || [], data.stats || {}, data.logger_updated_at)); }
-        if (_zj  !== _prevJson.stockage)           { _prevJson.stockage           = _zj;  rTimes.stockage = _t('stockage', () => renderStockage(data.stockage || [])); }
-        if (_zdj !== _prevJson.stockage_discovery) { _prevJson.stockage_discovery = _zdj; _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [])); }
+        if (_zij !== _prevJson.stockage_info) {
+            _prevJson.stockage_info = _zij;
+            if (Array.isArray(data.stockage_zone_config)) _stockageZoneConfig = data.stockage_zone_config;
+            _stockageCentralCache = data.stockage_central || null;
+            rTimes.stockage = _t('stk-info', () => renderStockageInfo(_stockageZoneConfig, _stockageCentralCache));
+        }
+        if (_zdj !== _prevJson.stockage_discovery) { _prevJson.stockage_discovery = _zdj; _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageZoneConfig)); }
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }

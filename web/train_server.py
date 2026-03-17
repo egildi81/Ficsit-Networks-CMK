@@ -1,4 +1,4 @@
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -24,7 +24,8 @@ _cache            = {"trains": [], "trips": {}}
 _cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
 _trips            = {}    # historique de la session courante (en mémoire uniquement — pas de persistence)
 _stats            = {}    # stats calculées par LOGGER (score, conf, avgSpeed, etc.)
-_stockage         = {}    # données stockage par zone : {zone: {...}}
+_stockage         = {}    # données stockage par zone (LOGGER → /api/push) : {zone: {...}}
+_stockage_central   = {}  # données CENTRAL agrégées (CENTRAL → /api/stockage/push)
 _stockage_discovery = {}  # satellites découverts : {nick: {satellite, addr, containers, server_ts}}
 
 _ORDER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_order.json")
@@ -41,6 +42,22 @@ def _save_order(order):
     except Exception:
         pass
 _stockage_order = _load_order()
+
+# ── Zone config stockage (persistée dans stockage_zone_config.json) ────────
+_STOCKAGE_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_zone_config.json")
+def _load_zone_config():
+    try:
+        with open(_STOCKAGE_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+def _save_zone_config(cfg):
+    try:
+        with open(_STOCKAGE_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+_stockage_zone_config = _load_zone_config()
 
 # ── Dispatch routes (persistées dans dispatch_routes.json) ────
 _DISPATCH_ROUTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch_routes.json")
@@ -202,13 +219,28 @@ def purge_stockage():
 @app.route("/api/stockage/push", methods=["POST"])
 def stockage_central_push():
     """Reçoit les données agrégées de STOCKAGE_CENTRAL (toutes les 30s)."""
-    global _stockage
+    global _stockage_central
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
-    name = body.get("zone") or "CENTRAL"
     body["server_ts"] = time.time()
-    _stockage[name] = body
+    _stockage_central = body
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/stockage/zone-config", methods=["GET"])
+def get_zone_config():
+    return jsonify(_stockage_zone_config)
+
+
+@app.route("/api/stockage/zone-config", methods=["POST"])
+def set_zone_config():
+    global _stockage_zone_config
+    body = request.get_json(silent=True)
+    if not isinstance(body, list):
+        return jsonify({"error": "Liste attendue"}), 400
+    _stockage_zone_config = body
+    _save_zone_config(_stockage_zone_config)
     return jsonify({"status": "ok"})
 
 
@@ -313,9 +345,11 @@ def get_data():
         "logger_updated_at": _cache_updated_at,
         "site_title":      getattr(config, "SITE_TITLE", "FN Monitor"),
         "stockage_order":  _stockage_order,
-        "dispatch":           _dispatch_status,
-        "dispatch_routes":    _dispatch_routes,
-        "stockage_discovery": list(_stockage_discovery.values()),
+        "dispatch":             _dispatch_status,
+        "dispatch_routes":      _dispatch_routes,
+        "stockage_central":     _stockage_central or None,
+        "stockage_discovery":   list(_stockage_discovery.values()),
+        "stockage_zone_config": _stockage_zone_config,
     })
 
 
