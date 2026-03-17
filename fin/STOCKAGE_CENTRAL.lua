@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -186,8 +186,16 @@ end
 -- === PUSH WEB (HTTP POST /api/stockage/push) ===
 -- Envoie les données par conteneur depuis chaque satellite actif.
 -- Sends per-container data from each active satellite.
+-- Ne push pas si aucun satellite connu (évite d'écraser les données au reboot CENTRAL).
+-- Does not push if no satellite known (avoids overwriting data on CENTRAL reboot).
 -- Content-Type obligatoire pour POST FIN / Content-Type mandatory for FIN POST
 local function pushWeb()
+    -- Aucun satellite enregistré → ne pas écraser les données existantes sur le web
+    -- No satellite registered → do not overwrite existing web data
+    local satCount = 0
+    for _ in pairs(satellites) do satCount = satCount + 1 end
+    if satCount == 0 then return end
+
     local cutoff = computer.millis() - SAT_TIMEOUT * 1000
     local allContainers = {}
     local totalSlots, usedSlots, totalItems = 0, 0, 0
