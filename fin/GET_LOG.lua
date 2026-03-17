@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.6"
+local VERSION = "1.2.7"
 -- Throttle dessin : évite le flood GPU quand de nombreux messages arrivent en rafale
 -- Draw throttle: avoids GPU flood when many messages arrive in rapid succession
 local DRAW_INTERVAL = 200  -- ms minimum entre deux draw() / ms minimum between draws
@@ -15,10 +15,14 @@ local net = computer.getPCIDevices(classes.NetworkCard)[1]
 gpu:bindScreen(scr)
 net:open(43)
 
+-- Print local AVANT override : confirme visuellement la version en jeu sur l'écran du computer
+-- Local print BEFORE override: visually confirms running version on the computer screen
+print("=== GET_LOG v"..VERSION.." BOOT ===")
+
 -- === LOG → GET_LOG (et web via LOGGER port 43) ===
 print=function(...)local t={}for i=1,select('#',...)do t[i]=tostring(select(i,...))end
     pcall(function()net:broadcast(43,"GET_LOG",table.concat(t," "))end)end
-print("GET_LOG v"..VERSION.." démarré")   -- port dédié aux logs / dedicated log port
+print("=== GET_LOG v"..VERSION.." BOOT ===")   -- annonce version sur GET_LOG / announce version on GET_LOG
 net:open(50)   -- port SHUTDOWN (STARTER)
 net:open(52)   -- port SCREEN_ON (STARTER) / SCREEN_ON port from STARTER
 event.listen(net)
