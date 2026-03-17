@@ -1,4 +1,4 @@
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -50,7 +50,7 @@ def _load_zone_config():
         with open(_STOCKAGE_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        return []
+        return {"zones": []}
 def _save_zone_config(cfg):
     try:
         with open(_STOCKAGE_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -237,8 +237,8 @@ def get_zone_config():
 def set_zone_config():
     global _stockage_zone_config
     body = request.get_json(silent=True)
-    if not isinstance(body, list):
-        return jsonify({"error": "Liste attendue"}), 400
+    if not isinstance(body, dict) or "zones" not in body:
+        return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
     _stockage_zone_config = body
     _save_zone_config(_stockage_zone_config)
     return jsonify({"status": "ok"})

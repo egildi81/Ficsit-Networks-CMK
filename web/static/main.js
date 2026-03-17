@@ -1,4 +1,4 @@
-const VERSION = "1.4.0";
+const VERSION = "1.4.1";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -836,12 +836,14 @@ function _saveStockageZoneConfig() {
         }))
     };
     fetch('/api/stockage/zone-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
-        .then(() => {
+        .then(r => {
+            const st = document.getElementById('stk-cfg-status');
+            if (!r.ok) { if (st) st.textContent = `Erreur HTTP ${r.status}`; return; }
             _stockageZoneConfig = config;
             _prevJson.stockage_info = null;  // forcer re-render INFO / force INFO re-render
-            const st = document.getElementById('stk-cfg-status');
             if (st) { st.textContent = 'Sauvegardé ✓'; setTimeout(() => { if (st) st.textContent = ''; }, 2000); }
-        });
+        })
+        .catch(() => { const st = document.getElementById('stk-cfg-status'); if (st) st.textContent = 'Erreur réseau'; });
 }
 
 // ── Power ─────────────────────────────────────────────────────
