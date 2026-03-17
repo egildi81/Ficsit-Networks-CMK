@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -207,7 +207,6 @@ while true do
 
     local remaining = math.max(0.1, (lastPush + PUSH_INTERVAL * 1000 - computer.millis()) / 1000)
     local e,_,sndr,prt,a1,a2 = event.pull(remaining)
-    if not e then goto continue end
 
     if e == "NetworkMessage" then
 
@@ -280,6 +279,4 @@ while true do
             end
         end
     end
-
-    ::continue::
 end
