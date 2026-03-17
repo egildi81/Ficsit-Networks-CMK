@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -269,7 +269,9 @@ local function notifyFastMode(bufferList)
                 if sat.containers[bufNick] then concerned = true; break end
             end
             if concerned then
-                pcall(function() net:send(addr, PORT_SAT_DISC, "FAST_MODE") end)
+                -- Passe la liste des buffers prioritaires pour que le satellite ne scanne que ceux-là
+                -- Pass priority buffer list so satellite only scans those containers
+                pcall(function() net:send(addr, PORT_SAT_DISC, "FAST_MODE", ser(bufferList)) end)
             end
         end
     end

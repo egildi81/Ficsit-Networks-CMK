@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
@@ -139,6 +139,9 @@ local function scanInv(inv)
     local items = {}
     local used  = 0
     for i = 0, inv.size - 1 do
+        -- Yield tous les 16 slots : laisse le moteur respirer pendant le scan
+        -- Yield every 16 slots: lets the engine breathe during scan
+        if i > 0 and i % 16 == 0 then event.pull(0) end
         local s = inv:getStack(i)
         if s.count > 0 then
             used = used + 1
@@ -158,15 +161,18 @@ local function scanInv(inv)
     return items, used, inv.size
 end
 
--- === SCAN COMPLET DE TOUS LES CONTAINERS / FULL CONTAINER SCAN ===
-local function scanAll()
+-- === SCAN COMPLET OU SÉLECTIF / FULL OR SELECTIVE SCAN ===
+-- onlyNicks (set) : si fourni, ne scanne que ces containers (mode rapide DISPATCH)
+-- onlyNicks (set): if provided, only scan these containers (DISPATCH fast mode)
+local function scanAll(onlyNicks)
     local slotsTotal, slotsUsed = 0, 0
     local allItems = {}
     local containerData = {}  -- détail par conteneur pour le web / per-container detail for web
 
     for _, c in ipairs(allContainers) do
-        -- Yield entre chaque conteneur : laisse le jeu respirer, évite le lag sur les convoyeurs
-        -- Yield between each container: lets the game breathe, prevents conveyor lag
+        -- En mode rapide : ignorer les containers non prioritaires / In fast mode: skip non-priority containers
+        if onlyNicks and not onlyNicks[c.nick] then goto continue end
+        -- Yield entre chaque conteneur / Yield between containers
         event.pull(0)
         local ok, proxy = pcall(function() return component.proxy(c.id) end)
         if ok and proxy then
@@ -195,6 +201,7 @@ local function scanAll()
                 print("WARN: inventaire inaccessible: "..c.nick)
             end
         end
+        ::continue::
     end
 
     local totalItems = 0
@@ -217,42 +224,53 @@ local function scanAll()
 end
 
 -- === BOUCLE PRINCIPALE / MAIN LOOP ===
--- Mode rapide (FAST_MODE) activé par DISPATCH quand buffers prioritaires concernés.
--- Fast mode activated by DISPATCH when priority buffers are involved.
-local fastMode  = false
-local fastUntil = 0  -- computer.millis() deadline pour le mode rapide / fast mode expiry
+-- Mode rapide (FAST_MODE) : scan uniquement les buffers prioritaires DISPATCH toutes les 2s.
+-- Fast mode: scan only DISPATCH priority buffers every 2s.
+-- Un scan complet reste effectué toutes les SCAN_INTERVAL secondes.
+-- A full scan is still performed every SCAN_INTERVAL seconds.
+local fastMode     = false
+local fastUntil    = 0     -- expiry mode rapide / fast mode expiry (computer.millis())
+local fastNicks    = {}    -- set des nicks prioritaires DISPATCH / set of DISPATCH priority nicks
+local lastFullScan = 0     -- timestamp dernier scan complet / last full scan timestamp
 
 print(string.format("Satellite prêt — %d container(s) | Scan: %ds / fast: %ds", #allContainers, SCAN_INTERVAL, SCAN_FAST))
 
 while true do
+    local now = computer.millis()
+
     -- Vérification expiry mode rapide / Fast mode expiry check
-    if fastMode and computer.millis() > fastUntil then
-        fastMode = false
+    if fastMode and now > fastUntil then
+        fastMode  = false
+        fastNicks = {}
         print("Mode normal restauré ("..SCAN_INTERVAL.."s)")
     end
 
-    local interval = fastMode and SCAN_FAST or SCAN_INTERVAL
+    -- Décision scan : rapide (buffers prio seulement) ou complet / Scan decision: fast (prio buffers only) or full
+    local doFullScan = not fastMode or (now - lastFullScan) >= SCAN_INTERVAL * 1000
+    local scanFilter = (fastMode and not doFullScan) and fastNicks or nil
 
-    -- Scan + envoi / Scan + send
-    local data = scanAll()
+    local data = scanAll(scanFilter)
+    if doFullScan then lastFullScan = computer.millis() end
+
     if centralAddr then
         pcall(function() net:send(centralAddr, PORT_SAT_DATA, ser(data)) end)
     end
 
-    -- Log périodique uniquement en mode normal (évite le flood en mode rapide)
-    -- Periodic log only in normal mode (avoids flooding in fast mode)
-    if not fastMode then
+    -- Log périodique uniquement sur scan complet (évite le flood en mode rapide)
+    -- Periodic log only on full scan (avoids flooding in fast mode)
+    if doFullScan then
         local z = data.zones[1]
         print(string.format("%s (v%s) : %.1f%% (%d/%d slots | %d items)",
             NICK, VERSION, z.fillRate, z.slotsUsed, z.slotsTotal, z.totalItems))
     end
 
     -- Attente événements / Wait for events
+    local interval = fastMode and SCAN_FAST or SCAN_INTERVAL
     local deadline = computer.millis() + interval * 1000
     repeat
         local remaining = (deadline - computer.millis()) / 1000
         if remaining <= 0 then break end
-        local e,_,sndr,prt,a1 = event.pull(remaining)
+        local e,_,sndr,prt,a1,a2 = event.pull(remaining)
 
         if e == "NetworkMessage" then
             if prt == PORT_SHUTDOWN then
@@ -271,11 +289,19 @@ while true do
                     pcall(function() net:send(sndr, PORT_SAT_DISC, "SATELLITE_HERE", NICK) end)
 
                 elseif a1 == "FAST_MODE" then
-                    -- DISPATCH a des buffers prioritaires sur ce satellite → passer en mode rapide
-                    -- DISPATCH has priority buffers on this satellite → switch to fast mode
+                    -- DISPATCH a des buffers prioritaires → mode rapide sur ces containers seulement
+                    -- DISPATCH has priority buffers → fast mode on these containers only
                     if not fastMode then print("Mode rapide activé ("..SCAN_FAST.."s) — DISPATCH prio") end
                     fastMode  = true
                     fastUntil = computer.millis() + FAST_EXPIRY * 1000
+                    -- Mettre à jour la liste des nicks prioritaires / Update priority nick set
+                    if a2 then
+                        local ok, nicks = pcall(function() return (load("return "..a2))() end)
+                        if ok and type(nicks) == "table" then
+                            fastNicks = {}
+                            for _, n in ipairs(nicks) do fastNicks[n] = true end
+                        end
+                    end
                 end
             end
         end
