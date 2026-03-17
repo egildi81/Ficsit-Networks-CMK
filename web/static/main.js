@@ -1198,6 +1198,11 @@ let _dpKnownBuffers  = new Map();  // Map<value, label> — value=nom réel, lab
 let _dpKnownTrains   = new Set();
 
 function _dpUpdateLists(data) {
+    // Réinitialiser les buffers à chaque update pour rester synchro avec la zone config
+    // Reset buffers on each update to stay in sync with zone config
+    _dpKnownBuffers.clear();
+    const dlBufEl = document.getElementById('dp-dl-buffers');
+    if (dlBufEl) dlBufEl.innerHTML = '';
     if (data.trips) {
         Object.values(data.trips).forEach(segs => {
             Object.keys(segs).forEach(seg => {
@@ -1212,14 +1217,24 @@ function _dpUpdateLists(data) {
             if (t.name)    _dpKnownTrains.add(t.name);
         });
     }
+    // Ancien format STOCKAGE.lua / Legacy STOCKAGE.lua format
     if (Array.isArray(data.stockage)) {
         data.stockage.forEach(z => {
             if (!z.zone) return;
-            _dpKnownBuffers.set(z.zone, z.zone);  // zone principale / main zone
-            // Sous-zones : valeur = "(PARENT) nom" (clé unique, une seule ligne dans datalist)
-            // Sub-zones: value = "(PARENT) name" (unique key, single line in datalist)
+            _dpKnownBuffers.set(z.zone, z.zone);
             if (z.subzones) z.subzones.forEach(sz => {
                 if (sz.name) { const lbl = `(${z.zone}) ${sz.name}`; _dpKnownBuffers.set(lbl, lbl); }
+            });
+        });
+    }
+    // Nouveau format CENTRAL — zones et sous-zones configurées / New CENTRAL format — configured zones and sub-zones
+    const zc = data.stockage_zone_config;
+    if (zc && Array.isArray(zc.zones)) {
+        zc.zones.forEach(z => {
+            if (!z.name) return;
+            _dpKnownBuffers.set(z.name, z.name);
+            if (z.subzones) z.subzones.forEach(sz => {
+                if (sz.name) { const lbl = `(${z.name}) ${sz.name}`; _dpKnownBuffers.set(lbl, lbl); }
             });
         });
     }
