@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
@@ -210,8 +210,9 @@ local function scanAll(onlyNicks)
     local fillRate   = slotsTotal > 0 and math.floor(slotsUsed / slotsTotal * 1000) / 10 or 0
 
     return {
-        nick = NICK,
-        ts   = computer.millis() / 1000,
+        nick    = NICK,
+        version = VERSION,  -- inclus pour le WEB update / included for WEB update feature
+        ts      = computer.millis() / 1000,
         zones = {{
             name       = "",
             slotsTotal = slotsTotal,
@@ -288,6 +289,13 @@ while true do
                 elseif a1 == "IDENTIFY" then
                     -- CENTRAL nous a perdus, on se réenregistre / CENTRAL lost us, re-register
                     pcall(function() net:send(sndr, PORT_SAT_DISC, "SATELLITE_HERE", NICK) end)
+
+                elseif a1 == "REBOOT" then
+                    -- WEB demande une mise à jour → reset EEPROM pour re-télécharger le script
+                    -- WEB requests update → reset EEPROM to re-download the script
+                    -- NOTE : computer.reset() à confirmer en jeu / NOTE: computer.reset() to confirm in-game
+                    print("Reboot demandé depuis WEB → redémarrage...")
+                    computer.reset()
 
                 elseif a1 == "FAST_MODE" then
                     -- DISPATCH a des buffers prioritaires → mode rapide sur ces containers seulement

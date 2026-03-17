@@ -12,13 +12,14 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 
 -- === CONFIGURATION ===
-local WEB_URL       = "http://127.0.0.1:8081"
-local PUSH_INTERVAL = 30    -- secondes entre chaque push LOGGER+web / seconds between LOGGER+web push
-local SAT_TIMEOUT   = 300   -- secondes avant de considérer un satellite mort / seconds before satellite is dead
-local FAST_EXPIRY   = 90    -- secondes sans heartbeat DISPATCH → satellites retour normal / seconds without DISPATCH heartbeat
+local WEB_URL          = "http://127.0.0.1:8081"
+local PUSH_INTERVAL    = 30   -- secondes entre chaque push LOGGER+web / seconds between LOGGER+web push
+local SAT_TIMEOUT      = 300  -- secondes avant de considérer un satellite mort / seconds before satellite is dead
+local FAST_EXPIRY      = 90   -- secondes sans heartbeat DISPATCH → satellites retour normal / seconds without DISPATCH heartbeat
+local POLL_CMD_INTERVAL = 5   -- secondes entre chaque poll commandes WEB / seconds between WEB command polls
 
 -- === PORTS ===
 local PORT_LOG      = 43
@@ -184,6 +185,28 @@ local function pushLogger(stats)
     if not ok then print("ERR pushLogger: "..tostring(err)) end
 end
 
+-- === POLL COMMANDES WEB (HTTP POST /api/stockage/central/command.lua) ===
+-- Récupère les commandes en attente depuis le serveur web (reboot satellite, etc.)
+-- Fetches pending commands from the web server (satellite reboot, etc.)
+local function pollCommand()
+    local ok, f = pcall(function()
+        return inet:request(WEB_URL.."/api/stockage/central/command.lua", "POST", "",
+            "Content-Type", "application/json")
+    end)
+    if not ok then return end
+    local ok2, code, body = pcall(function() return f:await() end)
+    if not ok2 or code ~= 200 or not body or body == "nil" then return end
+    local ok3, cmd = pcall(function() return (load("return "..body))() end)
+    if not ok3 or type(cmd) ~= "table" then return end
+    if cmd.cmd == "reboot_satellite" then
+        local addr = cmd.addr
+        if addr and satellites[addr] then
+            print("WEB reboot → "..satellites[addr].nick.." ("..addr..")")
+            pcall(function() net:send(addr, PORT_SAT_DISC, "REBOOT") end)
+        end
+    end
+end
+
 -- === PUSH WEB (HTTP POST /api/stockage/push) ===
 -- Envoie les données par conteneur depuis chaque satellite actif.
 -- Sends per-container data from each active satellite.
@@ -229,6 +252,11 @@ local function pushWeb()
         end
     end
     local fillRate = totalSlots > 0 and math.floor(usedSlots / totalSlots * 1000) / 10 or 0
+    -- Liste des satellites avec version pour le WEB update / Satellite list with version for WEB update
+    local satList = {}
+    for addr, sat in pairs(satellites) do
+        table.insert(satList, {nick=sat.nick, addr=addr, version=sat.version or "?"})
+    end
     local payload = {
         ts         = computer.millis() / 1000,
         slotsTotal = totalSlots,
@@ -236,6 +264,7 @@ local function pushWeb()
         fillRate   = fillRate,
         totalItems = totalItems,
         containers = allContainers,
+        satellites = satList,  -- versions satellites pour le WEB / satellite versions for WEB
     }
     local ok, f = pcall(function()
         return inet:request(WEB_URL.."/api/stockage/push", "POST", toJson(payload),
@@ -280,10 +309,17 @@ end
 
 -- === BOUCLE PRINCIPALE / MAIN LOOP ===
 print("CENTRAL prêt — en attente des satellites...")
-local lastPush = 0
+local lastPush    = 0
+local lastCmdPoll = 0
 
 while true do
     local now = computer.millis()
+
+    -- Poll commandes WEB (reboot satellite, etc.) / WEB command poll (satellite reboot, etc.)
+    if now - lastCmdPoll >= POLL_CMD_INTERVAL * 1000 then
+        lastCmdPoll = computer.millis()
+        pollCommand()
+    end
 
     -- Push périodique vers LOGGER + web / Periodic push to LOGGER + web
     if now - lastPush >= PUSH_INTERVAL * 1000 then
@@ -297,7 +333,8 @@ while true do
             VERSION, stats.fillRate, stats.slotsUsed, stats.slotsTotal, stats.totalItems, n))
     end
 
-    local remaining = math.max(0.1, (lastPush + PUSH_INTERVAL * 1000 - computer.millis()) / 1000)
+    local nextCmdPoll = lastCmdPoll + POLL_CMD_INTERVAL * 1000
+    local remaining = math.max(0.1, (math.min(lastPush + PUSH_INTERVAL * 1000, nextCmdPoll) - computer.millis()) / 1000)
     local e,_,sndr,prt,a1,a2 = event.pull(remaining)
 
     if e == "NetworkMessage" then
@@ -347,6 +384,8 @@ while true do
                 if ok and type(data) == "table" then
                     satellites[sndr].data     = data
                     satellites[sndr].lastSeen = computer.millis()
+                    -- Stocker la version du satellite / Store satellite version
+                    if data.version then satellites[sndr].version = data.version end
                 end
             else
                 -- Satellite inconnu : lui demander de se présenter / Unknown satellite: ask it to register

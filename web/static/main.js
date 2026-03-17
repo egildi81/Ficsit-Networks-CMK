@@ -1,8 +1,8 @@
-const VERSION = "1.4.9";
+const VERSION = "1.5.0";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
-const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-power', 'page-dispatch', 'page-logs'];
+const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -927,6 +927,107 @@ function _saveStockageZoneConfig() {
         .catch(() => { const st = document.getElementById('stk-cfg-status'); if (st) st.textContent = 'Erreur réseau'; });
 }
 
+// ── Satellite update (MISE À JOUR tab) ───────────────────────
+let _satVersionsCache      = {};
+let _satUpdateResultsCache = {};
+let _satLatestVersion      = null;
+
+function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
+    const el = document.getElementById('stockage-update-content');
+    if (!el) return;
+    _satVersionsCache      = satVersions      || {};
+    _satUpdateResultsCache = satUpdateResults  || {};
+    _satLatestVersion      = latestVersion     || null;
+
+    const satList = Object.values(_satVersionsCache);
+    if (!satList.length) {
+        el.innerHTML = '<div class="stock-empty" style="padding:32px">Aucun satellite connu — en attente de données...</div>';
+        return;
+    }
+
+    const outdated = satList.filter(s => latestVersion && s.version !== latestVersion);
+
+    const cards = satList.map(sat => {
+        const result    = _satUpdateResultsCache[sat.addr] || null;
+        const isUpToDate = latestVersion && sat.version === latestVersion;
+        const status     = result ? result.status : null;
+
+        let badge = '';
+        if (status === 'updated') {
+            badge = `<span class="stk-upd-badge stk-upd-ok">✓ Mis à jour → v${esc(result.new_version)}</span>`;
+        } else if (status === 'rebooting') {
+            badge = `<span class="stk-upd-badge stk-upd-pending">↻ Redémarrage...</span>`;
+        } else if (status === 'en attente') {
+            badge = `<span class="stk-upd-badge stk-upd-pending">⏳ En attente...</span>`;
+        } else if (status === 'timeout') {
+            badge = `<span class="stk-upd-badge stk-upd-timeout">⚠ Timeout</span>`;
+        } else if (isUpToDate) {
+            badge = `<span class="stk-upd-badge stk-upd-ok">✓ À jour</span>`;
+        } else if (latestVersion) {
+            badge = `<span class="stk-upd-badge stk-upd-old">↑ Obsolète</span>`;
+        }
+
+        const busy   = status === 'rebooting' || status === 'en attente';
+        const btnHtml = !busy
+            ? `<button class="stk-upd-btn" onclick="_satReboot('${esc(sat.addr)}')">Mettre à jour</button>`
+            : '';
+
+        return `<div class="stk-upd-card">
+            <div class="stk-upd-card-header">
+                <span class="stk-upd-nick">${esc(sat.nick)}</span>
+                ${badge}
+            </div>
+            <div class="stk-upd-versions">
+                <span class="stk-upd-ver-cur">v${esc(sat.version)}</span>
+                <span class="stk-upd-ver-arrow">→</span>
+                <span class="stk-upd-ver-latest${isUpToDate ? ' stk-upd-ver-same' : ' stk-upd-ver-new'}">v${esc(latestVersion || '?')}</span>
+            </div>
+            ${btnHtml}
+        </div>`;
+    }).join('');
+
+    el.innerHTML = `
+        <div class="stk-upd-header">
+            <div class="stk-upd-title-row">
+                <span class="stk-upd-latest-label">Dernière version :</span>
+                <span class="stk-upd-latest-ver">v${esc(latestVersion || '?')}</span>
+                <span class="stk-upd-sat-count">${satList.length} satellite${satList.length > 1 ? 's' : ''}</span>
+            </div>
+            <div class="stk-upd-actions">
+                <button class="stock-purge-btn" onclick="_satRebootAll()">Tout mettre à jour</button>
+                ${outdated.length > 0
+                    ? `<button class="stock-purge-btn" onclick="_satRebootOutdated()">Obsolètes (${outdated.length})</button>`
+                    : ''}
+            </div>
+        </div>
+        <div class="stk-upd-grid">${cards}</div>`;
+}
+
+function _satReboot(addr) {
+    fetch('/api/stockage/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs: [addr] })
+    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
+}
+function _satRebootAll() {
+    const addrs = Object.keys(_satVersionsCache);
+    if (!addrs.length) return;
+    fetch('/api/stockage/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs })
+    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
+}
+function _satRebootOutdated() {
+    if (!_satLatestVersion) return;
+    const addrs = Object.values(_satVersionsCache)
+        .filter(s => s.version !== _satLatestVersion).map(s => s.addr);
+    if (!addrs.length) return;
+    fetch('/api/stockage/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs })
+    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
+}
+
 // ── Power ─────────────────────────────────────────────────────
 const _POWER_HIST_MAX = 120;
 const _powerHist = { prod: [], cons: [], cap: [], maxCons: [] };
@@ -1088,7 +1189,7 @@ function _drawPowerChart() {
 
 // ── Diff par section — évite les renders inutiles si les données n'ont pas changé
 // ── Per-section diff — skips renders when data is unchanged
-const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null };
+const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null };
 let _stockageZoneConfig  = [];   // config persistée : [{satellite, zone, label}, ...]
 let _stockageCentralCache = null; // dernières données CENTRAL pour toggleStockView
 
@@ -1170,6 +1271,11 @@ async function refresh() {
             _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageCentralCache, _stockageZoneConfig));
         }
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
+        const _uj = JSON.stringify({ v: data.satellite_versions || {}, r: data.sat_update_results || {} });
+        if (_uj !== _prevJson.sat_update) {
+            _prevJson.sat_update = _uj;
+            rTimes.sat_update = _t('sat-upd', () => renderStockageUpdate(data.satellite_versions || {}, data.sat_update_results || {}, data.sat_latest_version || null));
+        }
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
         if (document.getElementById('page-logs').classList.contains('active')) { refreshLogs(); }
