@@ -3,7 +3,10 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.5"
+local VERSION = "1.2.6"
+-- Throttle dessin : évite le flood GPU quand de nombreux messages arrivent en rafale
+-- Draw throttle: avoids GPU flood when many messages arrive in rapid succession
+local DRAW_INTERVAL = 200  -- ms minimum entre deux draw() / ms minimum between draws
 
 -- === INITIALISATION MATÉRIEL ===
 local gpu = computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
@@ -90,6 +93,8 @@ local HEADER_H = 50
 local MAX_LINES = math.floor((sh - HEADER_H) / LINE_H)
 local lines = {}
 local t0 = computer.millis()
+local lastDraw = 0
+local dirty    = false
 
 local function fmtTime()
     local s = math.floor((computer.millis() - t0) / 1000)
@@ -132,12 +137,6 @@ draw()  -- fond noir au boot / black screen at boot
 while true do
     local e, src, sender, port, script, msg = event.pull(30)
 
-    if e ~= nil and e ~= "NetworkMessage" then
-        -- Debug : log tout event non-réseau pour identifier le nom exact du bouton
-        -- Debug: log all non-network events to identify exact button event name
-        print("EVT e='"..tostring(e).."' src="..tostring(src))
-    end
-
     if e == "Trigger" and src == btn then
         -- Bouton panel : toggle écran / Panel button: toggle screen
         screenOn = not screenOn
@@ -162,9 +161,26 @@ while true do
     elseif e == "NetworkMessage" and port == 43 then
         -- Ne pas appeler print() ici — boucle infinie garantie / Never call print() here — infinite loop
         addLine(tostring(script), tostring(msg))
-        draw()
+        -- Throttle : ne redessiner que si assez de temps s'est écoulé (évite flood GPU en rafale)
+        -- Throttle: only redraw if enough time has passed (avoids GPU flood during burst)
+        local now = computer.millis()
+        if now - lastDraw >= DRAW_INTERVAL then
+            draw()
+            lastDraw = now
+            dirty = false
+        else
+            dirty = true
+        end
 
     else
-        draw()  -- timeout : redessine (indicateur de vie) / timeout: redraw (heartbeat)
+        -- Timeout ou event inconnu : redessiner si des messages sont en attente
+        -- Timeout or unknown event: redraw if messages are pending
+        if dirty then
+            draw()
+            lastDraw = computer.millis()
+            dirty = false
+        else
+            draw()  -- heartbeat / heartbeat
+        end
     end
 end
