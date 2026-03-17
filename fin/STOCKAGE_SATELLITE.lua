@@ -9,10 +9,12 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 
 -- === CONFIGURATION ===
-local SCAN_INTERVAL = 60    -- secondes entre chaque scan / scan interval (seconds)
+local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
+local SCAN_FAST     = 2     -- secondes entre scans en mode priorité DISPATCH / seconds between scans in DISPATCH priority mode
+local FAST_EXPIRY   = 90    -- secondes sans heartbeat DISPATCH → retour mode normal / seconds without DISPATCH heartbeat → back to normal
 local DISC_TIMEOUT  = 15000 -- ms attente CENTRAL au boot / ms to wait for CENTRAL at boot
 
 -- Classes de containers à découvrir (ajuster selon le jeu) / Container classes to discover (adjust per game)
@@ -215,24 +217,38 @@ local function scanAll()
 end
 
 -- === BOUCLE PRINCIPALE / MAIN LOOP ===
--- Pas de mode rapide pour le stockage — 60s est largement suffisant
--- No fast mode for storage — 60s is more than enough
-print(string.format("Satellite prêt — %d container(s) | Scan: %ds", #allContainers, SCAN_INTERVAL))
+-- Mode rapide (FAST_MODE) activé par DISPATCH quand buffers prioritaires concernés.
+-- Fast mode activated by DISPATCH when priority buffers are involved.
+local fastMode  = false
+local fastUntil = 0  -- computer.millis() deadline pour le mode rapide / fast mode expiry
+
+print(string.format("Satellite prêt — %d container(s) | Scan: %ds / fast: %ds", #allContainers, SCAN_INTERVAL, SCAN_FAST))
 
 while true do
+    -- Vérification expiry mode rapide / Fast mode expiry check
+    if fastMode and computer.millis() > fastUntil then
+        fastMode = false
+        print("Mode normal restauré ("..SCAN_INTERVAL.."s)")
+    end
+
+    local interval = fastMode and SCAN_FAST or SCAN_INTERVAL
+
     -- Scan + envoi / Scan + send
     local data = scanAll()
     if centralAddr then
         pcall(function() net:send(centralAddr, PORT_SAT_DATA, ser(data)) end)
     end
 
-    -- Log périodique / Periodic log
-    local z = data.zones[1]
-    print(string.format("%s (v%s) : %.1f%% (%d/%d slots | %d items)",
-        NICK, VERSION, z.fillRate, z.slotsUsed, z.slotsTotal, z.totalItems))
+    -- Log périodique uniquement en mode normal (évite le flood en mode rapide)
+    -- Periodic log only in normal mode (avoids flooding in fast mode)
+    if not fastMode then
+        local z = data.zones[1]
+        print(string.format("%s (v%s) : %.1f%% (%d/%d slots | %d items)",
+            NICK, VERSION, z.fillRate, z.slotsUsed, z.slotsTotal, z.totalItems))
+    end
 
     -- Attente événements / Wait for events
-    local deadline = computer.millis() + SCAN_INTERVAL * 1000
+    local deadline = computer.millis() + interval * 1000
     repeat
         local remaining = (deadline - computer.millis()) / 1000
         if remaining <= 0 then break end
@@ -253,6 +269,13 @@ while true do
                 elseif a1 == "IDENTIFY" then
                     -- CENTRAL nous a perdus, on se réenregistre / CENTRAL lost us, re-register
                     pcall(function() net:send(sndr, PORT_SAT_DISC, "SATELLITE_HERE", NICK) end)
+
+                elseif a1 == "FAST_MODE" then
+                    -- DISPATCH a des buffers prioritaires sur ce satellite → passer en mode rapide
+                    -- DISPATCH has priority buffers on this satellite → switch to fast mode
+                    if not fastMode then print("Mode rapide activé ("..SCAN_FAST.."s) — DISPATCH prio") end
+                    fastMode  = true
+                    fastUntil = computer.millis() + FAST_EXPIRY * 1000
                 end
             end
         end
