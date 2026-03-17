@@ -822,7 +822,7 @@ function _stkRenderConfig() {
         const body = collapsed ? '' : `
             ${z.subzones.length > 0 ? `<div class="stk-subzone-header" style="padding:5px 14px">
                 <input class="stk-subzone-name-input" value="${esc(z.mainLabel)}" placeholder="Principal"
-                       onchange="_stkRenameMainLabel(${z.id},this.value)" style="color:#ff8800;opacity:0.7">
+                       onchange="_stkRenameMainLabel(${z.id},this.value)">
             </div>` : ''}
             ${_stkDropArea(z.id, -1, z.containers)}
             ${z.subzones.map(sz => `
