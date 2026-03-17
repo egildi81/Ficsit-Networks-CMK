@@ -1,4 +1,4 @@
-const VERSION = "1.4.8";
+const VERSION = "1.4.9";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -1192,6 +1192,7 @@ async function refresh() {
 // ── DISPATCH ─────────────────────────────────────────────────
 let _dpRoutesConfig  = [];   // config routes — source de vérité pour l'affichage
 let _dpLiveRoutes    = null; // état temps réel depuis DISPATCH (via LOGGER)
+let _dpOnline        = false; // DISPATCH en ligne et configuré / DISPATCH online and configured
 let _dpEditingIndex  = -1;   // index route en cours d'édition (-1 = aucune)
 let _dpKnownStations = new Set();
 let _dpKnownBuffers  = new Map();  // Map<value, label> — value=nom réel, label=affichage avec parent / value=actual name, label=display with parent
@@ -1274,6 +1275,7 @@ function renderDispatch(dispatch, routesConfig) {
         badgeSafe.style.display = 'none';
     }
     // Live routes depuis DISPATCH
+    _dpOnline     = !!(dispatch && dispatch.configOk);
     _dpLiveRoutes = (dispatch && dispatch.routes && dispatch.routes.length > 0) ? dispatch.routes : null;
     // Ne pas toucher la config ni re-rendre si éditeur ouvert (évite d'écraser les saisies en cours)
     // Do not update config or re-render if editor is open (prevents overwriting in-progress edits)
@@ -1289,8 +1291,18 @@ function renderDispatch(dispatch, routesConfig) {
 function renderDpRoutes() {
     const container = document.getElementById('dp-routes');
     container.innerHTML = '';
+    // Bannière hors-ligne / Offline banner
+    if (!_dpOnline) {
+        const msg = _dpRoutesConfig.length > 0
+            ? 'Serveur Satisfactory hors-ligne — données en attente de reconnexion. Les routes ci-dessous sont conservées depuis la dernière session.'
+            : 'En attente de connexion au serveur Satisfactory…';
+        container.insertAdjacentHTML('beforeend',
+            `<div class="dp-offline-banner">${msg}</div>`);
+        if (_dpRoutesConfig.length === 0) return;
+    }
     if (_dpRoutesConfig.length === 0) {
-        container.innerHTML = '<div style="color:#444;padding:20px 14px;font-size:0.82em;text-align:center">Aucune route configurée — cliquez sur + Route</div>';
+        container.insertAdjacentHTML('beforeend',
+            '<div style="color:#555;padding:20px 14px;font-size:0.82em;text-align:center">Aucune route configurée — cliquez sur + Route</div>');
         return;
     }
     _dpRoutesConfig.forEach((r, i) => {
