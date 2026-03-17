@@ -195,7 +195,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stock-subzones { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
 .stock-subzone { background: #0d0d0d; border-radius: 4px; padding: 7px 10px; border-left: 2px solid #2a2a2a; }
 .stock-subzone-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
-.stock-subzone-name { color: #777; font-size: 0.72em; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+.stock-subzone-name { color: #cc6600; font-size: 0.72em; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
 .stock-subzone-fill { font-size: 0.82em; font-weight: 700; }
 .stock-subzone-bar-bg { background: #1a1a1a; height: 3px; border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
 .stock-subzone-bar { height: 100%; border-radius: 2px; transition: width .5s; }
