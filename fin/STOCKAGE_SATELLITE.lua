@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan en mode normal / normal scan interval (seconds)
@@ -43,11 +43,17 @@ net:open(PORT_SAT_DISC)
 local _inst = computer.getInstance()
 local NICK  = (_inst and _inst.nick ~= "" and _inst.nick) or "SAT"
 
+-- Print local AVANT override : confirme visuellement la version en jeu sur l'écran du computer
+-- Local print BEFORE override: visually confirms running version on the computer screen
+print("SATELLITE v"..VERSION.." — "..NICK)
+
 -- print → GET_LOG (tag "SAT:NICK" pour identifier la source) / print → GET_LOG (tag "SAT:NICK" to identify source)
 print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
     pcall(function() net:broadcast(PORT_LOG,"SAT:"..NICK,table.concat(t," ")) end)
 end
+-- Annonce version sur GET_LOG : permet de savoir à distance quelle version tourne sur chaque satellite
+-- Version announcement on GET_LOG: allows remote check of which version runs on each satellite
 print("=== STOCKAGE SATELLITE v"..VERSION.." BOOT — "..NICK.." ===")
 
 -- === SÉRIALISATION / SERIALIZATION ===

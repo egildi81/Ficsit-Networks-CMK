@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -42,6 +42,10 @@ net:open(PORT_SHUTDOWN)
 net:open(PORT_DISPATCH)
 net:open(PORT_SAT_DATA)
 net:open(PORT_SAT_DISC)
+
+-- Print local AVANT override : confirme visuellement la version en jeu sur l'écran du computer
+-- Local print BEFORE override: visually confirms running version on the computer screen
+print("CENTRAL v"..VERSION)
 
 -- print → GET_LOG (port 43 broadcast) / print → GET_LOG (port 43 broadcast)
 print = function(...)
