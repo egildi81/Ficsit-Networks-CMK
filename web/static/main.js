@@ -1,4 +1,4 @@
-const VERSION = "1.4.1";
+const VERSION = "1.4.2";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -663,7 +663,7 @@ function renderStockageInfo(zoneConfig, centralData) {
         let itemsBlock;
         if (zone.subzones && zone.subzones.length > 0) {
             const parts = [];
-            if (zone.containers && zone.containers.length) parts.push({ name: 'Principal', ...aggr(zone.containers) });
+            if (zone.containers && zone.containers.length) parts.push({ name: zone.mainLabel || 'Principal', ...aggr(zone.containers) });
             for (const sz of zone.subzones) parts.push({ name: sz.name, ...aggr(sz.containers || []) });
             itemsBlock = `<div class="stock-subzones">${parts.map(sz => {
                 const sf = sz.fillRate ?? 0, sc = sf >= 80 ? '#ee3333' : sf >= 50 ? '#eeee22' : '#22ee22';
@@ -725,12 +725,13 @@ function _stkDrop(ev, zoneId, szId) {
     }
     _stkRenderConfig();
 }
-function _stkAddZone()             { _stkZones.push({ id: _stkIdCnt++, name: 'Nouvelle zone', containers: [], subzones: [] }); _stkRenderConfig(); }
+function _stkAddZone()             { _stkZones.push({ id: _stkIdCnt++, name: 'Nouvelle zone', mainLabel: '', containers: [], subzones: [] }); _stkRenderConfig(); }
 function _stkRemoveZone(id)        { _stkZones = _stkZones.filter(z => z.id !== id); _stkRenderConfig(); }
 function _stkAddSubzone(zid)       { const z = _stkZones.find(z => z.id === zid); if (z) z.subzones.push({ id: _stkIdCnt++, name: 'Sous-zone', containers: [] }); _stkRenderConfig(); }
 function _stkRemoveSubzone(zid, sid) { const z = _stkZones.find(z => z.id === zid); if (z) z.subzones = z.subzones.filter(s => s.id !== sid); _stkRenderConfig(); }
-function _stkRenameZone(id, v)       { const z = _stkZones.find(z => z.id === id); if (z) z.name = v; }
-function _stkRenameSz(zid, sid, v)   { const z = _stkZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
+function _stkRenameZone(id, v)        { const z = _stkZones.find(z => z.id === id); if (z) z.name = v; }
+function _stkRenameMainLabel(id, v)   { const z = _stkZones.find(z => z.id === id); if (z) z.mainLabel = v; }
+function _stkRenameSz(zid, sid, v)    { const z = _stkZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
 
 function _stkContCard(c, zoneId, szId) {
     const fill = c.fillRate ?? 0, color = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
@@ -769,6 +770,10 @@ function _stkRenderConfig() {
                 <button class="stk-btn-sm" onclick="_stkAddSubzone(${z.id})">+ Sous-zone</button>
                 <button class="stk-btn-sm stk-btn-del" onclick="_stkRemoveZone(${z.id})">✕</button>
             </div>
+            ${z.subzones.length > 0 ? `<div class="stk-subzone-header" style="padding:5px 14px">
+                <input class="stk-subzone-name-input" value="${esc(z.mainLabel)}" placeholder="Principal"
+                       onchange="_stkRenameMainLabel(${z.id},this.value)" style="color:#ff8800;opacity:0.7">
+            </div>` : ''}
             ${_stkDropArea(z.id, -1, z.containers)}
             ${z.subzones.map(sz => `
                 <div class="stk-subzone-card">
@@ -818,7 +823,7 @@ function renderStockageConfig(discovery, centralData, zoneConfig) {
     if (cfgZones && cfgZones.length) {
         for (const z of cfgZones) {
             _stkZones.push({
-                id: _stkIdCnt++, name: z.name,
+                id: _stkIdCnt++, name: z.name, mainLabel: z.mainLabel || '',
                 containers: [...(z.containers || [])],
                 subzones: (z.subzones || []).map(sz => ({ id: _stkIdCnt++, name: sz.name, containers: [...(sz.containers || [])] }))
             });
@@ -831,6 +836,7 @@ function _saveStockageZoneConfig() {
     const config = {
         zones: _stkZones.map(z => ({
             name: z.name,
+            mainLabel: z.mainLabel || '',
             containers: z.containers,
             subzones: z.subzones.map(sz => ({ name: sz.name, containers: sz.containers }))
         }))
