@@ -1,4 +1,4 @@
-const VERSION = "1.4.6";
+const VERSION = "1.4.7";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -712,10 +712,13 @@ function renderStockageInfo(zoneConfig, centralData) {
 }
 
 // ── Config DnD ───────────────────────────────────────────────
-let _stkZones    = [];     // [{id, name, containers:[nick], subzones:[{id, name, containers:[nick]}]}]
-let _stkAllConts = [];     // [{satellite, nick, slotsTotal, slotsUsed, fillRate, totalItems}]
-let _stkDragNick = null;   // nick du conteneur en cours de drag / nick of dragged container
-let _stkIdCnt    = 0;
+let _stkZones      = [];     // [{id, name, containers:[nick], subzones:[{id, name, containers:[nick]}]}]
+let _stkAllConts   = [];     // [{satellite, nick, slotsTotal, slotsUsed, fillRate, totalItems}]
+let _stkDragNick   = null;   // nick du conteneur en cours de drag / nick of dragged container
+let _stkIdCnt      = 0;
+let _stkCollapsed  = new Set(); // IDs de zones réduites / collapsed zone IDs
+let _stkPoolFilter = '';        // filtre texte pool disponibles / available pool text filter
+let _stkZonesSrch  = '';        // recherche conteneur dans zones / container search in zones
 
 function _stkAssigned() {
     const s = new Set();
@@ -754,6 +757,34 @@ function _stkRemoveSubzone(zid, sid) { const z = _stkZones.find(z => z.id === zi
 function _stkRenameZone(id, v)        { const z = _stkZones.find(z => z.id === id); if (z) z.name = v; }
 function _stkRenameMainLabel(id, v)   { const z = _stkZones.find(z => z.id === id); if (z) z.mainLabel = v; }
 function _stkRenameSz(zid, sid, v)    { const z = _stkZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
+function _stkToggleZone(id)           { _stkCollapsed.has(id) ? _stkCollapsed.delete(id) : _stkCollapsed.add(id); _stkRenderConfig(); }
+
+// Filtre en direct dans le pool — ne re-render pas, cache/affiche les cards existantes
+// Live filter in pool — no re-render, hides/shows existing cards
+function _stkApplyPoolFilter(v) {
+    _stkPoolFilter = v;
+    const drop = document.getElementById('stk-pool-drop');
+    if (!drop) return;
+    const term = v.toLowerCase();
+    drop.querySelectorAll('.stk-cont-card').forEach(card => {
+        const nick = (card.querySelector('.stk-cont-nick') || card).textContent.toLowerCase();
+        card.style.display = !term || nick.includes(term) ? '' : 'none';
+    });
+}
+
+// Recherche conteneur dans les zones configurées / Container search in configured zones
+function _stkApplyZonesSearch(v) {
+    _stkZonesSrch = v;
+    const term = v.toLowerCase();
+    document.querySelectorAll('.stk-cfg-zones .stk-zone-card').forEach(card => {
+        if (!term) { card.style.display = ''; return; }
+        const zoneId = parseInt(card.dataset.zoneId);
+        const zone = _stkZones.find(z => z.id === zoneId);
+        if (!zone) { card.style.display = ''; return; }
+        const allNicks = [...zone.containers, ...zone.subzones.flatMap(sz => sz.containers)];
+        card.style.display = allNicks.some(n => n.toLowerCase().includes(term)) ? '' : 'none';
+    });
+}
 
 function _stkContCard(c) {
     const fill = c.fillRate ?? 0, color = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
@@ -785,13 +816,10 @@ function _stkRenderConfig() {
     const assigned = _stkAssigned();
     const pool = _stkAllConts.filter(c => !assigned.has(c.nick));
 
-    const zonesHtml = _stkZones.map(z => `
-        <div class="stk-zone-card">
-            <div class="stk-zone-header">
-                <input class="stk-zone-name-input" value="${esc(z.name)}" placeholder="Nom de la zone" onchange="_stkRenameZone(${z.id},this.value)">
-                <button class="stk-btn-sm" onclick="_stkAddSubzone(${z.id})">+ Sous-zone</button>
-                <button class="stk-btn-sm stk-btn-del" onclick="_stkRemoveZone(${z.id})">✕</button>
-            </div>
+    const zonesHtml = _stkZones.map(z => {
+        const collapsed = _stkCollapsed.has(z.id);
+        const totalConts = z.containers.length + z.subzones.reduce((s, sz) => s + sz.containers.length, 0);
+        const body = collapsed ? '' : `
             ${z.subzones.length > 0 ? `<div class="stk-subzone-header" style="padding:5px 14px">
                 <input class="stk-subzone-name-input" value="${esc(z.mainLabel)}" placeholder="Principal"
                        onchange="_stkRenameMainLabel(${z.id},this.value)" style="color:#ff8800;opacity:0.7">
@@ -804,8 +832,19 @@ function _stkRenderConfig() {
                         <button class="stk-btn-sm stk-btn-del" onclick="_stkRemoveSubzone(${z.id},${sz.id})">✕</button>
                     </div>
                     ${_stkDropArea(z.id, sz.id, sz.containers)}
-                </div>`).join('')}
-        </div>`).join('') || '<div class="stock-empty" style="margin-top:8px">Cliquez sur "+ Zone" pour commencer</div>';
+                </div>`).join('')}`;
+        return `
+        <div class="stk-zone-card" data-zone-id="${z.id}">
+            <div class="stk-zone-header">
+                <button class="stk-btn-collapse" onclick="_stkToggleZone(${z.id})" title="${collapsed ? 'Développer' : 'Réduire'}">${collapsed ? '▸' : '▾'}</button>
+                <input class="stk-zone-name-input" value="${esc(z.name)}" placeholder="Nom de la zone" onchange="_stkRenameZone(${z.id},this.value)">
+                ${collapsed ? `<span style="color:#666;font-size:0.68em;white-space:nowrap">${totalConts} cont.</span>` : ''}
+                <button class="stk-btn-sm" onclick="_stkAddSubzone(${z.id})">+ Sous-zone</button>
+                <button class="stk-btn-sm stk-btn-del" onclick="_stkRemoveZone(${z.id})">✕</button>
+            </div>
+            ${body}
+        </div>`;
+    }).join('') || '<div class="stock-empty" style="margin-top:8px">Cliquez sur "+ Zone" pour commencer</div>';
 
     const poolCards = pool.map(c => _stkContCard(c)).join('')
         || '<div class="stk-drop-hint">Tous assignés</div>';
@@ -819,14 +858,26 @@ function _stkRenderConfig() {
         <div class="stk-cfg-layout">
             <div class="stk-cfg-pool">
                 <div class="stk-cfg-pool-title">Disponibles</div>
-                <div class="stk-drop-area" style="flex-direction:column"
+                <input class="stk-cfg-filter" id="stk-pool-filter" type="text" placeholder="Filtrer..."
+                       value="${esc(_stkPoolFilter)}" oninput="_stkApplyPoolFilter(this.value)">
+                <div class="stk-drop-area" id="stk-pool-drop" style="flex-direction:column"
                      ondragover="event.preventDefault()"
                      ondragenter="this.classList.add('drag-over')"
                      ondragleave="_stkLeave(event)"
                      ondrop="_stkDrop(event,-1,-1)">${poolCards}</div>
             </div>
-            <div class="stk-cfg-zones">${zonesHtml}</div>
+            <div class="stk-cfg-zones">
+                <input class="stk-cfg-filter" id="stk-zones-search" type="text"
+                       placeholder="Chercher un conteneur dans les zones..."
+                       value="${esc(_stkZonesSrch)}" oninput="_stkApplyZonesSearch(this.value)"
+                       style="margin-bottom:10px">
+                ${zonesHtml}
+            </div>
         </div>`;
+
+    // Ré-appliquer filtres après re-render (drag/drop) / Re-apply filters after re-render (drag/drop)
+    if (_stkPoolFilter) _stkApplyPoolFilter(_stkPoolFilter);
+    if (_stkZonesSrch)  _stkApplyZonesSearch(_stkZonesSrch);
 }
 
 function renderStockageConfig(discovery, centralData, zoneConfig) {
