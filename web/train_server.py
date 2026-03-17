@@ -1,4 +1,4 @@
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -25,6 +25,7 @@ _cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
 _trips            = {}    # historique de la session courante (en mémoire uniquement — pas de persistence)
 _stats            = {}    # stats calculées par LOGGER (score, conf, avgSpeed, etc.)
 _stockage         = {}    # données stockage par zone : {zone: {...}}
+_stockage_discovery = {}  # satellites découverts : {nick: {satellite, addr, containers, server_ts}}
 
 _ORDER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_order.json")
 def _load_order():
@@ -198,6 +199,36 @@ def purge_stockage():
     return jsonify({"status": "ok", "removed": removed})
 
 
+@app.route("/api/stockage/push", methods=["POST"])
+def stockage_central_push():
+    """Reçoit les données agrégées de STOCKAGE_CENTRAL (toutes les 30s)."""
+    global _stockage
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    name = body.get("zone") or "CENTRAL"
+    body["server_ts"] = time.time()
+    _stockage[name] = body
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/stockage/discovery", methods=["POST"])
+def stockage_discovery():
+    """Reçoit la liste des containers découverts par un satellite."""
+    global _stockage_discovery
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    sat = body.get("satellite") or body.get("addr") or "?"
+    _stockage_discovery[sat] = {
+        "satellite":  sat,
+        "addr":       body.get("addr", ""),
+        "containers": body.get("containers", []),
+        "server_ts":  time.time(),
+    }
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/dispatch/routes", methods=["GET"])
 def get_dispatch_routes():
     """Retourne la config des routes dispatch (JSON ou ?format=lua pour la web UI)."""
@@ -282,8 +313,9 @@ def get_data():
         "logger_updated_at": _cache_updated_at,
         "site_title":      getattr(config, "SITE_TITLE", "FN Monitor"),
         "stockage_order":  _stockage_order,
-        "dispatch":        _dispatch_status,
-        "dispatch_routes": _dispatch_routes,
+        "dispatch":           _dispatch_status,
+        "dispatch_routes":    _dispatch_routes,
+        "stockage_discovery": list(_stockage_discovery.values()),
     })
 
 

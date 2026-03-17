@@ -1,7 +1,8 @@
-const VERSION = "1.3.7";
+const VERSION = "1.3.8";
 // ── Navigation sections ───────────────────────────────────────
-const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
-const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
+const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
+const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-power', 'page-dispatch', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -10,28 +11,46 @@ const LOG_TAG_COLORS = {
     TRAIN_TAB:  '#cccc00',
     DISPATCH:   '#00cccc',
     STOCKAGE:   '#aa44aa',
+    CENTRAL:    '#4499cc',
     TRAIN_STATS:'#ff8800',
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
     STARTER:    '#cc2222',
 };
-let _lastTrainPage  = 'page-monitor';
+let _lastTrainPage    = 'page-monitor';
+let _lastStockagePage = 'page-stockage-info';
 
 function switchSection(name, btn) {
     document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    const trainsTabs = document.getElementById('trains-tabs');
-    // Masquer toutes les pages
+    const trainsTabs   = document.getElementById('trains-tabs');
+    const stockageTabs = document.getElementById('stockage-tabs');
+    // Masquer toutes les pages / Hide all pages
     _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
     _sectionPages.forEach(id => document.getElementById(id).classList.remove('active'));
     if (name === 'trains') {
-        trainsTabs.style.display = '';
+        trainsTabs.style.display   = '';
+        stockageTabs.style.display = 'none';
         document.getElementById(_lastTrainPage).classList.add('active');
+    } else if (name === 'stockage') {
+        trainsTabs.style.display   = 'none';
+        stockageTabs.style.display = '';
+        document.getElementById(_lastStockagePage).classList.add('active');
     } else {
-        trainsTabs.style.display = 'none';
+        trainsTabs.style.display   = 'none';
+        stockageTabs.style.display = 'none';
         document.getElementById('page-' + name).classList.add('active');
         if (name === 'logs') refreshLogs();
     }
+}
+
+// ── Navigation onglets (sous STOCKAGE) ────────────────────────
+function switchStockTab(name, btn) {
+    _stockagePages.forEach(id => document.getElementById(id).classList.remove('active'));
+    document.querySelectorAll('#stockage-tabs .tab').forEach(t => t.classList.remove('active'));
+    _lastStockagePage = 'page-stockage-' + name;
+    document.getElementById(_lastStockagePage).classList.add('active');
+    btn.classList.add('active');
 }
 
 // ── Navigation onglets (sous TRAINS) ─────────────────────────
@@ -603,6 +622,33 @@ function renderStockage(stockage) {
     _setupStockageDrag();
 }
 
+// ── Config satellites stockage ────────────────────────────────
+function renderStockageConfig(discovery) {
+    const grid = document.getElementById('stockage-config-grid');
+    if (!grid) return;
+    if (!discovery || !discovery.length) {
+        grid.innerHTML = '<div class="stock-empty">Aucun satellite découvert</div>';
+        return;
+    }
+    const now = Date.now() / 1000;
+    grid.innerHTML = discovery.map(sat => {
+        const stale = sat.server_ts && (now - sat.server_ts) > 300;
+        const containers = sat.containers || [];
+        return `
+            <div class="stock-card${stale ? ' stock-stale' : ''}">
+                <div class="stock-card-header">
+                    <span class="stock-zone">${esc(sat.satellite)}</span>
+                    <span style="color:#666;font-size:0.75em">${containers.length} container(s)</span>
+                </div>
+                <div class="stock-meta" style="color:#666;font-size:0.72em;margin-bottom:4px">${esc(sat.addr)}</div>
+                <div class="stock-items">${containers.length
+                    ? containers.map(c => `<div class="stock-item-row"><span class="stock-item-name">${esc(c)}</span></div>`).join('')
+                    : '<div class="stock-empty">Aucun container</div>'
+                }</div>
+            </div>`;
+    }).join('');
+}
+
 // ── Power ─────────────────────────────────────────────────────
 const _POWER_HIST_MAX = 120;
 const _powerHist = { prod: [], cons: [], cap: [], maxCons: [] };
@@ -764,7 +810,7 @@ function _drawPowerChart() {
 
 // ── Diff par section — évite les renders inutiles si les données n'ont pas changé
 // ── Per-section diff — skips renders when data is unchanged
-const _prevJson = { trains: null, trips: null, stats: null, stockage: null, power: null, dispatch: null };
+const _prevJson = { trains: null, trips: null, stats: null, stockage: null, stockage_discovery: null, power: null, dispatch: null };
 
 // ── Boucle de rafraîchissement ───────────────────────────────
 let errors = 0;
@@ -818,15 +864,17 @@ async function refresh() {
         const _tj  = JSON.stringify(data.trains        || []);
         const _rj  = JSON.stringify(data.trips         || {});
         const _sj  = JSON.stringify(data.stats         || {});
-        const _zj  = JSON.stringify(data.stockage      || []);
-        const _pj  = JSON.stringify(data.power         || null);
+        const _zj  = JSON.stringify(data.stockage           || []);
+        const _zdj = JSON.stringify(data.stockage_discovery || []);
+        const _pj  = JSON.stringify(data.power              || null);
         const _dj  = JSON.stringify({ d: data.dispatch || null, r: data.dispatch_routes ?? null });
 
         const rTimes = {};
         if (_tj !== _prevJson.trains)   { _prevJson.trains   = _tj;  rTimes.trains   = _t('trains',   () => renderTrains(data.trains || [])); }
         if (_rj !== _prevJson.trips)    { _prevJson.trips    = _rj;  rTimes.trips    = _t('trips',    () => renderTrips(data.trips || {})); }
         if (_sj !== _prevJson.stats)    { _prevJson.stats    = _sj;  rTimes.stats    = _t('stats',    () => renderStats(data.trains || [], data.stats || {}, data.logger_updated_at)); }
-        if (_zj !== _prevJson.stockage) { _prevJson.stockage = _zj;  rTimes.stockage = _t('stockage', () => renderStockage(data.stockage || [])); }
+        if (_zj  !== _prevJson.stockage)           { _prevJson.stockage           = _zj;  rTimes.stockage = _t('stockage', () => renderStockage(data.stockage || [])); }
+        if (_zdj !== _prevJson.stockage_discovery) { _prevJson.stockage_discovery = _zdj; _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [])); }
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
@@ -1125,7 +1173,7 @@ function _appendLogEntries(entries) {
     if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     entries.forEach(e => {
-        const col = LOG_TAG_COLORS[e.tag] || '#888';
+        const col = LOG_TAG_COLORS[e.tag] || (e.tag && e.tag.startsWith('SAT:') ? '#44cc88' : '#888');
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
         div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
