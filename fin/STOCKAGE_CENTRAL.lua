@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 
 -- === CONFIGURATION ===
 local WEB_URL       = "http://127.0.0.1:8081"
@@ -60,7 +60,7 @@ local satellites  = {}
 local loggerAddr  = nil
 local dispatchAddr = nil
 
--- === SÉRIALISATION / SERIALIZATION ===
+-- === SÉRIALISATION Lua (pour net:send → LOGGER) / Lua serialization (for net:send → LOGGER) ===
 local function ser(v)
     if type(v)=="table" then
         local s="{"
@@ -73,6 +73,44 @@ local function ser(v)
     else
         return '"'..tostring(v)..'"'
     end
+end
+
+-- === SÉRIALISATION JSON (pour HTTP POST — Content-Type: application/json obligatoire) ===
+-- JSON serialization (for HTTP POST — Content-Type: application/json mandatory)
+local function toJson(v)
+    local t = type(v)
+    if t == "nil" then
+        return "null"
+    elseif t == "boolean" then
+        return v and "true" or "false"
+    elseif t == "number" then
+        if v ~= v then return "null" end  -- NaN / NaN guard
+        return string.format("%.6g", v)
+    elseif t == "string" then
+        local s = v:gsub('\\','\\\\'):gsub('"','\\"'):gsub('\n','\\n'):gsub('\r','\\r')
+        return '"'..s..'"'
+    elseif t == "table" then
+        -- Détection array : clés entières séquentielles depuis 1 / Array detection: sequential integer keys from 1
+        local n, isArr = 0, true
+        for k in pairs(v) do
+            n = n + 1
+            if type(k) ~= "number" or k < 1 or math.floor(k) ~= k then isArr = false; break end
+        end
+        if isArr and n > 0 then
+            local parts = {}
+            for i = 1, n do table.insert(parts, toJson(v[i])) end
+            return "["..table.concat(parts,",").."]"
+        else
+            local parts = {}
+            for k, vv in pairs(v) do
+                if type(k) == "string" then
+                    table.insert(parts, '"'..k..'":'..toJson(vv))
+                end
+            end
+            return "{"..table.concat(parts,",").."}"
+        end
+    end
+    return "null"
 end
 
 -- === DÉCOUVERTE LOGGER / LOGGER DISCOVERY ===
@@ -148,9 +186,11 @@ local function pushLogger(stats)
 end
 
 -- === PUSH WEB (HTTP POST /api/stockage/push) ===
+-- Content-Type obligatoire pour POST FIN sinon exception silencieuse / Content-Type mandatory for FIN POST or silent exception
 local function pushWeb(stats)
     local ok, f = pcall(function()
-        return inet:request(WEB_URL.."/api/stockage/push", "POST", ser(stats))
+        return inet:request(WEB_URL.."/api/stockage/push", "POST", toJson(stats),
+            "Content-Type", "application/json")
     end)
     if not ok then print("ERR inet:request push") return end
     local ok2, code = pcall(function() return f:await() end)
@@ -163,7 +203,8 @@ end
 local function pushDiscovery(satNick, satAddr, containerNicks)
     local ok, f = pcall(function()
         return inet:request(WEB_URL.."/api/stockage/discovery", "POST",
-            ser({satellite=satNick, addr=satAddr, containers=containerNicks}))
+            toJson({satellite=satNick, addr=satAddr, containers=containerNicks}),
+            "Content-Type", "application/json")
     end)
     if not ok then return end
     pcall(function() f:await() end)
