@@ -604,7 +604,15 @@ def get_logs():
 
 @app.route("/")
 def index():
-    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    """Sert index.html avec cache-buster sur les assets statiques."""
+    web_dir = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(web_dir, "index.html"), "r", encoding="utf-8") as f:
+        html = f.read()
+    v = __version__
+    html = html.replace('href="/static/style.css"',  f'href="/static/style.css?v={v}"')
+    html = html.replace('src="/static/main.js"',      f'src="/static/main.js?v={v}"')
+    from flask import Response
+    return Response(html, mimetype="text/html")
 
 @app.route("/<path:filename>")
 def static_files(filename):
