@@ -1,4 +1,4 @@
-const VERSION = "1.4.2";
+const VERSION = "1.4.3";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -638,52 +638,64 @@ function renderStockageInfo(zoneConfig, centralData) {
     const now = Date.now() / 1000;
     const stale = centralData && centralData.server_ts && (now - centralData.server_ts) > 120;
 
+    // Agrège et retourne items comme tableau trié avec pct / Aggregate and return items as sorted array with pct
     function aggr(nicks) {
         let slotsTotal = 0, slotsUsed = 0, totalItems = 0;
-        const items = {};
+        const itemsMap = {};
         for (const nick of nicks) {
             const c = byNick[nick]; if (!c) continue;
             slotsTotal += c.slotsTotal || 0;
             slotsUsed  += c.slotsUsed  || 0;
             totalItems += c.totalItems  || 0;
             for (const [id, item] of Object.entries(c.items || {})) {
-                if (!items[id]) items[id] = { name: item.name, count: 0 };
-                items[id].count += item.count;
+                if (!itemsMap[id]) itemsMap[id] = { name: item.name, count: 0 };
+                itemsMap[id].count += item.count;
             }
         }
         const fillRate = slotsTotal > 0 ? Math.floor(slotsUsed / slotsTotal * 1000) / 10 : 0;
+        const items = Object.values(itemsMap).sort((a, b) => b.count - a.count)
+            .map(it => ({ ...it, pct: totalItems > 0 ? Math.round(it.count / totalItems * 100) : 0 }));
         return { slotsTotal, slotsUsed, fillRate, totalItems, items };
     }
 
-    grid.innerHTML = zones.map(zone => {
+    // Construire le cache pour la modal (format compatible openStockModal)
+    // Build cache for modal (openStockModal-compatible format)
+    _stockageCache = zones.map(zone => {
         const allNicks = [...(zone.containers || []), ...((zone.subzones || []).flatMap(sz => sz.containers || []))];
         const za = aggr(allNicks);
-        const fill = za.fillRate, fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+        const subzones = [];
+        if (zone.subzones && zone.subzones.length > 0) {
+            if (zone.containers && zone.containers.length) subzones.push({ name: zone.mainLabel || 'Principal', ...aggr(zone.containers) });
+            for (const sz of zone.subzones) subzones.push({ name: sz.name, ...aggr(sz.containers || []) });
+        }
+        return { zone: zone.name, ...za, subzones };
+    });
+
+    grid.innerHTML = _stockageCache.map(z => {
+        const fill = z.fillRate, fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
 
         let itemsBlock;
-        if (zone.subzones && zone.subzones.length > 0) {
-            const parts = [];
-            if (zone.containers && zone.containers.length) parts.push({ name: zone.mainLabel || 'Principal', ...aggr(zone.containers) });
-            for (const sz of zone.subzones) parts.push({ name: sz.name, ...aggr(sz.containers || []) });
+        if (z.subzones && z.subzones.length > 0) {
+            const parts = _stockCompact ? z.subzones.slice(0, 3) : z.subzones;
             itemsBlock = `<div class="stock-subzones">${parts.map(sz => {
                 const sf = sz.fillRate ?? 0, sc = sf >= 80 ? '#ee3333' : sf >= 50 ? '#eeee22' : '#22ee22';
                 return `<div class="stock-subzone">
                     <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span><span class="stock-subzone-fill" style="color:${sc}">${sf}%</span></div>
                     <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${sf}%;background:${sc}"></div></div>
-                    <div class="stock-subzone-meta">${sz.slotsUsed} / ${sz.slotsTotal} slots · ${sz.totalItems} items</div>
+                    ${_stockCompact ? '' : `<div class="stock-subzone-meta">${sz.slotsUsed} / ${sz.slotsTotal} slots · ${sz.totalItems} items</div>`}
                 </div>`;
             }).join('')}</div>`;
         } else {
-            const top = Object.values(za.items).sort((a, b) => b.count - a.count).slice(0, 5);
+            const top = _stockCompact ? z.items.slice(0, 3) : z.items.slice(0, 8);
             itemsBlock = `<div class="stock-items">${top.length
-                ? top.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span></div>`).join('')
+                ? top.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
                 : '<div class="stock-empty">Aucun item</div>'}</div>`;
         }
         return `
-            <div class="stock-card${stale ? ' stock-stale' : ''}">
-                <div class="stock-card-header"><span class="stock-zone">${esc(zone.name)}</span><span class="stock-fill" style="color:${fillColor}">${fill}%</span></div>
+            <div class="stock-card${stale ? ' stock-stale' : ''}" onclick="openStockModal('${esc(z.zone)}')" title="Voir tous les items" style="cursor:pointer">
+                <div class="stock-card-header"><span class="stock-zone">${esc(z.zone)}</span><span class="stock-fill" style="color:${fillColor}">${fill}%</span></div>
                 <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
-                <div class="stock-meta">${za.slotsUsed} / ${za.slotsTotal} slots · ${za.totalItems} items</div>
+                <div class="stock-meta">${z.slotsUsed} / ${z.slotsTotal} slots · ${z.totalItems} items</div>
                 ${itemsBlock}
             </div>`;
     }).join('');
