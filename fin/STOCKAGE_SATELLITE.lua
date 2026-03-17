@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan en mode normal / normal scan interval (seconds)
@@ -142,11 +142,17 @@ local function scanInv(inv)
         local s = inv:getStack(i)
         if s.count > 0 then
             used = used + 1
-            local id = s.item.type.internalName
-            if not items[id] then
-                items[id] = {name=s.item.type.name, count=0, max=s.item.type.max or 1}
+            -- pcall : certains items moddés ont un type nil → évite crash SATELLITE
+            -- pcall: some modded items have a nil type → prevents SATELLITE crash
+            local ok, id = pcall(function() return s.item.type.internalName end)
+            if ok and id then
+                if not items[id] then
+                    local ok2, nm = pcall(function() return s.item.type.name end)
+                    local ok3, mx = pcall(function() return s.item.type.max  end)
+                    items[id] = {name=(ok2 and nm or id), count=0, max=(ok3 and mx or 1) or 1}
+                end
+                items[id].count = items[id].count + s.count
             end
-            items[id].count = items[id].count + s.count
         end
     end
     return items, used, inv.size
