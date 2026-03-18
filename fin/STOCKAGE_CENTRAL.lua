@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.7"
+local VERSION = "1.1.8"
 
 -- === CONFIGURATION ===
 local WEB_URL          = "http://127.0.0.1:8081"
@@ -292,7 +292,8 @@ end
 -- === MAPPING CONTENEUR → ZONE (depuis zone config WEB) ===
 -- Chaque sous-zone assigne ses conteneurs → DISPATCH peut lire par nom de zone.
 -- Each subzone assigns its containers → DISPATCH can read by zone name.
-local containerToZone = {}  -- {[nick] = "zoneKey"} ex: "(OIL'S CLUB) IN CHARBON COMPACT"
+local containerToZone  = {}  -- {[nick] = "zoneKey"} ex: "(OIL'S CLUB) IN CHARBON COMPACT"
+local zoneToContainers = {}  -- {[zoneKey] = {nick1, nick2, …}} — reverse map pour FAST_MODE / reverse map for FAST_MODE
 local ZONE_CONFIG_INTERVAL = 60  -- secondes / seconds
 local lastZoneConfigFetch  = -(ZONE_CONFIG_INTERVAL * 1000)  -- forcer fetch au boot / force fetch at boot
 
@@ -305,25 +306,39 @@ local function fetchZoneConfig()
     if not ok2 or code ~= 200 or not body or body == "nil" then return end
     local ok3, cfg = pcall(function() return (load("return "..body))() end)
     if not ok3 or type(cfg) ~= "table" then return end
-    local newMap = {}
+    local newMap     = {}
+    local newReverse = {}
     local total = 0
+
+    local function addMapping(nick, key)
+        newMap[nick] = key
+        if not newReverse[key] then newReverse[key] = {} end
+        table.insert(newReverse[key], nick)
+        total = total + 1
+    end
+
     for _, z in ipairs(cfg.zones or {}) do
         local zname = z.name or ""
+        -- Clé zone principale : "(zname) mainLabel" si mainLabel défini, sinon "zname"
+        -- Main zone key: "(zname) mainLabel" if mainLabel set, otherwise "zname"
+        local mainLabel = z.mainLabel or ""
+        local mainKey   = (mainLabel ~= "") and ("("..zname..") "..mainLabel) or zname
         -- Conteneurs directement dans la zone / Containers directly in the zone
         for _, nick in ipairs(z.containers or {}) do
-            newMap[nick] = zname; total = total + 1
+            addMapping(nick, mainKey)
         end
         -- Conteneurs dans les sous-zones / Containers in subzones
         for _, sz in ipairs(z.subzones or {}) do
             local key = "("..zname..") "..(sz.name or "")
             for _, nick in ipairs(sz.containers or {}) do
-                newMap[nick] = key; total = total + 1
+                addMapping(nick, key)
             end
         end
     end
-    containerToZone = newMap
+    containerToZone  = newMap
+    zoneToContainers = newReverse
     if total > 0 then
-        print("ZoneConfig: "..total.." conteneur(s) mappé(s)")
+        print("ZoneConfig: "..total.." conteneur(s) mappé(s) ("..#(cfg.zones or {}).." zones)")
     end
 end
 
@@ -359,16 +374,29 @@ end
 -- Notifie uniquement les satellites qui gèrent les buffers dans la liste DISPATCH.
 -- Notifies only satellites that manage buffers in the DISPATCH priority list.
 local function notifyFastMode(bufferList)
+    -- bufferList contient des clés de zone (ex: "(ACIERIE) TB_LFER"), pas des nicks de conteneurs.
+    -- bufferList contains zone keys (e.g., "(ACIERIE) TB_LFER"), not container nicks.
+    -- On résout chaque zone key → liste de nicks conteneurs via zoneToContainers (reverse map).
+    -- Resolve each zone key → container nick list via zoneToContainers (reverse map).
     for addr, sat in pairs(satellites) do
         if sat.containers then
             local concerned = false
-            for _, bufNick in ipairs(bufferList) do
-                if sat.containers[bufNick] then concerned = true; break end
+            local satNicks  = {}  -- nicks prioritaires pour ce satellite / priority nicks for this satellite
+            for _, zoneKey in ipairs(bufferList) do
+                local nicks = zoneToContainers[zoneKey]
+                if nicks then
+                    for _, nick in ipairs(nicks) do
+                        if sat.containers[nick] then
+                            concerned = true
+                            table.insert(satNicks, nick)
+                        end
+                    end
+                end
             end
             if concerned then
-                -- Passe la liste des buffers prioritaires pour que le satellite ne scanne que ceux-là
-                -- Pass priority buffer list so satellite only scans those containers
-                pcall(function() net:send(addr, PORT_SAT_DISC, "FAST_MODE", ser(bufferList)) end)
+                -- Envoie la liste des nicks (pas des zone keys) pour que le satellite filtre ses scans
+                -- Send nick list (not zone keys) so satellite can filter its scans
+                pcall(function() net:send(addr, PORT_SAT_DISC, "FAST_MODE", ser(satNicks)) end)
             end
         end
     end
