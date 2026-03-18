@@ -3,7 +3,10 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.4"
+local VERSION = "1.2.8"
+-- Throttle dessin : évite le flood GPU quand de nombreux messages arrivent en rafale
+-- Draw throttle: avoids GPU flood when many messages arrive in rapid succession
+local DRAW_INTERVAL = 200  -- ms minimum entre deux draw() / ms minimum between draws
 
 -- === INITIALISATION MATÉRIEL ===
 local gpu = computer.getPCIDevices(classes.Build_GPU_T2_C)[1]
@@ -12,10 +15,14 @@ local net = computer.getPCIDevices(classes.NetworkCard)[1]
 gpu:bindScreen(scr)
 net:open(43)
 
+-- Print local AVANT override : confirme visuellement la version en jeu sur l'écran du computer
+-- Local print BEFORE override: visually confirms running version on the computer screen
+print("=== GET_LOG v"..VERSION.." BOOT ===")
+
 -- === LOG → GET_LOG (et web via LOGGER port 43) ===
 print=function(...)local t={}for i=1,select('#',...)do t[i]=tostring(select(i,...))end
     pcall(function()net:broadcast(43,"GET_LOG",table.concat(t," "))end)end
-print("GET_LOG v"..VERSION.." démarré")   -- port dédié aux logs / dedicated log port
+print("=== GET_LOG v"..VERSION.." BOOT ===")   -- annonce version sur GET_LOG / announce version on GET_LOG
 net:open(50)   -- port SHUTDOWN (STARTER)
 net:open(52)   -- port SCREEN_ON (STARTER) / SCREEN_ON port from STARTER
 event.listen(net)
@@ -66,6 +73,8 @@ local CY = {r=0,   g=0.9, b=1,   a=1}  -- cyan
 local PU = {r=0.8, g=0.4, b=1,   a=1}  -- violet / purple
 local MI = {r=0.2, g=1,   b=0.7, a=1}  -- menthe / mint
 local PK = {r=1,   g=0.4, b=0.8, a=1}  -- rose   / pink
+local AM = {r=1,   g=0.78, b=0,   a=1}  -- ambre  / amber   (CENTRAL)
+local TG = {r=1,   g=0.58, b=0.1, a=1}  -- tangerine        (satellites SAT:*)
 
 -- Couleur par script source (fond noir — ne pas mettre de couleurs sombres)
 -- Color per source script (black background — no dark colors)
@@ -79,6 +88,7 @@ local COLORS = {
     TRAIN_MAP   = MI,  -- menthe
     POWER_MON   = PK,  -- rose
     STARTER     = RE,  -- rouge
+    CENTRAL     = AM,  -- ambre
 }
 
 local FONT     = 22
@@ -87,6 +97,8 @@ local HEADER_H = 50
 local MAX_LINES = math.floor((sh - HEADER_H) / LINE_H)
 local lines = {}
 local t0 = computer.millis()
+local lastDraw = 0
+local dirty    = false
 
 local function fmtTime()
     local s = math.floor((computer.millis() - t0) / 1000)
@@ -114,10 +126,11 @@ local function draw()
     -- Lignes de log
     local y = HEADER_H + 6
     for _, l in ipairs(lines) do
-        local col = COLORS[l.src] or WH
+        -- SAT:* = satellites (préfixe dynamique) / SAT:* = satellites (dynamic prefix)
+        local col = COLORS[l.src] or (l.src:sub(1,4)=="SAT:" and TG or WH)
         gpu:drawText({x=20,  y=y}, l.ts,              FONT, YE,  false)
         gpu:drawText({x=200, y=y}, "["..l.src.."]",   FONT, col, false)
-        gpu:drawText({x=390, y=y}, l.msg,             FONT, WH,  false)
+        gpu:drawText({x=500, y=y}, l.msg,             FONT, WH,  false)
         y = y + LINE_H
     end
     gpu:flush()
@@ -127,12 +140,6 @@ end
 draw()  -- fond noir au boot / black screen at boot
 while true do
     local e, src, sender, port, script, msg = event.pull(30)
-
-    if e ~= nil and e ~= "NetworkMessage" then
-        -- Debug : log tout event non-réseau pour identifier le nom exact du bouton
-        -- Debug: log all non-network events to identify exact button event name
-        print("EVT e='"..tostring(e).."' src="..tostring(src))
-    end
 
     if e == "Trigger" and src == btn then
         -- Bouton panel : toggle écran / Panel button: toggle screen
@@ -158,9 +165,26 @@ while true do
     elseif e == "NetworkMessage" and port == 43 then
         -- Ne pas appeler print() ici — boucle infinie garantie / Never call print() here — infinite loop
         addLine(tostring(script), tostring(msg))
-        draw()
+        -- Throttle : ne redessiner que si assez de temps s'est écoulé (évite flood GPU en rafale)
+        -- Throttle: only redraw if enough time has passed (avoids GPU flood during burst)
+        local now = computer.millis()
+        if now - lastDraw >= DRAW_INTERVAL then
+            draw()
+            lastDraw = now
+            dirty = false
+        else
+            dirty = true
+        end
 
     else
-        draw()  -- timeout : redessine (indicateur de vie) / timeout: redraw (heartbeat)
+        -- Timeout ou event inconnu : redessiner si des messages sont en attente
+        -- Timeout or unknown event: redraw if messages are pending
+        if dirty then
+            draw()
+            lastDraw = computer.millis()
+            dirty = false
+        else
+            draw()  -- heartbeat / heartbeat
+        end
     end
 end

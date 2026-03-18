@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.9"
+local VERSION = "1.9.0"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -112,8 +112,10 @@ local MAX_SCORE_HISTORY=20
 local lastHistoryUpdate=0
 local loggerStartTime=computer.millis()
 local state={}
+local holdCnt=0   -- trains détectés sans timetable (HOLD) / trains detected without timetable (HOLD)
 local la={}
 local depart={}
+local departTime={}  -- timestamp de départ (dk→false) pour mesurer transit pur / departure timestamp for pure transit measure
 local dk_prev={}
 local currentTotalInv=0
 
@@ -152,16 +154,40 @@ local function computeStats()
     local avgDur=durCnt>0 and math.floor(durSum/durCnt) or 0
     local avgInv=invN>0 and math.floor(invSum/invN) or 0
 
-    -- Score : mobilité (60%) + consistance (40%)
-    local mobility=totalCnt>0 and (movingCnt/totalCnt) or 0.5
-    local consistency=1.0
-    if durCnt>=3 then
-        local varSum=0
-        for i=1,cap do varSum=varSum+(flat[i].duration-avgDur)^2 end
-        local cv=avgDur>0 and (math.sqrt(varSum/cap)/avgDur) or 0
-        consistency=math.max(0,1-cv*1.5)
+    -- Score 3 axes :
+    -- mobilité opérationnelle (20%) : parmi les trains actifs (avec timetable), combien roulent
+    -- activation du parc (30%) : proportion du parc total réellement en service (pénalise les HOLD orphelins)
+    -- consistance des trajets (50%) : régularité des durées de transit par segment (CV par A→B)
+    -- 3-axis score:
+    -- operational mobility (20%): among active trains (with timetable), how many are moving
+    -- fleet activation (30%): proportion of total detected fleet in service (penalizes orphan HOLD)
+    -- trip consistency (50%): regularity of transit durations per segment (CV per A→B)
+    local activeCnt=totalCnt  -- trains avec timetable / trains with timetable
+    local totalPark=activeCnt+holdCnt  -- parc complet détecté / total detected fleet
+    local mobility=activeCnt>0 and (movingCnt/activeCnt) or 0.5
+    local parkActivation=totalPark>0 and (activeCnt/totalPark) or 1.0
+    -- Consistance par segment : CV(A→B) séparé de CV(B→C), puis moyenne pondérée par nb de trajets
+    -- Per-segment consistency: CV(A→B) separate from CV(B→C), then weighted average by trip count
+    local consSum,consW=0,0
+    for _,segs in pairs(saved) do
+        for _,trips in pairs(segs) do
+            local n=#trips
+            if n>=2 then
+                local s=0
+                for _,tr in ipairs(trips) do s=s+tr.duration end
+                local avg=s/n
+                if avg>0 then
+                    local vs=0
+                    for _,tr in ipairs(trips) do vs=vs+(tr.duration-avg)^2 end
+                    local cv=math.sqrt(vs/n)/avg
+                    consSum=consSum+math.max(0,1-cv*1.5)*n
+                    consW=consW+n
+                end
+            end
+        end
     end
-    local score=math.floor((mobility*0.60+consistency*0.40)*100)
+    local consistency=consW>0 and (consSum/consW) or 1.0
+    local score=math.floor((mobility*0.20+parkActivation*0.30+consistency*0.50)*100)
 
     -- Mise à jour historique scores (toutes les 60s)
     local now=computer.millis()
@@ -176,10 +202,11 @@ local function computeStats()
     -- sampleConf   30% : min(trajets enregistrés / 80, 1.0)
     -- uptimeConf   20% : min(uptime / 300s, 1.0)
     local uptime=math.floor((computer.millis()-loggerStartTime)/1000)
-    local mobilityConf=totalCnt>0 and math.min(movingCnt/totalCnt/0.8,1.0) or 0
+    -- Confiance basée sur volume de données + uptime (sans biais mobilité pour DISPATCH)
+    -- Confidence based on data volume + uptime (no mobility bias for DISPATCH)
     local sampleConf=math.min(durCnt/80,1.0)
     local uptimeConf=math.min(uptime/300,1.0)
-    local c=mobilityConf*0.50+sampleConf*0.30+uptimeConf*0.20
+    local c=sampleConf*0.50+uptimeConf*0.50
     local conf
     if     c>=0.80 then conf="HAUTE"
     elseif c>=0.60 then conf="BONNE"
@@ -189,6 +216,7 @@ local function computeStats()
 
     return {
         movingCnt=movingCnt, stoppedCnt=stoppedCnt, dockedCnt=dockedCnt, totalCnt=totalCnt,
+        holdCnt=holdCnt,
         avgSpeed=avgSpeed, avgDur=avgDur, avgInv=avgInv, invN=invN, durCnt=durCnt,
         totalInv=currentTotalInv,
         score=score, conf=conf, scoreHistory=scoreHistory,
@@ -363,7 +391,18 @@ end
 local function wagons(t)
     local ok,v=pcall(function()return t:getVehicles()end)
     if not ok or not v then return 0 end
-    local n=0 for _ in pairs(v) do n=n+1 end return n
+    local n=0
+    for _,vh in pairs(v) do
+        -- Ne compter que les wagons de fret (inventaire ≥ 16 slots) — exclut les locomotives
+        -- Only count freight wagons (inventory ≥ 16 slots) — excludes locomotives
+        local ok2,ivs=pcall(function()return vh:getInventories()end)
+        if ok2 and ivs then
+            for _,iv in ipairs(ivs) do
+                if iv and iv.size>=16 then n=n+1 break end
+            end
+        end
+    end
+    return n
 end
 
 -- === ENREGISTREMENT ET DIFFUSION D'UN TRAJET ===
@@ -392,7 +431,20 @@ local function tick()
     if not trains then return end
     local now=computer.millis()/1000
     state={}
+    holdCnt=0
     currentTotalInv=0
+    -- Set des trains gérés par DISPATCH (HOLD volontaire = normal, pas pénalisant)
+    -- Set of DISPATCH-managed trains (intentional HOLD = normal, not penalized)
+    local dispatchNames={}
+    if dispatchStatus and dispatchStatus.routes then
+        for _,r in ipairs(dispatchStatus.routes) do
+            if r.trains then
+                for _,tr in ipairs(r.trains) do
+                    if tr.name then dispatchNames[tr.name]=true end
+                end
+            end
+        end
+    end
     for _,t in pairs(trains) do
         local ok2,m=pcall(function()return t:getMaster()end)
         if ok2 and m then
@@ -414,7 +466,12 @@ local function tick()
                     cur=st.station.name
                 end
             end)
-            if not hasTT then goto continue end
+            if not hasTT then
+                -- Compter seulement les trains orphelins (pas gérés par DISPATCH)
+                -- Only count orphan trains (not managed by DISPATCH)
+                if not dispatchNames[tn] then holdCnt=holdCnt+1 end
+                goto continue
+            end
             local spd=0
             pcall(function()spd=math.abs(math.floor(m:getMovement().speed/100*3.6))end)
             local nv=wagons(t)
@@ -426,8 +483,10 @@ local function tick()
             for _,cnt in pairs(it) do currentTotalInv=currentTotalInv+cnt end
             if dk then
                 local ls=la[tn]
-                if ls and ls.from~=cur then
-                    local d=math.floor(now-ls.t)
+                -- Durée = transit pur (de départ gare A à arrivée gare B, sans temps de chargement)
+                -- Duration = pure transit (from departure at station A to arrival at station B, excludes loading time)
+                if ls and ls.from~=cur and departTime[tn] then
+                    local d=math.floor(now-departTime[tn])
                     if d>5 and d<7200 then
                         saveTrip(tn,ls.from,cur,d,math.floor(now),depart[tn] or {},wagons(t))
                     end
@@ -436,7 +495,11 @@ local function tick()
                     la[tn]={from=cur,t=now}
                 end
             end
-            if dk_prev[tn]==true and not dk then depart[tn]=inv(t) end
+            -- Départ détecté : mémoriser heure ET inventaire / Departure detected: record time AND inventory
+            if dk_prev[tn]==true and not dk then
+                depart[tn]=inv(t)
+                departTime[tn]=now
+            end
             dk_prev[tn]=dk
         end
         ::continue::

@@ -27,6 +27,15 @@
         <button class="tab" onclick="switchTab('stats', this)">STATISTIQUES</button>
         <button class="tab" onclick="openCheckPerf()" title="Analyse performance des trains">⚡ PERF</button>
     </nav>
+    <nav class="tabs" id="stockage-tabs" style="display:none">
+        <button class="tab active" id="stockage-tab-info" onclick="switchStockTab('info', this)">INFO</button>
+        <button class="tab" id="stockage-tab-config" onclick="switchStockTab('config', this)">CONFIGURATION</button>
+        <button class="tab" id="stockage-tab-update" onclick="switchStockTab('update', this)">MISE À JOUR</button>
+    </nav>
+    <nav class="tabs" id="dispatch-tabs" style="display:none">
+        <button class="tab active" onclick="switchDispatchTab('live', this)">LIVE</button>
+        <button class="tab" onclick="switchDispatchTab('config', this)">CONFIGURATION</button>
+    </nav>
 </header>
 
 <!-- ── ONGLET EN DIRECT ── -->
@@ -97,8 +106,8 @@
     <canvas id="st-hist-canvas" height="110" style="width:100%;display:block;border-radius:6px"></canvas>
 </div>
 
-<!-- ── SECTION STOCKAGE ── -->
-<div id="page-stockage" class="page">
+<!-- ── SECTION STOCKAGE — INFO ── -->
+<div id="page-stockage-info" class="page">
     <div class="stock-section-bar">
         <span class="stock-section-title">STOCKAGE</span>
         <div style="display:flex;gap:8px">
@@ -109,21 +118,39 @@
     <div id="stockage-grid" class="stock-grid"></div>
 </div>
 
-<!-- ── SECTION DISPATCH ── -->
-<div id="page-dispatch" class="page">
+<!-- ── SECTION STOCKAGE — CONFIGURATION ── -->
+<div id="page-stockage-config" class="page">
+    <div id="stockage-config-content"></div>
+</div>
+
+<!-- ── SECTION STOCKAGE — MISE À JOUR ── -->
+<div id="page-stockage-update" class="page">
+    <div id="stockage-update-content"></div>
+</div>
+
+<!-- ── SECTION DISPATCH — LIVE (cards) ── -->
+<div id="page-dispatch-live2" class="page">
     <div class="dp-status-bar">
-        <span class="dp-status-title">DISPATCH</span>
         <span id="dp-badge-config" class="dp-badge warn">Config...</span>
-        <span id="dp-badge-safe"   class="dp-badge" style="display:none">SAFE MODE</span>
-        <button class="dp-btn" onclick="dpNewRoute()" title="Ajouter une nouvelle route">+ Route</button>
+        <span id="dp-badge-safe" class="dp-badge" style="display:none">SAFE MODE</span>
         <button class="dp-btn" onclick="sendDispatchCmd('reload',null,null)" title="Recharge la config depuis LOGGER">↺ Reload</button>
         <button class="dp-btn" onclick="dpReport()" title="Rapport sur les 300 derniers logs DISPATCH">📊 Rapport</button>
         <span id="dp-save-status" style="font-size:0.76em;color:#888"></span>
     </div>
-    <div id="dp-routes"></div>
+    <div id="dp2-live-grid" class="dp2-live-grid"></div>
     <datalist id="dp-dl-stations"></datalist>
     <datalist id="dp-dl-buffers"></datalist>
     <datalist id="dp-dl-trains"></datalist>
+</div>
+
+<!-- ── SECTION DISPATCH — CONFIGURATION ── -->
+<div id="page-dispatch-config" class="page">
+    <div class="dp2-layout">
+        <div class="dp2-left" id="dp2-list"></div>
+        <div class="dp2-right" id="dp2-form">
+            <div class="dp2-form-placeholder">Sélectionner une route à gauche<br>ou créer une nouvelle route</div>
+        </div>
+    </div>
 </div>
 
 <!-- ── SECTION ÉNERGIE ── -->
@@ -186,7 +213,7 @@
 <div id="perf-modal" onclick="if(event.target===this)closeCheckPerf()">
     <div id="perf-panel">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <span style="color:#ffaa00;font-weight:700;font-size:0.9em;letter-spacing:1.5px">⚡ CHECK PERF — TOP 10 TRAINS</span>
+            <span style="color:#ffaa00;font-weight:700;font-size:0.9em;letter-spacing:1.5px">⚡ CHECK PERF — TRAINS À OPTIMISER</span>
             <button class="stock-modal-close" onclick="closeCheckPerf()">✕</button>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:12px">
@@ -194,6 +221,7 @@
             <button class="perf-range-btn active" onclick="loadCheckPerf(15,this)">15 min</button>
             <button class="perf-range-btn" onclick="loadCheckPerf(30,this)">30 min</button>
             <button class="perf-range-btn" onclick="loadCheckPerf(60,this)">1 h</button>
+            <button class="perf-range-btn" onclick="loadCheckPerf(120,this)">2 h</button>
         </div>
         <div id="perf-body">Chargement…</div>
     </div>

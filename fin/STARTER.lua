@@ -1,6 +1,6 @@
 -- STARTER.lua : panneau de démarrage — contrôle la séquence d'allumage/extinction des ordinateurs
 -- Séquence ON : sw1 → sw2 | Séquence OFF : sw2 → sw1 | Mauvais ordre → son d'erreur
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 local panel1 = component.proxy(component.findComponent("PANEL_L")[1])
 local net    = computer.getPCIDevices(classes.NetworkCard)[1]
 
@@ -19,7 +19,9 @@ local SOUND_START = "MS95Start"   -- démarrage des ordis  → MS95Start.ogg
 local SOUND_STOP  = "W95Stop"     -- extinction des ordis → W95Stop.ogg
 local SOUND_ERROR = "W2kError"    -- mauvaise séquence    → W2kError.ogg
 
-local COMPUTERS_TO_CONTROL = { "GET_LOG", "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL", "DISPATCH" }
+-- LOGGER, GET_LOG, DISPATCH et STOCKAGE_CENTRAL tournent en autonome — ne pas les couper
+-- LOGGER, GET_LOG, DISPATCH and STOCKAGE_CENTRAL run autonomously — do not stop them
+local COMPUTERS_TO_CONTROL = { "TRAIN_STATS", "TRAIN_TAB", "TRAIN_DETAIL" }
 
 -- Adresse réseau de GET_LOG — capturée à son boot via GET_LOG_HELLO (port 52)
 -- GET_LOG network address — captured at its boot via GET_LOG_HELLO (port 52)
