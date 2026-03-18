@@ -27,6 +27,11 @@
         <button class="tab" onclick="switchTab('stats', this)">STATISTIQUES</button>
         <button class="tab" onclick="openCheckPerf()" title="Analyse performance des trains">⚡ PERF</button>
     </nav>
+    <nav class="tabs" id="stockage-tabs" style="display:none">
+        <button class="tab active" id="stockage-tab-info" onclick="switchStockTab('info', this)">INFO</button>
+        <button class="tab" id="stockage-tab-config" onclick="switchStockTab('config', this)">CONFIGURATION</button>
+        <button class="tab" id="stockage-tab-update" onclick="switchStockTab('update', this)">MISE À JOUR</button>
+    </nav>
 </header>
 
 <!-- ── ONGLET EN DIRECT ── -->
@@ -97,8 +102,8 @@
     <canvas id="st-hist-canvas" height="110" style="width:100%;display:block;border-radius:6px"></canvas>
 </div>
 
-<!-- ── SECTION STOCKAGE ── -->
-<div id="page-stockage" class="page">
+<!-- ── SECTION STOCKAGE — INFO ── -->
+<div id="page-stockage-info" class="page">
     <div class="stock-section-bar">
         <span class="stock-section-title">STOCKAGE</span>
         <div style="display:flex;gap:8px">
@@ -107,6 +112,16 @@
         </div>
     </div>
     <div id="stockage-grid" class="stock-grid"></div>
+</div>
+
+<!-- ── SECTION STOCKAGE — CONFIGURATION ── -->
+<div id="page-stockage-config" class="page">
+    <div id="stockage-config-content"></div>
+</div>
+
+<!-- ── SECTION STOCKAGE — MISE À JOUR ── -->
+<div id="page-stockage-update" class="page">
+    <div id="stockage-update-content"></div>
 </div>
 
 <!-- ── SECTION DISPATCH ── -->

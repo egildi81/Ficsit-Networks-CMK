@@ -1,4 +1,4 @@
-__version__ = "1.0.4"
+__version__ = "1.0.9"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -10,7 +10,7 @@ Config  : renseigner config.py (token, channel_id)
 """
 
 from flask import Flask, jsonify, send_from_directory, request
-import json, os, threading, time, logging
+import json, os, threading, time, logging, re
 from datetime import datetime, timezone
 
 import discord
@@ -24,7 +24,16 @@ _cache            = {"trains": [], "trips": {}}
 _cache_updated_at = 0.0   # timestamp (epoch) du dernier push reçu de LOGGER
 _trips            = {}    # historique de la session courante (en mémoire uniquement — pas de persistence)
 _stats            = {}    # stats calculées par LOGGER (score, conf, avgSpeed, etc.)
-_stockage         = {}    # données stockage par zone : {zone: {...}}
+_stockage         = {}    # données stockage par zone (LOGGER → /api/push) : {zone: {...}}
+_stockage_central   = {}  # données CENTRAL agrégées (CENTRAL → /api/stockage/push)
+_stockage_discovery = {}  # satellites découverts : {nick: {satellite, addr, containers, server_ts}}
+_satellite_versions = {}  # versions satellites : {addr: {nick, version, server_ts}}
+
+# ── Update satellites (MISE À JOUR tab) ──────────────────────
+_central_pending_cmd  = None  # commande pour CENTRAL à consommer / command for CENTRAL to consume
+_sat_update_queue     = []    # file d'attente reboot : [{addr, nick, old_version}]
+_sat_update_current   = None  # satellite en cours de reboot : {addr, nick, old_version, started}
+_sat_update_results   = {}    # résultats : {addr: {nick, old_version, new_version, status, ts}}
 
 _ORDER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_order.json")
 def _load_order():
@@ -40,6 +49,22 @@ def _save_order(order):
     except Exception:
         pass
 _stockage_order = _load_order()
+
+# ── Zone config stockage (persistée dans stockage_zone_config.json) ────────
+_STOCKAGE_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_zone_config.json")
+def _load_zone_config():
+    try:
+        with open(_STOCKAGE_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"zones": []}
+def _save_zone_config(cfg):
+    try:
+        with open(_STOCKAGE_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+_stockage_zone_config = _load_zone_config()
 
 # ── Dispatch routes (persistées dans dispatch_routes.json) ────
 _DISPATCH_ROUTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch_routes.json")
@@ -103,6 +128,36 @@ def _append_logs_to_file(entries):
 _log_ring       = _load_logs_from_file(10_000) # historique chargé au démarrage / history loaded at startup
 _LOG_RING_MAX   = 15_000                       # cap mémoire / memory cap
 _log_total_ever = len(_log_ring)               # compteur absolu cumulatif — ne décroît jamais / absolute cumulative counter — never decreases
+
+def _get_latest_satellite_version():
+    """Parse STOCKAGE_SATELLITE.lua pour extraire la VERSION / Parse STOCKAGE_SATELLITE.lua to extract VERSION."""
+    try:
+        fin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fin")
+        with open(os.path.join(fin_dir, "STOCKAGE_SATELLITE.lua"), "r", encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r'local VERSION\s*=\s*"([^"]+)"', line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _advance_update_queue():
+    """Passe au satellite suivant dans la file de reboot / Move to next satellite in reboot queue."""
+    global _sat_update_queue, _sat_update_current, _central_pending_cmd
+    if not _sat_update_queue:
+        _sat_update_current = None
+        return
+    next_sat = _sat_update_queue.pop(0)
+    old_ver  = _satellite_versions.get(next_sat["addr"], {}).get("version", "?")
+    _sat_update_current = {**next_sat, "old_version": old_ver, "started": time.time()}
+    _central_pending_cmd = {"cmd": "reboot_satellite", "addr": next_sat["addr"]}
+    _sat_update_results[next_sat["addr"]] = {
+        "nick": next_sat["nick"], "old_version": old_ver,
+        "new_version": None, "status": "rebooting", "ts": time.time(),
+    }
+
 
 def _to_lua(obj):
     """Convertit un objet Python en chaîne table Lua (parseable par load('return '..s)() )."""
@@ -198,6 +253,155 @@ def purge_stockage():
     return jsonify({"status": "ok", "removed": removed})
 
 
+@app.route("/api/stockage/push", methods=["POST"])
+def stockage_central_push():
+    """Reçoit les données agrégées de STOCKAGE_CENTRAL (toutes les 30s)."""
+    global _stockage_central, _satellite_versions, _sat_update_current, _sat_update_results
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    body["server_ts"] = time.time()
+    _stockage_central = body
+    # Mettre à jour les versions satellites / Update satellite versions
+    if isinstance(body.get("satellites"), list):
+        for sat in body["satellites"]:
+            addr = sat.get("addr")
+            if not addr:
+                continue
+            new_version = sat.get("version", "?")
+            _satellite_versions[addr] = {
+                "addr":      addr,
+                "nick":      sat.get("nick", "?"),
+                "version":   new_version,
+                "server_ts": time.time(),
+            }
+            # Vérifier si ce satellite a terminé sa mise à jour / Check if satellite completed update
+            if (_sat_update_current and _sat_update_current["addr"] == addr
+                    and new_version != _sat_update_current.get("old_version")):
+                _sat_update_results[addr] = {
+                    "nick":        _sat_update_current["nick"],
+                    "old_version": _sat_update_current.get("old_version"),
+                    "new_version": new_version,
+                    "status":      "updated",
+                    "ts":          time.time(),
+                }
+                _sat_update_current = None
+                _advance_update_queue()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/stockage/zone-config", methods=["GET"])
+def get_zone_config():
+    return jsonify(_stockage_zone_config)
+
+
+@app.route("/api/stockage/zone-config", methods=["POST"])
+def set_zone_config():
+    global _stockage_zone_config
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "zones" not in body:
+        return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
+    _stockage_zone_config = body
+    _save_zone_config(_stockage_zone_config)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/stockage/discovery", methods=["POST"])
+def stockage_discovery():
+    """Reçoit la liste des containers découverts par un satellite."""
+    global _stockage_discovery
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    addr = body.get("addr", "")
+    sat  = body.get("satellite") or addr or "?"
+    # Supprimer l'ancienne entrée si même addr FIN mais nick différent (renommage computer)
+    # Remove old entry if same FIN addr but different nick (computer rename)
+    if addr:
+        for old_key in [k for k, v in _stockage_discovery.items()
+                        if v.get("addr") == addr and k != sat]:
+            del _stockage_discovery[old_key]
+    _stockage_discovery[sat] = {
+        "satellite":  sat,
+        "addr":       addr,
+        "containers": body.get("containers", []),
+        "server_ts":  time.time(),
+    }
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/stockage/latest-version", methods=["GET"])
+def get_latest_satellite_version():
+    """Retourne la VERSION courante dans STOCKAGE_SATELLITE.lua / Returns current VERSION in STOCKAGE_SATELLITE.lua."""
+    return jsonify({"version": _get_latest_satellite_version()})
+
+
+@app.route("/api/stockage/central/command.lua", methods=["GET", "POST"])
+def central_command_lua():
+    """CENTRAL poll cette route pour récupérer la prochaine commande / CENTRAL polls this for next command."""
+    global _central_pending_cmd, _sat_update_current, _sat_update_results
+    # Vérification timeout (60s sans retour version) / Timeout check (60s without version update)
+    if _sat_update_current:
+        elapsed = time.time() - _sat_update_current["started"]
+        if elapsed > 60:
+            addr = _sat_update_current["addr"]
+            _sat_update_results[addr] = {
+                "nick":        _sat_update_current["nick"],
+                "old_version": _sat_update_current.get("old_version"),
+                "new_version": None,
+                "status":      "timeout",
+                "ts":          time.time(),
+            }
+            _sat_update_current = None
+            _advance_update_queue()
+    if not _central_pending_cmd:
+        return "nil", 200, {"Content-Type": "text/plain"}
+    cmd = _central_pending_cmd
+    _central_pending_cmd = None
+    return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/api/stockage/satellite/reboot", methods=["POST"])
+def satellite_reboot():
+    """Démarre la mise à jour de un ou plusieurs satellites / Start update of one or more satellites."""
+    global _sat_update_queue, _sat_update_current, _central_pending_cmd, _sat_update_results
+    body = request.get_json(silent=True)
+    if not body or not body.get("addrs"):
+        return jsonify({"error": "addrs manquant"}), 400
+    addrs = [a for a in body["addrs"] if a and isinstance(a, str)]  # filtre null/undefined / filter null/undefined
+    if not addrs:
+        return jsonify({"error": "Aucun addr valide"}), 400
+    entries = []
+    for addr in addrs:
+        info = _satellite_versions.get(addr, {})
+        entries.append({"addr": addr, "nick": info.get("nick", "?"), "old_version": info.get("version", "?")})
+
+    if not _sat_update_current:
+        # Nouveau run — vider les résultats précédents pour repartir propre
+        # New run — clear previous results for a clean start
+        _sat_update_results.clear()
+        _sat_update_queue.clear()
+        for e in entries:
+            _sat_update_results[e["addr"]] = {
+                "nick": e["nick"], "old_version": e["old_version"],
+                "new_version": None, "status": "en attente", "ts": time.time(),
+            }
+        first = entries[0]
+        _sat_update_current  = {**first, "started": time.time()}
+        _central_pending_cmd = {"cmd": "reboot_satellite", "addr": first["addr"]}
+        _sat_update_results[first["addr"]]["status"] = "rebooting"
+        _sat_update_queue.extend(entries[1:])
+    else:
+        # Ajout à la file existante / Append to existing queue
+        for e in entries:
+            _sat_update_results[e["addr"]] = {
+                "nick": e["nick"], "old_version": e["old_version"],
+                "new_version": None, "status": "en attente", "ts": time.time(),
+            }
+        _sat_update_queue.extend(entries)
+    return jsonify({"status": "ok", "queued": len(addrs)})
+
+
 @app.route("/api/dispatch/routes", methods=["GET"])
 def get_dispatch_routes():
     """Retourne la config des routes dispatch (JSON ou ?format=lua pour la web UI)."""
@@ -282,8 +486,19 @@ def get_data():
         "logger_updated_at": _cache_updated_at,
         "site_title":      getattr(config, "SITE_TITLE", "FN Monitor"),
         "stockage_order":  _stockage_order,
-        "dispatch":        _dispatch_status,
-        "dispatch_routes": _dispatch_routes,
+        "dispatch":             _dispatch_status,
+        "dispatch_routes":      _dispatch_routes,
+        "stockage_central":     _stockage_central or None,
+        "stockage_discovery":   list(_stockage_discovery.values()),
+        "stockage_zone_config": _stockage_zone_config,
+        "satellite_versions":   _satellite_versions,
+        "sat_update_results":   {
+            addr: r for addr, r in _sat_update_results.items()
+            # Masquer les résultats "updated" après 5 minutes (badge transitoire)
+            # Hide "updated" results after 5 minutes (transient badge)
+            if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
+        },
+        "sat_latest_version":   _get_latest_satellite_version(),
     })
 
 
@@ -538,7 +753,15 @@ def get_logs():
 
 @app.route("/")
 def index():
-    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    """Sert index.html avec cache-buster sur les assets statiques."""
+    web_dir = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(web_dir, "index.html"), "r", encoding="utf-8") as f:
+        html = f.read()
+    v = __version__
+    html = html.replace('href="/static/style.css"',  f'href="/static/style.css?v={v}"')
+    html = html.replace('src="/static/main.js"',      f'src="/static/main.js?v={v}"')
+    from flask import Response
+    return Response(html, mimetype="text/html")
 
 @app.route("/<path:filename>")
 def static_files(filename):

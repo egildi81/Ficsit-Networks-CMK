@@ -1,7 +1,8 @@
-const VERSION = "1.3.7";
+const VERSION = "1.5.0";
 // ── Navigation sections ───────────────────────────────────────
-const _trainPages   = ['page-monitor', 'page-history', 'page-stats'];
-const _sectionPages = ['page-stockage', 'page-power', 'page-dispatch', 'page-logs'];
+const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
+const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -10,28 +11,46 @@ const LOG_TAG_COLORS = {
     TRAIN_TAB:  '#cccc00',
     DISPATCH:   '#00cccc',
     STOCKAGE:   '#aa44aa',
+    CENTRAL:    '#ffc800',
     TRAIN_STATS:'#ff8800',
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
     STARTER:    '#cc2222',
 };
-let _lastTrainPage  = 'page-monitor';
+let _lastTrainPage    = 'page-monitor';
+let _lastStockagePage = 'page-stockage-info';
 
 function switchSection(name, btn) {
     document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    const trainsTabs = document.getElementById('trains-tabs');
-    // Masquer toutes les pages
+    const trainsTabs   = document.getElementById('trains-tabs');
+    const stockageTabs = document.getElementById('stockage-tabs');
+    // Masquer toutes les pages / Hide all pages
     _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
     _sectionPages.forEach(id => document.getElementById(id).classList.remove('active'));
     if (name === 'trains') {
-        trainsTabs.style.display = '';
+        trainsTabs.style.display   = '';
+        stockageTabs.style.display = 'none';
         document.getElementById(_lastTrainPage).classList.add('active');
+    } else if (name === 'stockage') {
+        trainsTabs.style.display   = 'none';
+        stockageTabs.style.display = '';
+        document.getElementById(_lastStockagePage).classList.add('active');
     } else {
-        trainsTabs.style.display = 'none';
+        trainsTabs.style.display   = 'none';
+        stockageTabs.style.display = 'none';
         document.getElementById('page-' + name).classList.add('active');
         if (name === 'logs') refreshLogs();
     }
+}
+
+// ── Navigation onglets (sous STOCKAGE) ────────────────────────
+function switchStockTab(name, btn) {
+    _stockagePages.forEach(id => document.getElementById(id).classList.remove('active'));
+    document.querySelectorAll('#stockage-tabs .tab').forEach(t => t.classList.remove('active'));
+    _lastStockagePage = 'page-stockage-' + name;
+    document.getElementById(_lastStockagePage).classList.add('active');
+    btn.classList.add('active');
 }
 
 // ── Navigation onglets (sous TRAINS) ─────────────────────────
@@ -458,7 +477,7 @@ let _stockCompact = true;
 function toggleStockView() {
     _stockCompact = !_stockCompact;
     document.getElementById('stock-view-btn').textContent = _stockCompact ? 'Vue détaillée' : 'Vue compacte';
-    renderStockage(_stockageCache);
+    renderStockageInfo(_stockageZoneConfig, _stockageCentralCache);
 }
 
 // ── Purge manuelle des zones inactives ────────────────────────
@@ -601,6 +620,409 @@ function renderStockage(stockage) {
             </div>`;
     }).join('');
     _setupStockageDrag();
+}
+
+// ── INFO zones configurées ────────────────────────────────────
+function renderStockageInfo(zoneConfig, centralData) {
+    const grid = document.getElementById('stockage-grid');
+    if (!grid) return;
+    if (_isDragging) return;  // ne pas re-render pendant un drag / do not re-render while dragging
+    const zones = zoneConfig && zoneConfig.zones;
+    if (!zones || !zones.length) {
+        grid.innerHTML = '<div class="stock-empty">Aucune zone configurée — définissez vos zones dans l\'onglet Configuration</div>';
+        return;
+    }
+    // Lookup conteneurs par nick / Container lookup by nick
+    const byNick = {};
+    for (const c of ((centralData && centralData.containers) || [])) byNick[c.nick] = c;
+
+    const now = Date.now() / 1000;
+    const payloadStale = centralData && centralData.server_ts && (now - centralData.server_ts) > 120;
+
+    // Agrège, retourne items triés + flag hasStale si un conteneur est hors-ligne
+    // Aggregates, returns sorted items + hasStale flag if any container is offline
+    function aggr(nicks) {
+        let slotsTotal = 0, slotsUsed = 0, totalItems = 0, hasStale = false;
+        const itemsMap = {};
+        for (const nick of nicks) {
+            const c = byNick[nick]; if (!c) continue;
+            if (c.stale) { hasStale = true; continue; }  // satellite hors-ligne / offline satellite
+            slotsTotal += c.slotsTotal || 0;
+            slotsUsed  += c.slotsUsed  || 0;
+            totalItems += c.totalItems  || 0;
+            for (const [id, item] of Object.entries(c.items || {})) {
+                if (!itemsMap[id]) itemsMap[id] = { name: item.name, count: 0 };
+                itemsMap[id].count += item.count;
+            }
+        }
+        const fillRate = slotsTotal > 0 ? Math.floor(slotsUsed / slotsTotal * 1000) / 10 : 0;
+        const items = Object.values(itemsMap).sort((a, b) => b.count - a.count)
+            .map(it => ({ ...it, pct: totalItems > 0 ? Math.round(it.count / totalItems * 100) : 0 }));
+        return { slotsTotal, slotsUsed, fillRate, totalItems, items, hasStale };
+    }
+
+    // Construire le cache pour la modal (format compatible openStockModal)
+    // Build cache for modal (openStockModal-compatible format)
+    _stockageCache = zones.map(zone => {
+        const allNicks = [...(zone.containers || []), ...((zone.subzones || []).flatMap(sz => sz.containers || []))];
+        const za = aggr(allNicks);
+        const subzones = [];
+        if (zone.subzones && zone.subzones.length > 0) {
+            if (zone.containers && zone.containers.length) subzones.push({ name: zone.mainLabel || 'Principal', ...aggr(zone.containers) });
+            for (const sz of zone.subzones) subzones.push({ name: sz.name, ...aggr(sz.containers || []) });
+        }
+        const zoneHasStale = za.hasStale || subzones.some(s => s.hasStale);
+        return { zone: zone.name, ...za, subzones, hasStale: zoneHasStale };
+    });
+
+    const sorted = _sortByOrder(_stockageCache);
+    grid.innerHTML = sorted.map(z => {
+        const fill = z.fillRate, fillColor = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+        const offlineBadge = z.hasStale ? '<span class="stock-offline-badge">Hors ligne</span>' : '';
+
+        let itemsBlock;
+        if (z.subzones && z.subzones.length > 0) {
+            const visibleSz = _stockCompact ? z.subzones.slice(0, 4) : z.subzones;
+            const hiddenCount = _stockCompact ? z.subzones.length - visibleSz.length : 0;
+            itemsBlock = `<div class="stock-subzones">${visibleSz.map(sz => {
+                const sf = sz.fillRate ?? 0, sc = sf >= 80 ? '#ee3333' : sf >= 50 ? '#eeee22' : '#22ee22';
+                const top3 = sz.items.slice(0, 3);
+                const szOffline = sz.hasStale ? '<span class="stock-offline-badge">Hors ligne</span>' : '';
+                return `<div class="stock-subzone${sz.hasStale ? ' stock-subzone-stale' : ''}">
+                    <div class="stock-subzone-header"><span class="stock-subzone-name">${esc(sz.name)}</span>${szOffline}<span class="stock-subzone-fill" style="color:${sc}">${sf}%</span></div>
+                    <div class="stock-subzone-bar-bg"><div class="stock-subzone-bar" style="width:${sf}%;background:${sc}"></div></div>
+                    ${_stockCompact ? '' : `<div class="stock-subzone-meta">${sz.slotsUsed} / ${sz.slotsTotal} slots · ${sz.totalItems} items</div>
+                    ${top3.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')}`}
+                </div>`;
+            }).join('')}${hiddenCount > 0 ? `<div style="color:#555;font-size:0.68em;padding:3px 6px">+${hiddenCount} autre${hiddenCount > 1 ? 's' : ''}…</div>` : ''}</div>`;
+        } else {
+            const top = _stockCompact ? [] : z.items.slice(0, 3);
+            itemsBlock = `<div class="stock-items">${top.length
+                ? top.map(it => `<div class="stock-item-row"><span class="stock-item-name">${esc(it.name)}</span><span class="stock-item-count">${it.count}</span><span class="stock-item-pct">${it.pct}%</span></div>`).join('')
+                : _stockCompact ? '' : '<div class="stock-empty">Aucun item</div>'}</div>`;
+        }
+        return `
+            <div class="stock-card${payloadStale ? ' stock-stale' : ''}" draggable="true" data-zone="${esc(z.zone)}"
+                 onclick="openStockModal('${esc(z.zone)}')" title="Voir tous les items" style="cursor:pointer">
+                <div class="stock-card-header"><span class="stock-zone">${esc(z.zone)}</span>${offlineBadge}<span class="stock-fill" style="color:${fillColor}">${fill}%</span></div>
+                <div class="stock-bar-bg"><div class="stock-bar" style="width:${fill}%;background:${fillColor}"></div></div>
+                <div class="stock-meta">${z.slotsUsed} / ${z.slotsTotal} slots · ${z.totalItems} items</div>
+                ${itemsBlock}
+            </div>`;
+    }).join('');
+    _setupStockageDrag();
+}
+
+// ── Config DnD ───────────────────────────────────────────────
+let _stkZones      = [];     // [{id, name, containers:[nick], subzones:[{id, name, containers:[nick]}]}]
+let _stkAllConts   = [];     // [{satellite, nick, slotsTotal, slotsUsed, fillRate, totalItems}]
+let _stkDragNick   = null;   // nick du conteneur en cours de drag / nick of dragged container
+let _stkIdCnt      = 0;
+let _stkCollapsed  = new Set(); // IDs de zones réduites / collapsed zone IDs
+let _stkPoolFilter = '';        // filtre texte pool disponibles / available pool text filter
+let _stkZonesSrch  = '';        // recherche conteneur dans zones / container search in zones
+
+function _stkAssigned() {
+    const s = new Set();
+    for (const z of _stkZones) {
+        z.containers.forEach(n => s.add(n));
+        z.subzones.forEach(sz => sz.containers.forEach(n => s.add(n)));
+    }
+    return s;
+}
+function _stkRemoveNick(nick) {
+    for (const z of _stkZones) {
+        z.containers = z.containers.filter(n => n !== nick);
+        z.subzones.forEach(sz => { sz.containers = sz.containers.filter(n => n !== nick); });
+    }
+}
+function _stkDragStart(ev, nick) { _stkDragNick = nick; ev.target.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; }
+function _stkDragEnd(ev)         { ev.target.classList.remove('dragging'); _stkDragNick = null; }
+function _stkLeave(ev)           { if (!ev.currentTarget.contains(ev.relatedTarget)) ev.currentTarget.classList.remove('drag-over'); }
+function _stkDrop(ev, zoneId, szId) {
+    ev.preventDefault();
+    ev.currentTarget.classList.remove('drag-over');
+    if (!_stkDragNick) return;
+    _stkRemoveNick(_stkDragNick);
+    if (zoneId >= 0) {
+        const z = _stkZones.find(z => z.id === zoneId);
+        if (!z) return;
+        if (szId < 0) z.containers.push(_stkDragNick);
+        else { const sz = z.subzones.find(s => s.id === szId); if (sz) sz.containers.push(_stkDragNick); }
+    }
+    _stkRenderConfig();
+}
+function _stkAddZone()             { _stkZones.push({ id: _stkIdCnt++, name: 'Nouvelle zone', mainLabel: '', containers: [], subzones: [] }); _stkRenderConfig(); }
+function _stkRemoveZone(id)        { _stkZones = _stkZones.filter(z => z.id !== id); _stkRenderConfig(); }
+function _stkAddSubzone(zid)       { const z = _stkZones.find(z => z.id === zid); if (z) z.subzones.push({ id: _stkIdCnt++, name: 'Sous-zone', containers: [] }); _stkRenderConfig(); }
+function _stkRemoveSubzone(zid, sid) { const z = _stkZones.find(z => z.id === zid); if (z) z.subzones = z.subzones.filter(s => s.id !== sid); _stkRenderConfig(); }
+function _stkRenameZone(id, v)        { const z = _stkZones.find(z => z.id === id); if (z) z.name = v; }
+function _stkRenameMainLabel(id, v)   { const z = _stkZones.find(z => z.id === id); if (z) z.mainLabel = v; }
+function _stkRenameSz(zid, sid, v)    { const z = _stkZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
+function _stkToggleZone(id)           { _stkCollapsed.has(id) ? _stkCollapsed.delete(id) : _stkCollapsed.add(id); _stkRenderConfig(); }
+
+// Filtre en direct dans le pool — ne re-render pas, cache/affiche les cards existantes
+// Live filter in pool — no re-render, hides/shows existing cards
+function _stkApplyPoolFilter(v) {
+    _stkPoolFilter = v;
+    const drop = document.getElementById('stk-pool-drop');
+    if (!drop) return;
+    const term = v.toLowerCase();
+    drop.querySelectorAll('.stk-cont-card').forEach(card => {
+        const nick = (card.querySelector('.stk-cont-nick') || card).textContent.toLowerCase();
+        card.style.display = !term || nick.includes(term) ? '' : 'none';
+    });
+}
+
+// Recherche conteneur dans les zones configurées / Container search in configured zones
+function _stkApplyZonesSearch(v) {
+    _stkZonesSrch = v;
+    const term = v.toLowerCase();
+    document.querySelectorAll('.stk-cfg-zones .stk-zone-card').forEach(card => {
+        if (!term) { card.style.display = ''; return; }
+        const zoneId = parseInt(card.dataset.zoneId);
+        const zone = _stkZones.find(z => z.id === zoneId);
+        if (!zone) { card.style.display = ''; return; }
+        const allNicks = [...zone.containers, ...zone.subzones.flatMap(sz => sz.containers)];
+        card.style.display = allNicks.some(n => n.toLowerCase().includes(term)) ? '' : 'none';
+    });
+}
+
+function _stkContCard(c) {
+    const fill = c.fillRate ?? 0, color = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
+    return `<div class="stk-cont-card" draggable="true"
+                 ondragstart="_stkDragStart(event,'${esc(c.nick)}')" ondragend="_stkDragEnd(event)"
+                 title="${esc(c.satellite || '')} — ${c.slotsUsed ?? 0}/${c.slotsTotal ?? 0} slots">
+        <div class="stk-cont-nick">${esc(c.nick)}</div>
+        ${c.satellite ? `<div class="stk-cont-sat">${esc(c.satellite)}</div>` : ''}
+        ${fill > 0 ? `<div class="stk-cont-fill">${fill}%</div><div class="stk-cont-bar-bg"><div class="stk-cont-bar" style="width:${fill}%;background:${color}"></div></div>` : ''}
+    </div>`;
+}
+function _stkDropArea(zoneId, szId, nickList) {
+    const cards = nickList.map(nick => {
+        const c = _stkAllConts.find(c => c.nick === nick) || { nick, satellite: '', fillRate: 0, slotsTotal: 0, slotsUsed: 0 };
+        return _stkContCard(c);
+    }).join('');
+    return `<div class="stk-drop-area"
+                 ondragover="event.preventDefault()"
+                 ondragenter="this.classList.add('drag-over')"
+                 ondragleave="_stkLeave(event)"
+                 ondrop="_stkDrop(event,${zoneId},${szId})">
+        ${cards}<div class="stk-drop-hint">${nickList.length ? '' : 'Glisser ici'}</div>
+    </div>`;
+}
+
+function _stkRenderConfig() {
+    const el = document.getElementById('stockage-config-content');
+    if (!el) return;
+    const assigned = _stkAssigned();
+    const pool = _stkAllConts.filter(c => !assigned.has(c.nick));
+
+    const zonesHtml = _stkZones.map(z => {
+        const collapsed = _stkCollapsed.has(z.id);
+        const totalConts = z.containers.length + z.subzones.reduce((s, sz) => s + sz.containers.length, 0);
+        const body = collapsed ? '' : `
+            ${z.subzones.length > 0 ? `<div class="stk-subzone-header" style="padding:5px 14px">
+                <input class="stk-subzone-name-input" value="${esc(z.mainLabel)}" placeholder="Principal"
+                       onchange="_stkRenameMainLabel(${z.id},this.value)">
+            </div>` : ''}
+            ${_stkDropArea(z.id, -1, z.containers)}
+            ${z.subzones.map(sz => `
+                <div class="stk-subzone-card">
+                    <div class="stk-subzone-header">
+                        <input class="stk-subzone-name-input" value="${esc(sz.name)}" placeholder="Nom" onchange="_stkRenameSz(${z.id},${sz.id},this.value)">
+                        <button class="stk-btn-sm stk-btn-del" onclick="_stkRemoveSubzone(${z.id},${sz.id})">✕</button>
+                    </div>
+                    ${_stkDropArea(z.id, sz.id, sz.containers)}
+                </div>`).join('')}`;
+        return `
+        <div class="stk-zone-card" data-zone-id="${z.id}">
+            <div class="stk-zone-header">
+                <button class="stk-btn-collapse" onclick="_stkToggleZone(${z.id})" title="${collapsed ? 'Développer' : 'Réduire'}">${collapsed ? '▸' : '▾'}</button>
+                <input class="stk-zone-name-input" value="${esc(z.name)}" placeholder="Nom de la zone" onchange="_stkRenameZone(${z.id},this.value)">
+                ${collapsed ? `<span style="color:#666;font-size:0.68em;white-space:nowrap">${totalConts} cont.</span>` : ''}
+                <button class="stk-btn-sm" onclick="_stkAddSubzone(${z.id})">+ Sous-zone</button>
+                <button class="stk-btn-sm stk-btn-del" onclick="_stkRemoveZone(${z.id})">✕</button>
+            </div>
+            ${body}
+        </div>`;
+    }).join('') || '<div class="stock-empty" style="margin-top:8px">Cliquez sur "+ Zone" pour commencer</div>';
+
+    const poolCards = pool.map(c => _stkContCard(c)).join('')
+        || '<div class="stk-drop-hint">Tous assignés</div>';
+
+    el.innerHTML = `
+        <div class="stk-cfg-actions">
+            <button class="stock-purge-btn" onclick="_stkAddZone()">+ Zone</button>
+            <button class="stock-purge-btn" onclick="_saveStockageZoneConfig()">Sauvegarder</button>
+            <span id="stk-cfg-status" style="font-size:0.78em;color:#888"></span>
+        </div>
+        <div class="stk-cfg-layout">
+            <div class="stk-cfg-pool">
+                <div class="stk-cfg-pool-title">Disponibles</div>
+                <input class="stk-cfg-filter" id="stk-pool-filter" type="text" placeholder="Filtrer..."
+                       value="${esc(_stkPoolFilter)}" oninput="_stkApplyPoolFilter(this.value)">
+                <div class="stk-drop-area" id="stk-pool-drop" style="flex-direction:column"
+                     ondragover="event.preventDefault()"
+                     ondragenter="this.classList.add('drag-over')"
+                     ondragleave="_stkLeave(event)"
+                     ondrop="_stkDrop(event,-1,-1)">${poolCards}</div>
+            </div>
+            <div class="stk-cfg-zones">
+                <input class="stk-cfg-filter" id="stk-zones-search" type="text"
+                       placeholder="Chercher un conteneur dans les zones..."
+                       value="${esc(_stkZonesSrch)}" oninput="_stkApplyZonesSearch(this.value)"
+                       style="margin-bottom:10px">
+                ${zonesHtml}
+            </div>
+        </div>`;
+
+    // Ré-appliquer filtres après re-render (drag/drop) / Re-apply filters after re-render (drag/drop)
+    if (_stkPoolFilter) _stkApplyPoolFilter(_stkPoolFilter);
+    if (_stkZonesSrch)  _stkApplyZonesSearch(_stkZonesSrch);
+}
+
+function renderStockageConfig(discovery, centralData, zoneConfig) {
+    // Construire la liste des conteneurs depuis les données CENTRAL ou la découverte
+    // Build container list from CENTRAL data or discovery
+    if (centralData && centralData.containers && centralData.containers.length) {
+        _stkAllConts = centralData.containers;
+    } else {
+        _stkAllConts = (discovery || []).flatMap(d =>
+            (d.containers || []).map(nick => ({ satellite: d.satellite, nick, slotsTotal: 0, slotsUsed: 0, fillRate: 0, totalItems: 0, items: {} }))
+        );
+    }
+    // Init zones depuis config serveur / Init zones from server config
+    const cfgZones = zoneConfig && zoneConfig.zones;
+    _stkIdCnt = 0; _stkZones = [];
+    if (cfgZones && cfgZones.length) {
+        for (const z of cfgZones) {
+            _stkZones.push({
+                id: _stkIdCnt++, name: z.name, mainLabel: z.mainLabel || '',
+                containers: [...(z.containers || [])],
+                subzones: (z.subzones || []).map(sz => ({ id: _stkIdCnt++, name: sz.name, containers: [...(sz.containers || [])] }))
+            });
+        }
+    }
+    _stkRenderConfig();
+}
+
+function _saveStockageZoneConfig() {
+    const config = {
+        zones: _stkZones.map(z => ({
+            name: z.name,
+            mainLabel: z.mainLabel || '',
+            containers: z.containers,
+            subzones: z.subzones.map(sz => ({ name: sz.name, containers: sz.containers }))
+        }))
+    };
+    fetch('/api/stockage/zone-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
+        .then(r => {
+            const st = document.getElementById('stk-cfg-status');
+            if (!r.ok) { if (st) st.textContent = `Erreur HTTP ${r.status}`; return; }
+            _stockageZoneConfig = config;
+            _prevJson.stockage_info = null;  // forcer re-render INFO / force INFO re-render
+            if (st) { st.textContent = 'Sauvegardé ✓'; setTimeout(() => { if (st) st.textContent = ''; }, 2000); }
+        })
+        .catch(() => { const st = document.getElementById('stk-cfg-status'); if (st) st.textContent = 'Erreur réseau'; });
+}
+
+// ── Satellite update (MISE À JOUR tab) ───────────────────────
+let _satVersionsCache      = {};
+let _satUpdateResultsCache = {};
+let _satLatestVersion      = null;
+let _satShowOutdatedOnly   = false;  // filtre "obsolètes seulement" / "outdated only" filter
+
+function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
+    const el = document.getElementById('stockage-update-content');
+    if (!el) return;
+    _satVersionsCache      = satVersions      || {};
+    _satUpdateResultsCache = satUpdateResults  || {};
+    _satLatestVersion      = latestVersion     || null;
+
+    const satListFull = Object.values(_satVersionsCache);
+    const satList = _satShowOutdatedOnly
+        ? satListFull.filter(s => !latestVersion || s.version !== latestVersion)
+        : satListFull;
+    if (!satListFull.length) {
+        el.innerHTML = '<div class="stock-empty" style="padding:32px">Aucun satellite connu — en attente de données...</div>';
+        return;
+    }
+
+    const outdated = satListFull.filter(s => latestVersion && s.version !== latestVersion);
+
+    const cards = satList.map(sat => {
+        const result    = _satUpdateResultsCache[sat.addr] || null;
+        const isUpToDate = latestVersion && sat.version === latestVersion;
+        const status     = result ? result.status : null;
+
+        let badge = '';
+        if (status === 'updated') {
+            badge = `<span class="stk-upd-badge stk-upd-ok">✓ Mis à jour → v${esc(result.new_version)}</span>`;
+        } else if (status === 'rebooting') {
+            badge = `<span class="stk-upd-badge stk-upd-pending">↻ Redémarrage...</span>`;
+        } else if (status === 'en attente') {
+            badge = `<span class="stk-upd-badge stk-upd-pending">⏳ En attente...</span>`;
+        } else if (status === 'timeout') {
+            badge = `<span class="stk-upd-badge stk-upd-timeout">⚠ Timeout</span>`;
+        } else if (isUpToDate) {
+            badge = `<span class="stk-upd-badge stk-upd-ok">✓ À jour</span>`;
+        } else if (latestVersion) {
+            badge = `<span class="stk-upd-badge stk-upd-old">↑ Obsolète</span>`;
+        }
+
+        const busy       = status === 'rebooting' || status === 'en attente';
+        const btnDisabled = isUpToDate || busy;
+        const btnHtml = `<button class="stk-upd-btn" ${btnDisabled ? 'disabled' : `onclick="_satReboot('${esc(sat.addr)}')"`}>Mettre à jour</button>`;
+
+        return `<div class="stk-upd-card">
+            <div class="stk-upd-card-header">
+                <span class="stk-upd-nick">${esc(sat.nick)}</span>
+                ${badge}
+            </div>
+            <div class="stk-upd-versions">
+                <span class="stk-upd-ver-cur">v${esc(sat.version)}</span>
+                <span class="stk-upd-ver-arrow">→</span>
+                <span class="stk-upd-ver-latest${isUpToDate ? ' stk-upd-ver-same' : ' stk-upd-ver-new'}">v${esc(latestVersion || '?')}</span>
+            </div>
+            ${btnHtml}
+        </div>`;
+    }).join('');
+
+    el.innerHTML = `
+        <div class="stk-upd-header">
+            <div class="stk-upd-title-row">
+                <span class="stk-upd-latest-label">Dernière version :</span>
+                <span class="stk-upd-latest-ver">v${esc(latestVersion || '?')}</span>
+                <span class="stk-upd-sat-count">${satList.length} satellite${satList.length > 1 ? 's' : ''}</span>
+            </div>
+            <div class="stk-upd-actions">
+                <button class="stock-purge-btn" onclick="_satRebootAll()">Tout mettre à jour</button>
+                ${outdated.length > 0
+                    ? `<button class="stock-purge-btn${_satShowOutdatedOnly ? ' stk-upd-filter-active' : ''}" onclick="_satToggleOutdatedFilter()">Obsolètes (${outdated.length})</button>`
+                    : ''}
+            </div>
+        </div>
+        <div class="stk-upd-grid">${cards}</div>`;
+}
+
+function _satReboot(addr) {
+    fetch('/api/stockage/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs: [addr] })
+    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
+}
+function _satRebootAll() {
+    const addrs = Object.keys(_satVersionsCache);
+    if (!addrs.length) return;
+    fetch('/api/stockage/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs })
+    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
+}
+function _satToggleOutdatedFilter() {
+    _satShowOutdatedOnly = !_satShowOutdatedOnly;
+    _prevJson.sat_update = null;  // force re-render
 }
 
 // ── Power ─────────────────────────────────────────────────────
@@ -764,7 +1186,9 @@ function _drawPowerChart() {
 
 // ── Diff par section — évite les renders inutiles si les données n'ont pas changé
 // ── Per-section diff — skips renders when data is unchanged
-const _prevJson = { trains: null, trips: null, stats: null, stockage: null, power: null, dispatch: null };
+const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null };
+let _stockageZoneConfig  = [];   // config persistée : [{satellite, zone, label}, ...]
+let _stockageCentralCache = null; // dernières données CENTRAL pour toggleStockView
 
 // ── Boucle de rafraîchissement ───────────────────────────────
 let errors = 0;
@@ -818,16 +1242,37 @@ async function refresh() {
         const _tj  = JSON.stringify(data.trains        || []);
         const _rj  = JSON.stringify(data.trips         || {});
         const _sj  = JSON.stringify(data.stats         || {});
-        const _zj  = JSON.stringify(data.stockage      || []);
-        const _pj  = JSON.stringify(data.power         || null);
+        const _zij  = JSON.stringify({ c: data.stockage_central || null, z: data.stockage_zone_config || [] });
+        const _zdj  = JSON.stringify(data.stockage_discovery || []);
+        const _pj   = JSON.stringify(data.power              || null);
         const _dj  = JSON.stringify({ d: data.dispatch || null, r: data.dispatch_routes ?? null });
 
         const rTimes = {};
         if (_tj !== _prevJson.trains)   { _prevJson.trains   = _tj;  rTimes.trains   = _t('trains',   () => renderTrains(data.trains || [])); }
         if (_rj !== _prevJson.trips)    { _prevJson.trips    = _rj;  rTimes.trips    = _t('trips',    () => renderTrips(data.trips || {})); }
         if (_sj !== _prevJson.stats)    { _prevJson.stats    = _sj;  rTimes.stats    = _t('stats',    () => renderStats(data.trains || [], data.stats || {}, data.logger_updated_at)); }
-        if (_zj !== _prevJson.stockage) { _prevJson.stockage = _zj;  rTimes.stockage = _t('stockage', () => renderStockage(data.stockage || [])); }
+        if (_zij !== _prevJson.stockage_info) {
+            _prevJson.stockage_info = _zij;
+            _stockageZoneConfig  = data.stockage_zone_config || _stockageZoneConfig;
+            _stockageCentralCache = data.stockage_central || null;
+            rTimes.stockage = _t('stk-info', () => renderStockageInfo(_stockageZoneConfig, _stockageCentralCache));
+            // Mettre à jour les fill rates dans le pool config si la page est visible
+            // Update fill rates in config pool if config page is visible
+            if (_stockageCentralCache && _stockageCentralCache.containers) {
+                _stkAllConts = _stockageCentralCache.containers;
+                if (document.getElementById('page-stockage-config').classList.contains('active')) _stkRenderConfig();
+            }
+        }
+        if (_zdj !== _prevJson.stockage_discovery) {
+            _prevJson.stockage_discovery = _zdj;
+            _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageCentralCache, _stockageZoneConfig));
+        }
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
+        const _uj = JSON.stringify({ v: data.satellite_versions || {}, r: data.sat_update_results || {} });
+        if (_uj !== _prevJson.sat_update) {
+            _prevJson.sat_update = _uj;
+            rTimes.sat_update = _t('sat-upd', () => renderStockageUpdate(data.satellite_versions || {}, data.sat_update_results || {}, data.sat_latest_version || null));
+        }
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
         if (document.getElementById('page-logs').classList.contains('active')) { refreshLogs(); }
@@ -852,6 +1297,7 @@ async function refresh() {
 // ── DISPATCH ─────────────────────────────────────────────────
 let _dpRoutesConfig  = [];   // config routes — source de vérité pour l'affichage
 let _dpLiveRoutes    = null; // état temps réel depuis DISPATCH (via LOGGER)
+let _dpOnline        = false; // DISPATCH en ligne et configuré / DISPATCH online and configured
 let _dpEditingIndex  = -1;   // index route en cours d'édition (-1 = aucune)
 let _dpKnownStations = new Set();
 let _dpKnownBuffers  = new Map();  // Map<value, label> — value=nom réel, label=affichage avec parent / value=actual name, label=display with parent
@@ -872,14 +1318,24 @@ function _dpUpdateLists(data) {
             if (t.name)    _dpKnownTrains.add(t.name);
         });
     }
+    // Ancien format STOCKAGE.lua / Legacy STOCKAGE.lua format
     if (Array.isArray(data.stockage)) {
         data.stockage.forEach(z => {
             if (!z.zone) return;
-            _dpKnownBuffers.set(z.zone, z.zone);  // zone principale / main zone
-            // Sous-zones : valeur = "(PARENT) nom" (clé unique, une seule ligne dans datalist)
-            // Sub-zones: value = "(PARENT) name" (unique key, single line in datalist)
+            _dpKnownBuffers.set(z.zone, z.zone);
             if (z.subzones) z.subzones.forEach(sz => {
                 if (sz.name) { const lbl = `(${z.zone}) ${sz.name}`; _dpKnownBuffers.set(lbl, lbl); }
+            });
+        });
+    }
+    // Nouveau format CENTRAL — zones et sous-zones configurées / New CENTRAL format — configured zones and sub-zones
+    const zc = data.stockage_zone_config;
+    if (zc && Array.isArray(zc.zones)) {
+        zc.zones.forEach(z => {
+            if (!z.name) return;
+            _dpKnownBuffers.set(z.name, z.name);
+            if (z.subzones) z.subzones.forEach(sz => {
+                if (sz.name) { const lbl = `(${z.name}) ${sz.name}`; _dpKnownBuffers.set(lbl, lbl); }
             });
         });
     }
@@ -924,6 +1380,7 @@ function renderDispatch(dispatch, routesConfig) {
         badgeSafe.style.display = 'none';
     }
     // Live routes depuis DISPATCH
+    _dpOnline     = !!(dispatch && dispatch.configOk);
     _dpLiveRoutes = (dispatch && dispatch.routes && dispatch.routes.length > 0) ? dispatch.routes : null;
     // Ne pas toucher la config ni re-rendre si éditeur ouvert (évite d'écraser les saisies en cours)
     // Do not update config or re-render if editor is open (prevents overwriting in-progress edits)
@@ -939,8 +1396,18 @@ function renderDispatch(dispatch, routesConfig) {
 function renderDpRoutes() {
     const container = document.getElementById('dp-routes');
     container.innerHTML = '';
+    // Bannière hors-ligne / Offline banner
+    if (!_dpOnline) {
+        const msg = _dpRoutesConfig.length > 0
+            ? 'Serveur Satisfactory hors-ligne — données en attente de reconnexion. Les routes ci-dessous sont conservées depuis la dernière session.'
+            : 'En attente de connexion au serveur Satisfactory…';
+        container.insertAdjacentHTML('beforeend',
+            `<div class="dp-offline-banner">${msg}</div>`);
+        if (_dpRoutesConfig.length === 0) return;
+    }
     if (_dpRoutesConfig.length === 0) {
-        container.innerHTML = '<div style="color:#444;padding:20px 14px;font-size:0.82em;text-align:center">Aucune route configurée — cliquez sur + Route</div>';
+        container.insertAdjacentHTML('beforeend',
+            '<div style="color:#555;padding:20px 14px;font-size:0.82em;text-align:center">Aucune route configurée — cliquez sur + Route</div>');
         return;
     }
     _dpRoutesConfig.forEach((r, i) => {
@@ -1125,7 +1592,7 @@ function _appendLogEntries(entries) {
     if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     entries.forEach(e => {
-        const col = LOG_TAG_COLORS[e.tag] || '#888';
+        const col = LOG_TAG_COLORS[e.tag] || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : '#888');
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
         div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
