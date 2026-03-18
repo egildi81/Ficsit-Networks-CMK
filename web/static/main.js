@@ -1915,7 +1915,7 @@ function renderFactory(fac) {
         if (totalPower)  totalPower.textContent  = '—';
         if (zoneCount)   zoneCount.textContent   = '';
         if (staleEl)     staleEl.textContent     = '';
-        grid.innerHTML = '<div style="color:#555;padding:20px;font-size:0.85em">En attente des données FACTORY_CENTRAL…</div>';
+        grid.innerHTML = '<div style="color:#888;padding:20px;font-size:0.85em">En attente des données FACTORY_CENTRAL…</div>';
         return;
     }
 
@@ -1964,7 +1964,7 @@ function renderFactory(fac) {
                 ${staleTag}
                 <span class="fac-zone-stats">${zone.activeCnt}/${zone.totalCnt} · ${(zone.avgProd ?? 0).toFixed(0)}% moy · ${(zone.totalPower ?? 0).toFixed(1)} MW</span>
             </div>
-            <div class="fac-machine-list">${rows || '<div style="color:#555;padding:6px;font-size:0.8em">Aucune machine détectée</div>'}</div>
+            <div class="fac-machine-list">${rows || '<div style="color:#888;padding:6px;font-size:0.8em">Aucune machine détectée</div>'}</div>
         </div>`;
     }).join('');
 }
