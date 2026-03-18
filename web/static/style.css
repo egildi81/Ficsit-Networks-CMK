@@ -482,8 +482,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .dp2c-bar.full    { background: #33cc55; }
 .dp2c-offline-meta { padding: 10px 12px; color: #444; font-size: 0.74em; line-height: 1.7; }
 .dp2c-trains { border-top: 1px solid #161616; }
-.dp2c-train { padding: 5px 10px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid #141414; flex-wrap: nowrap; }
+.dp2c-train { padding: 5px 10px 6px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid #141414; }
 .dp2c-train:last-child { border-bottom: none; }
+.dp2c-train-info { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dp2c-train-btns { display: flex; justify-content: flex-end; gap: 4px; }
 .dp2c-tname { color: #ddd; font-size: 0.78em; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* ── DISPATCH 2 — Configurateur deux panneaux ── */

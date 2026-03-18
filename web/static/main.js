@@ -1821,13 +1821,15 @@ function _dp2RenderLive() {
             const dec     = st.decision==='go'?'Go':st.decision==='hold'?'Hold':'Idle';
             const dCls    = st.decision==='go'?'dec-go':st.decision==='hold'?'dec-hold':'dec-idle';
             return `<div class="dp2c-train">
-                <span class="dp2c-tname">${esc(st.name)}</span>
-                <span class="dp-train-phase ${pCls}" style="font-size:0.67em">${phase}</span>
-                <span class="dp-train-decision ${dCls}" style="font-size:0.7em;min-width:28px">${dec}</span>
-                <div class="dp-btns" style="margin-left:auto">
+                <div class="dp2c-train-info">
+                    <span class="dp2c-tname">${esc(st.name)}</span>
+                    <span class="dp-train-phase ${pCls}" style="font-size:0.67em">${phase}</span>
+                    <span class="dp-train-decision ${dCls}" style="font-size:0.7em">${dec}</span>
+                </div>
+                <div class="dp2c-train-btns">
                     <button class="dp-btn go"   onclick="sendDispatchCmd('force_go','${esc(st.name)}','${esc(r.name)}')">GO</button>
                     <button class="dp-btn hold" onclick="sendDispatchCmd('force_hold','${esc(st.name)}','${esc(r.name)}')">HOLD</button>
-                    <button class="dp-btn rec"  onclick="sendDispatchCmd('recovery','${esc(st.name)}','${esc(r.name)}')">REC</button>
+                    <button class="dp-btn rec"  title="Recovery — reprend la logique DISPATCH si le train est bloqué" onclick="sendDispatchCmd('recovery','${esc(st.name)}','${esc(r.name)}')">REC</button>
                 </div>
             </div>`;
         }).join('') : '';
