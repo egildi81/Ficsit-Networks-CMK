@@ -1062,6 +1062,7 @@ async def discord_update_loop():
 # ════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    print(f"=== train_server.py v{__version__} ===")
     print("Serveur démarré — en attente de données LOGGER via POST /api/push ...")
     print("Historique : session en cours uniquement (pas de persistence fichier)")
 
