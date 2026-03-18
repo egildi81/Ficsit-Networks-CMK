@@ -595,7 +595,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     padding: 9px 14px; display: flex; align-items: center; gap: 10px;
 }
 .fac-zone-name  { color: #99ff00; font-size: 0.84em; font-weight: 700; }
-.fac-zone-stats { color: #999; font-size: 0.72em; margin-left: auto; }
+.fac-zone-stats { color: #bbb; font-size: 0.72em; margin-left: auto; }
 
 .fac-machine-list { padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
 
@@ -617,7 +617,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .fac-prod-bar-bg { height: 3px; background: #1a1a1a; border-radius: 2px; margin: 3px 0; }
 .fac-prod-bar    { height: 3px; border-radius: 2px; transition: width .4s; }
 
-.fac-machine-bottom { display: flex; gap: 10px; font-size: 0.68em; color: #888; margin-top: 3px; }
+.fac-machine-bottom { display: flex; gap: 10px; font-size: 0.68em; color: #aaa; margin-top: 3px; }
 
 .fac-subzone-info { border-top: 1px solid #161616; }
 .fac-subzone-info-header { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: #0d0d0d; }
@@ -629,9 +629,9 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .fac-recipe-off { opacity: 0.55; }
 .fac-recipe-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .fac-recipe-name { color: #ddd; font-size: 0.8em; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fac-recipe-count { color: #666; font-size: 0.68em; white-space: nowrap; flex-shrink: 0; }
-.fac-off-badge { background: #1a1a1a; color: #555; font-size: 0.65em; font-weight: 700; padding: 1px 6px; border-radius: 3px; letter-spacing: 1px; flex-shrink: 0; }
-.fac-recipe-bottom { display: flex; align-items: center; gap: 10px; font-size: 0.72em; color: #888; margin-top: 5px; }
+.fac-recipe-count { color: #999; font-size: 0.68em; white-space: nowrap; flex-shrink: 0; }
+.fac-off-badge { background: #1a1a1a; color: #888; font-size: 0.65em; font-weight: 700; padding: 1px 6px; border-radius: 3px; letter-spacing: 1px; flex-shrink: 0; }
+.fac-recipe-bottom { display: flex; align-items: center; gap: 10px; font-size: 0.72em; color: #bbb; margin-top: 5px; }
 .fac-detail-btn { margin-left: auto; background: #1a1a1a; border: 1px solid #2a2a2a; color: #777; border-radius: 4px; padding: 2px 10px; font-size: 0.72em; cursor: pointer; flex-shrink: 0; }
 .fac-detail-btn:hover { color: #99ff00; border-color: #99ff00; }
 
