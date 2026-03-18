@@ -1,4 +1,4 @@
-const VERSION = "1.7.2";
+const VERSION = "1.7.3";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -995,6 +995,8 @@ function _saveFactoryZoneConfig() {
             const st = document.getElementById('fac-cfg-status');
             if (!r.ok) { if (st) st.textContent = `Erreur HTTP ${r.status}`; return; }
             _factoryZoneConfig = config;
+            _prevJson.factory = null;  // forcer re-render INFO / force INFO re-render
+            if (_lastFactoryData) renderFactory(_lastFactoryData);
             if (st) { st.textContent = 'Sauvegardé ✓'; setTimeout(() => { if (st) st.textContent = ''; }, 2000); }
         })
         .catch(() => { const st = document.getElementById('fac-cfg-status'); if (st) st.textContent = 'Erreur réseau'; });
@@ -1475,6 +1477,7 @@ function _drawPowerChart() {
 // ── Per-section diff — skips renders when data is unchanged
 const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null, factory: null, factory_zone_config: null };
 let _factoryZoneConfig   = { zones: [] };  // config zones usine persistée / persisted factory zone config
+let _lastFactoryData     = null;           // dernier snapshot factory reçu / last factory snapshot received
 let _stockageZoneConfig  = [];   // config persistée : [{satellite, zone, label}, ...]
 let _stockageCentralCache = null; // dernières données CENTRAL pour toggleStockView
 
@@ -1564,6 +1567,7 @@ async function refresh() {
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
         if (document.getElementById('page-logs').classList.contains('active')) { refreshLogs(); }
+        if (data.factory) _lastFactoryData = data.factory;
         const _fj = JSON.stringify(data.factory || null);
         if (_fj !== _prevJson.factory) {
             _prevJson.factory = _fj;
