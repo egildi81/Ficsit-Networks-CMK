@@ -1,4 +1,4 @@
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -28,6 +28,7 @@ _stockage         = {}    # données stockage par zone (LOGGER → /api/push) : 
 _stockage_central   = {}  # données CENTRAL agrégées (CENTRAL → /api/stockage/push)
 _stockage_discovery = {}  # satellites découverts : {nick: {satellite, addr, containers, server_ts}}
 _satellite_versions = {}  # versions satellites : {addr: {nick, version, server_ts}}
+_known_buffer_nicks = set()  # nicks containers connus (rebuilt à chaque push CENTRAL) / known container nicks (rebuilt on each CENTRAL push)
 
 # ── Update satellites (MISE À JOUR tab) ──────────────────────
 _central_pending_cmd  = None  # commande pour CENTRAL à consommer / command for CENTRAL to consume
@@ -256,12 +257,20 @@ def purge_stockage():
 @app.route("/api/stockage/push", methods=["POST"])
 def stockage_central_push():
     """Reçoit les données agrégées de STOCKAGE_CENTRAL (toutes les 30s)."""
-    global _stockage_central, _satellite_versions, _sat_update_current, _sat_update_results
+    global _stockage_central, _satellite_versions, _sat_update_current, _sat_update_results, _known_buffer_nicks
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     body["server_ts"] = time.time()
     _stockage_central = body
+    # Reconstruire la liste des nicks connus depuis les containers de ce push
+    # Rebuild known nicks from containers in this push (authoritative — replaces stale entries)
+    nicks = set()
+    for c in body.get("containers") or []:
+        n = c.get("nick") if isinstance(c, dict) else None
+        if n: nicks.add(n)
+    if nicks:
+        _known_buffer_nicks = nicks
     # Mettre à jour les versions satellites / Update satellite versions
     if isinstance(body.get("satellites"), list):
         for sat in body["satellites"]:
@@ -499,6 +508,7 @@ def get_data():
             if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
         },
         "sat_latest_version":   _get_latest_satellite_version(),
+        "known_buffer_nicks":   sorted(_known_buffer_nicks),
     })
 
 
@@ -627,6 +637,15 @@ def get_dispatch_report():
     medium_count = sum(1 for i in issues if i["severity"] == "medium")
     healthy      = (high_count == 0 and medium_count == 0)
 
+    # Alertes buffers cassés : routes configurées avec un buffer introuvable dans CENTRAL
+    # Broken buffer alerts: routes configured with a buffer not found in CENTRAL
+    buffer_alerts = []
+    if _known_buffer_nicks:
+        for route in _dispatch_routes:
+            buf = (route.get("buffer") or "").strip()
+            if buf and buf not in _known_buffer_nicks:
+                buffer_alerts.append({"route": route.get("name", "?"), "buffer": buf})
+
     return jsonify({
         "period":         {"from": period_from, "to": period_to},
         "total_analyzed": len(entries),
@@ -636,6 +655,7 @@ def get_dispatch_report():
         "healthy":        healthy,
         "high_count":     high_count,
         "medium_count":   medium_count,
+        "buffer_alerts":  buffer_alerts,
     })
 
 

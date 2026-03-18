@@ -1,4 +1,4 @@
-const VERSION = "1.6.0";
+const VERSION = "1.6.1";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -391,6 +391,20 @@ function renderDpReport(d) {
     const statusText  = d.healthy ? '✓ Aucun problème détecté' :
         `${d.high_count} critique(s) · ${d.medium_count} attention(s)`;
     html += `<div style="padding:8px 12px;border-radius:6px;background:${statusColor}22;border:1px solid ${statusColor}44;color:${statusColor};font-weight:700;font-size:0.85em;margin-bottom:14px">${statusText}</div>`;
+
+    // Alertes buffers cassés / Broken buffer alerts
+    if (Array.isArray(d.buffer_alerts) && d.buffer_alerts.length > 0) {
+        html += `<div style="margin-bottom:14px;border-left:3px solid #f44;padding-left:10px">
+            <div style="color:#f44;font-size:0.7em;font-weight:700;letter-spacing:1px;margin-bottom:6px">BUFFER(S) INTROUVABLE(S)</div>`;
+        for (const ba of d.buffer_alerts) {
+            html += `<div style="font-size:0.78em;color:#ccc;padding:3px 0;border-bottom:1px solid #1a1a1a">
+                Route <span style="color:#00cccc">${esc(ba.route)}</span> →
+                buffer <span style="color:#f44;font-family:monospace">${esc(ba.buffer)}</span>
+                <span style="color:#555;font-size:0.88em"> (absent du dernier scan CENTRAL)</span>
+            </div>`;
+        }
+        html += `</div>`;
+    }
 
     // Issues
     if (d.issues.length === 0) {
@@ -1333,26 +1347,17 @@ function _dpUpdateLists(data) {
             if (t.name)    _dpKnownTrains.add(t.name);
         });
     }
-    // Ancien format STOCKAGE.lua / Legacy STOCKAGE.lua format
-    if (Array.isArray(data.stockage)) {
-        data.stockage.forEach(z => {
-            if (!z.zone) return;
-            _dpKnownBuffers.set(z.zone, z.zone);
-            if (z.subzones) z.subzones.forEach(sz => {
-                if (sz.name) { const lbl = `(${z.zone}) ${sz.name}`; _dpKnownBuffers.set(lbl, lbl); }
+    // Source autoritaire : nicks containers reçus du dernier push CENTRAL
+    // Authoritative source: container nicks from last CENTRAL push (rebuilt from scratch — no stale entries)
+    if (Array.isArray(data.known_buffer_nicks) && data.known_buffer_nicks.length > 0) {
+        _dpKnownBuffers = new Map(data.known_buffer_nicks.map(n => [n, n]));
+        const dlBuf = document.getElementById('dp-dl-buffers');
+        if (dlBuf) {
+            dlBuf.innerHTML = '';
+            [..._dpKnownBuffers.keys()].sort().forEach(value => {
+                const opt = document.createElement('option'); opt.value = value; dlBuf.appendChild(opt);
             });
-        });
-    }
-    // Nouveau format CENTRAL — zones et sous-zones configurées / New CENTRAL format — configured zones and sub-zones
-    const zc = data.stockage_zone_config;
-    if (zc && Array.isArray(zc.zones)) {
-        zc.zones.forEach(z => {
-            if (!z.name) return;
-            _dpKnownBuffers.set(z.name, z.name);
-            if (z.subzones) z.subzones.forEach(sz => {
-                if (sz.name) { const lbl = `(${z.name}) ${sz.name}`; _dpKnownBuffers.set(lbl, lbl); }
-            });
-        });
+        }
     }
     const _refreshDl = (id, set) => {
         const dl = document.getElementById(id);
@@ -1362,19 +1367,6 @@ function _dpUpdateLists(data) {
             const opt = document.createElement('option'); opt.value = v; dl.appendChild(opt);
         });
     };
-    // Datalist buffers : map value→label pour affichage sous-zones / buffer datalist: value→label for sub-zone display
-    const dlBuf = document.getElementById('dp-dl-buffers');
-    if (dlBuf) {
-        const existingBuf = new Set([...dlBuf.options].map(o => o.value));
-        [..._dpKnownBuffers.entries()]
-            .filter(([v]) => !existingBuf.has(v))
-            .sort(([, la], [, lb]) => la.localeCompare(lb))
-            .forEach(([value]) => {
-                const opt = document.createElement('option');
-                opt.value = value;  // value = label → une seule ligne dans Chrome / value = label → single line in Chrome
-                dlBuf.appendChild(opt);
-            });
-    }
     _refreshDl('dp-dl-stations', _dpKnownStations);
     _refreshDl('dp-dl-trains',   _dpKnownTrains);
 }
