@@ -18,8 +18,9 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 #status.err     { color: #ff4444; }
 
 /* ── SECTIONS (niveau supérieur) ── */
-.sections { display: flex; gap: 2px; margin-bottom: 6px; }
-.section-btn {
+.sections { display: flex; gap: 2px; margin-bottom: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.sections::-webkit-scrollbar { display: none; }
+.section-btn { flex-shrink: 0;
     padding: 8px 20px; cursor: pointer; font-size: 0.82em; font-weight: 600;
     letter-spacing: 1px; border-radius: 6px 6px 0 0;
     color: #888; background: transparent; border: none; outline: none;
@@ -31,11 +32,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .section-btn.active { color: #ff8800; border-bottom: 2px solid #ff8800; }
 
 /* ── ONGLETS (niveau secondaire, sous TRAINS) ── */
-.tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.tabs::-webkit-scrollbar { display: none; }
+.tabs { display: flex; gap: 4px; }
 .tab {
     padding: 8px 20px; cursor: pointer; font-size: 0.82em; font-weight: 600;
-    letter-spacing: 1px; border-radius: 6px 6px 0 0; flex-shrink: 0;
+    letter-spacing: 1px; border-radius: 6px 6px 0 0;
     color: #888; background: transparent; border: none; outline: none;
     border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
     user-select: none;
