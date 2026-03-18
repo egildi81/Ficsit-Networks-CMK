@@ -464,6 +464,35 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 .dp-save-btn:hover { background: rgba(0,170,204,0.22); }
 
+/* ── DISPATCH 2 — Configurateur deux panneaux ── */
+.dp2-layout { display: flex; height: calc(100vh - 88px); overflow: hidden; }
+.dp2-left { width: 240px; flex-shrink: 0; background: #111; border-right: 1px solid #1e1e1e; display: flex; flex-direction: column; overflow: hidden; }
+.dp2-list-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #090d0f; border-bottom: 2px solid #00aacc; }
+.dp2-list-title { color: #00aacc; font-size: 0.76em; font-weight: 700; letter-spacing: 1.5px; flex: 1; }
+.dp2-cnt { background: #0d1a1f; color: #00aacc; border-radius: 9px; padding: 1px 7px; font-size: 0.85em; font-weight: 700; }
+.dp2-route-list { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin; scrollbar-color: #2a2a2a #0d0d0d; }
+.dp2-route-item { background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 6px; padding: 8px 10px; cursor: pointer; transition: border-color .15s, background .15s; }
+.dp2-route-item:hover { border-color: #333; background: #131313; }
+.dp2-route-item.selected { border-color: #00aacc; background: #050d0f; }
+.dp2-item-name { font-size: 0.78em; font-weight: 700; letter-spacing: 0.8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888; }
+.dp2-route-item.selected .dp2-item-name { color: #00aacc; }
+.dp2-item-meta { color: #444; font-size: 0.69em; margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp2-item-foot { display: flex; gap: 5px; align-items: center; margin-top: 4px; }
+.dp2-off-tag { color: #555; font-size: 0.65em; font-weight: 700; padding: 1px 5px; border: 1px solid #333; border-radius: 3px; }
+.dp2-empty { color: #444; font-size: 0.76em; text-align: center; padding: 24px 12px; line-height: 1.7; }
+.dp2-right { flex: 1; overflow-y: auto; padding: 24px 28px; }
+.dp2-form-placeholder { color: #333; font-size: 0.82em; text-align: center; padding: 80px 24px; line-height: 2; }
+.dp2-form-header { padding-bottom: 12px; border-bottom: 2px solid #00aacc; margin-bottom: 22px; }
+.dp2-form-title { color: #00aacc; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
+.dp2-form-body { display: flex; flex-direction: column; gap: 16px; max-width: 360px; }
+.dp2-form-body .dp-edit-field label { color: #555; font-size: 0.68em; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 4px; }
+.dp2-input { width: 100% !important; box-sizing: border-box; }
+.dp2-input-short { width: 80px !important; }
+.dp2-enabled-row { padding-top: 4px; }
+.dp2-toggle-label { color: #777; font-size: 0.8em; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.dp2-toggle-label input[type="checkbox"] { accent-color: #00aacc; cursor: pointer; width: 15px; height: 15px; }
+.dp2-form-actions { display: flex; align-items: center; gap: 10px; margin-top: 24px; padding-top: 16px; border-top: 1px solid #1a1a1a; }
+
 /* ── STOCKAGE — MISE À JOUR ── */
 .stk-upd-header {
     background: #111; border: 1px solid #1e1e1e; border-radius: 8px;

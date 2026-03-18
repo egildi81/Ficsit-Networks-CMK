@@ -2,7 +2,8 @@ const VERSION = "1.6.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-logs'];
+const _dispatchPages = ['page-dispatch', 'page-dispatch-config'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-dispatch-config', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -19,29 +20,49 @@ const LOG_TAG_COLORS = {
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';
+let _lastDispatchPage = 'page-dispatch';
 
 function switchSection(name, btn) {
     document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    const trainsTabs   = document.getElementById('trains-tabs');
-    const stockageTabs = document.getElementById('stockage-tabs');
+    const trainsTabs    = document.getElementById('trains-tabs');
+    const stockageTabs  = document.getElementById('stockage-tabs');
+    const dispatchTabs  = document.getElementById('dispatch-tabs');
     // Masquer toutes les pages / Hide all pages
     _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
     _sectionPages.forEach(id => document.getElementById(id).classList.remove('active'));
     if (name === 'trains') {
         trainsTabs.style.display   = '';
         stockageTabs.style.display = 'none';
+        dispatchTabs.style.display = 'none';
         document.getElementById(_lastTrainPage).classList.add('active');
     } else if (name === 'stockage') {
         trainsTabs.style.display   = 'none';
         stockageTabs.style.display = '';
+        dispatchTabs.style.display = 'none';
         document.getElementById(_lastStockagePage).classList.add('active');
+    } else if (name === 'dispatch') {
+        trainsTabs.style.display   = 'none';
+        stockageTabs.style.display = 'none';
+        dispatchTabs.style.display = '';
+        document.getElementById(_lastDispatchPage).classList.add('active');
     } else {
         trainsTabs.style.display   = 'none';
         stockageTabs.style.display = 'none';
+        dispatchTabs.style.display = 'none';
         document.getElementById('page-' + name).classList.add('active');
         if (name === 'logs') refreshLogs();
     }
+}
+
+// ── Navigation onglets (sous DISPATCH) ────────────────────────
+function switchDispatchTab(name, btn) {
+    _dispatchPages.forEach(id => document.getElementById(id).classList.remove('active'));
+    document.querySelectorAll('#dispatch-tabs .tab').forEach(t => t.classList.remove('active'));
+    _lastDispatchPage = name === 'live' ? 'page-dispatch' : 'page-dispatch-config';
+    document.getElementById(_lastDispatchPage).classList.add('active');
+    btn.classList.add('active');
+    if (name === 'config') renderDispatch2();
 }
 
 // ── Navigation onglets (sous STOCKAGE) ────────────────────────
@@ -1414,6 +1435,9 @@ function renderDispatch(dispatch, routesConfig) {
         _dpRoutesConfig = routesConfig;
     }
     renderDpRoutes();
+    // Mettre à jour la liste dp2 si l'onglet config est actif (sans toucher le formulaire)
+    // Update dp2 list if config tab is active (without overwriting the form)
+    if (_lastDispatchPage === 'page-dispatch-config') _dp2RenderList();
 }
 
 function renderDpRoutes() {
@@ -1602,6 +1626,135 @@ async function sendDispatchCmd(cmd, train, route) {
             body: JSON.stringify({ cmd, train, route }),
         });
     } catch(e) { console.warn('CMD err:', e); }
+}
+
+// ── DISPATCH 2 — Configurateur deux panneaux ──────────────────
+let _dp2SelectedIndex = -1;
+
+function _dp2RenderList() {
+    const listEl = document.getElementById('dp2-list');
+    if (!listEl) return;
+    let html = `<div class="dp2-list-header">
+        <span class="dp2-list-title">ROUTES <span class="dp2-cnt">${_dpRoutesConfig.length}</span></span>
+        <button class="dp-btn" onclick="dp2NewRoute()">+ Route</button>
+    </div><div class="dp2-route-list">`;
+    if (_dpRoutesConfig.length === 0) {
+        html += `<div class="dp2-empty">Aucune route —<br>cliquez sur + Route</div>`;
+    } else {
+        _dpRoutesConfig.forEach((r, i) => {
+            const live     = _dpLiveRoutes && _dpLiveRoutes.find(lr => lr.name === r.name);
+            const sel      = _dp2SelectedIndex === i;
+            const enabled  = r.enabled !== false;
+            const liveBadge = live
+                ? `<span class="dp-badge ok" style="font-size:0.65em;padding:1px 6px">● Live</span>`
+                : `<span class="dp-badge warn" style="font-size:0.65em;padding:1px 6px">⏳</span>`;
+            const disTag   = !enabled ? `<span class="dp2-off-tag">OFF</span>` : '';
+            html += `<div class="dp2-route-item${sel ? ' selected' : ''}" onclick="dp2SelectRoute(${i})">
+                <div class="dp2-item-name">${esc(r.name || '(sans nom)')}</div>
+                <div class="dp2-item-meta">${esc(r.park||'?')} → ${esc(r.delivery||'?')}</div>
+                <div class="dp2-item-foot">${liveBadge}${disTag}</div>
+            </div>`;
+        });
+    }
+    html += '</div>';
+    listEl.innerHTML = html;
+}
+
+function renderDispatch2() {
+    _dp2RenderList();
+    _dp2RenderForm();
+}
+
+function _dp2RenderForm() {
+    const formEl = document.getElementById('dp2-form');
+    if (!formEl) return;
+    if (_dp2SelectedIndex < 0 || _dp2SelectedIndex >= _dpRoutesConfig.length) {
+        formEl.innerHTML = `<div class="dp2-form-placeholder">Sélectionner une route à gauche<br>ou créer une nouvelle route</div>`;
+        return;
+    }
+    const r = _dpRoutesConfig[_dp2SelectedIndex];
+    const enabled = r.enabled !== false;
+    formEl.innerHTML = `
+        <div class="dp2-form-header">
+            <span class="dp2-form-title">ROUTE : ${esc(r.name || '(sans nom)')}</span>
+        </div>
+        <div class="dp2-form-body">
+            <div class="dp-edit-field">
+                <label>Nom</label>
+                <input class="dp-input dp2-input" id="dp2-f-name" value="${esc(r.name||'')}">
+            </div>
+            <div class="dp-edit-field">
+                <label>PARK</label>
+                <input class="dp-input dp2-input" id="dp2-f-park" value="${esc(r.park||'')}" list="dp-dl-stations">
+            </div>
+            <div class="dp-edit-field">
+                <label>DELIVERY</label>
+                <input class="dp-input dp2-input" id="dp2-f-delivery" value="${esc(r.delivery||'')}" list="dp-dl-stations">
+            </div>
+            <div class="dp-edit-field">
+                <label>Buffer</label>
+                <input class="dp-input dp2-input" id="dp2-f-buffer" value="${esc(r.buffer||'')}" list="dp-dl-buffers">
+            </div>
+            <div class="dp-edit-field">
+                <label>Max en route</label>
+                <input class="dp-input dp2-input dp2-input-short" id="dp2-f-max" type="number" min="1" max="10" value="${r.maxEnRoute||1}">
+            </div>
+            <div class="dp-edit-field">
+                <label>Trains</label>
+                <input class="dp-input dp2-input" id="dp2-f-trains" value="${esc((r.trains||[]).join(', '))}" placeholder="T1, T2, ..." list="dp-dl-trains">
+            </div>
+            <div class="dp2-enabled-row">
+                <label class="dp2-toggle-label">
+                    <input type="checkbox" id="dp2-f-enabled" ${enabled ? 'checked' : ''}>
+                    Route activée
+                </label>
+            </div>
+        </div>
+        <div class="dp2-form-actions">
+            <button class="dp-save-btn" onclick="dp2SaveRoute()">💾 Sauvegarder</button>
+            <button class="dp-btn del" onclick="dp2DeleteRoute()">✕ Supprimer</button>
+            <span id="dp2-save-status" style="font-size:0.75em;color:#888;margin-left:8px"></span>
+        </div>`;
+}
+
+function dp2SelectRoute(i) {
+    _dp2SelectedIndex = i;
+    renderDispatch2();
+}
+
+function dp2NewRoute() {
+    _dpRoutesConfig.push({ name:'', park:'', delivery:'', buffer:'', maxEnRoute:1, trains:[], enabled:true });
+    _dp2SelectedIndex = _dpRoutesConfig.length - 1;
+    renderDispatch2();
+    setTimeout(() => { const el = document.getElementById('dp2-f-name'); if (el) el.focus(); }, 30);
+}
+
+function dp2SaveRoute() {
+    const i = _dp2SelectedIndex;
+    if (i < 0 || i >= _dpRoutesConfig.length) return;
+    const r = _dpRoutesConfig[i];
+    r.name       = (document.getElementById('dp2-f-name')?.value || '').trim();
+    r.park       = (document.getElementById('dp2-f-park')?.value || '').trim();
+    r.delivery   = (document.getElementById('dp2-f-delivery')?.value || '').trim();
+    r.buffer     = (document.getElementById('dp2-f-buffer')?.value || '').trim();
+    r.maxEnRoute = +(document.getElementById('dp2-f-max')?.value || 1);
+    const trainsRaw = (document.getElementById('dp2-f-trains')?.value || '').trim();
+    r.trains     = trainsRaw ? trainsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+    r.enabled    = document.getElementById('dp2-f-enabled')?.checked !== false;
+    _dp2RenderList();
+    dpSaveRoutes(true);
+    const st = document.getElementById('dp2-save-status');
+    if (st) { st.textContent = 'Sauvegarde...'; }
+}
+
+function dp2DeleteRoute() {
+    const i = _dp2SelectedIndex;
+    if (i < 0) return;
+    if (!confirm(`Supprimer la route "${_dpRoutesConfig[i].name||'(sans nom)'}" ?`)) return;
+    _dpRoutesConfig.splice(i, 1);
+    _dp2SelectedIndex = _dpRoutesConfig.length > 0 ? Math.min(i, _dpRoutesConfig.length - 1) : -1;
+    renderDispatch2();
+    dpSaveRoutes(true);
 }
 
 // ── Cache window.innerWidth (mis à jour sur resize uniquement) ──

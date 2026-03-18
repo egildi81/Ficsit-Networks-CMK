@@ -32,6 +32,10 @@
         <button class="tab" id="stockage-tab-config" onclick="switchStockTab('config', this)">CONFIGURATION</button>
         <button class="tab" id="stockage-tab-update" onclick="switchStockTab('update', this)">MISE À JOUR</button>
     </nav>
+    <nav class="tabs" id="dispatch-tabs" style="display:none">
+        <button class="tab active" onclick="switchDispatchTab('live', this)">LIVE</button>
+        <button class="tab" onclick="switchDispatchTab('config', this)">CONFIGURATION</button>
+    </nav>
 </header>
 
 <!-- ── ONGLET EN DIRECT ── -->
@@ -122,6 +126,16 @@
 <!-- ── SECTION STOCKAGE — MISE À JOUR ── -->
 <div id="page-stockage-update" class="page">
     <div id="stockage-update-content"></div>
+</div>
+
+<!-- ── SECTION DISPATCH — CONFIGURATION ── -->
+<div id="page-dispatch-config" class="page">
+    <div class="dp2-layout">
+        <div class="dp2-left" id="dp2-list"></div>
+        <div class="dp2-right" id="dp2-form">
+            <div class="dp2-form-placeholder">Sélectionner une route à gauche<br>ou créer une nouvelle route</div>
+        </div>
+    </div>
 </div>
 
 <!-- ── SECTION DISPATCH ── -->
