@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.8.0"
+local VERSION = "1.8.1"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -417,6 +417,18 @@ local function tick()
     state={}
     holdCnt=0
     currentTotalInv=0
+    -- Set des trains gérés par DISPATCH (HOLD volontaire = normal, pas pénalisant)
+    -- Set of DISPATCH-managed trains (intentional HOLD = normal, not penalized)
+    local dispatchNames={}
+    if dispatchStatus and dispatchStatus.routes then
+        for _,r in ipairs(dispatchStatus.routes) do
+            if r.trains then
+                for _,tr in ipairs(r.trains) do
+                    if tr.name then dispatchNames[tr.name]=true end
+                end
+            end
+        end
+    end
     for _,t in pairs(trains) do
         local ok2,m=pcall(function()return t:getMaster()end)
         if ok2 and m then
@@ -438,7 +450,12 @@ local function tick()
                     cur=st.station.name
                 end
             end)
-            if not hasTT then holdCnt=holdCnt+1 goto continue end
+            if not hasTT then
+                -- Compter seulement les trains orphelins (pas gérés par DISPATCH)
+                -- Only count orphan trains (not managed by DISPATCH)
+                if not dispatchNames[tn] then holdCnt=holdCnt+1 end
+                goto continue
+            end
             local spd=0
             pcall(function()spd=math.abs(math.floor(m:getMovement().speed/100*3.6))end)
             local nv=wagons(t)
