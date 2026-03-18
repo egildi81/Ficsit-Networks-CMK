@@ -201,7 +201,7 @@
 <div id="perf-modal" onclick="if(event.target===this)closeCheckPerf()">
     <div id="perf-panel">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <span style="color:#ffaa00;font-weight:700;font-size:0.9em;letter-spacing:1.5px">⚡ CHECK PERF — TOP 10 TRAINS</span>
+            <span style="color:#ffaa00;font-weight:700;font-size:0.9em;letter-spacing:1.5px">⚡ CHECK PERF — TRAINS À OPTIMISER</span>
             <button class="stock-modal-close" onclick="closeCheckPerf()">✕</button>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:12px">
@@ -209,6 +209,7 @@
             <button class="perf-range-btn active" onclick="loadCheckPerf(15,this)">15 min</button>
             <button class="perf-range-btn" onclick="loadCheckPerf(30,this)">30 min</button>
             <button class="perf-range-btn" onclick="loadCheckPerf(60,this)">1 h</button>
+            <button class="perf-range-btn" onclick="loadCheckPerf(120,this)">2 h</button>
         </div>
         <div id="perf-body">Chargement…</div>
     </div>

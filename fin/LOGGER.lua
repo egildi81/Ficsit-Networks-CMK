@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.9"
+local VERSION = "1.7.0"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -363,7 +363,18 @@ end
 local function wagons(t)
     local ok,v=pcall(function()return t:getVehicles()end)
     if not ok or not v then return 0 end
-    local n=0 for _ in pairs(v) do n=n+1 end return n
+    local n=0
+    for _,vh in pairs(v) do
+        -- Ne compter que les wagons de fret (inventaire ≥ 16 slots) — exclut les locomotives
+        -- Only count freight wagons (inventory ≥ 16 slots) — excludes locomotives
+        local ok2,ivs=pcall(function()return vh:getInventories()end)
+        if ok2 and ivs then
+            for _,iv in ipairs(ivs) do
+                if iv and iv.size>=16 then n=n+1 break end
+            end
+        end
+    end
+    return n
 end
 
 -- === ENREGISTREMENT ET DIFFUSION D'UN TRAJET ===

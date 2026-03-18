@@ -1,4 +1,4 @@
-__version__ = "1.0.9"
+__version__ = "1.1.0"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -639,27 +639,51 @@ def get_dispatch_report():
     })
 
 
+def _parse_log_ts(ts_str):
+    """Parse 'DD/MM HH:MM:SS' en datetime (année courante, gère le passage minuit).
+    Parse 'DD/MM HH:MM:SS' to datetime (current year, handles midnight crossover)."""
+    from datetime import datetime, timedelta
+    try:
+        now = datetime.now()
+        dt  = datetime.strptime(ts_str, "%d/%m %H:%M:%S").replace(year=now.year)
+        if dt > now + timedelta(hours=1):   # log dans le "futur" → passage de minuit / future log → midnight crossover
+            dt -= timedelta(days=1)
+        return dt
+    except Exception:
+        return None
+
+
 @app.route("/api/perf/trains")
 def get_perf_trains():
     """Analyse les logs LOGGER pour classer les trains par inutilité de circulation."""
     import re
     from collections import defaultdict
-    limit = min(int(request.args.get("limit", 1200)), 8000)
-    entries = _log_ring[-limit:]
+    from datetime import datetime, timedelta
+
+    minutes = min(int(request.args.get("minutes", 15)), 120)
+    cutoff  = datetime.now() - timedelta(minutes=minutes)
+
+    # Filtrer par horodatage réel (pas par nombre d'entrées) / Filter by real timestamp
+    entries = [e for e in _log_ring
+               if e.get("tag") == "LOGGER" and (_parse_log_ts(e.get("ts", "")) or datetime.min) >= cutoff]
+    if not entries:
+        entries = [e for e in _log_ring if e.get("tag") == "LOGGER"][-200:]
 
     trains = defaultdict(list)
     for e in entries:
-        if e.get("tag") != "LOGGER":
-            continue
-        m = re.search(r"LOG: (.+?)§(.+?)->(.+?) d=(\d+)s wagons=(\d+)(?:\s*\|\s*(.+?) x(\d+))?", e["msg"])
+        m = re.search(r"LOG: (.+?)§(.+?)->(.+?) d=(\d+)s wagons=(\d+)(.*)", e["msg"])
         if not m:
             continue
         name = m.group(1).strip()
-        qty  = int(m.group(7)) if m.group(7) else 0
+        rest = m.group(6)
+        # Somme de tous les items du convoi / Sum of all items in consist
+        qty      = sum(int(q) for q in re.findall(r' x(\d+)', rest))
+        item_m   = re.search(r'\| (.+?) x', rest)
+        item     = item_m.group(1).strip() if item_m else None
         trains[name].append({
             "from": m.group(2).strip(), "to": m.group(3).strip(),
             "dur": int(m.group(4)), "wagons": int(m.group(5)),
-            "item": m.group(6), "qty": qty,
+            "item": item, "qty": qty,
         })
 
     results = []
@@ -667,26 +691,61 @@ def get_perf_trains():
         n = len(trips)
         if n < 2:
             continue
-        avg_dur  = sum(t["dur"] for t in trips) / n
-        with_qty = [t for t in trips if t["qty"] > 0]
-        avg_qty  = sum(t["qty"] for t in with_qty) / len(with_qty) if with_qty else 0
-        avg_wag  = sum(t["wagons"] for t in trips) / n
-        lpw      = avg_qty / avg_wag if avg_wag > 0 else 0
-        empty_r  = sum(1 for t in trips if t["qty"] == 0) / n
-        stations = sorted(set(t["from"] for t in trips) | set(t["to"] for t in trips))
+        avg_dur   = sum(t["dur"] for t in trips) / n
+        with_qty  = [t for t in trips if t["qty"] > 0]
+        avg_qty   = sum(t["qty"] for t in with_qty) / len(with_qty) if with_qty else 0
+        avg_wag   = sum(t["wagons"] for t in trips) / n
+        lpw       = avg_qty / avg_wag if avg_wag > 0 else 0
+        empty_r   = sum(1 for t in trips if t["qty"] == 0) / n
+        stations  = sorted(set(t["from"] for t in trips) | set(t["to"] for t in trips))
         last_item = with_qty[-1]["item"] if with_qty else None
 
-        score  = empty_r * 50 + (n / 40) * 20
-        if avg_qty > 0 and lpw < 2000:
-            score += (1 - lpw / 2000) * 30
+        # Taux de livraison : compare charge aller vs retour (trains 2 gares uniquement)
+        # Delivery rate: compare outbound vs return load (2-station trains only)
+        # Si le retour est aussi chargé que l'aller → destination n'a jamais consommé
+        # If return is as loaded as outbound → destination never consumed the goods
+        delivery_rate = None
+        loaded_avg    = None
+        delivered_avg = None
+        if len(stations) == 2:
+            by_dir = defaultdict(list)
+            for t in trips:
+                by_dir[t["from"] + "->" + t["to"]].append(t["qty"])
+            if len(by_dir) == 2:
+                dir_avgs = {seg: sum(q) / len(q) for seg, q in by_dir.items()}
+                heavy = max(dir_avgs.values())
+                light = min(dir_avgs.values())
+                if heavy > 0:
+                    delivery_rate = round((1.0 - light / heavy) * 100)
+                    loaded_avg    = round(heavy)
+                    delivered_avg = round(heavy - light)
 
-        # Verdict
+        # Score d'inutilité / Uselessness score
+        score = empty_r * 60 + min(n, 40) / 40 * 10
+        # Pénalité lpw uniquement si des trajets vides existent / lpw penalty only if some empty trips
+        if empty_r > 0 and avg_qty > 0 and lpw < 2000:
+            score += (1 - lpw / 2000) * 30
+        # Pénalité livraison : destination ne consomme pas / Delivery penalty: destination not consuming
+        if delivery_rate is not None and delivery_rate < 70:
+            score += (1 - delivery_rate / 100) * 30
+
+        # Candidat DISPATCH : livraison mauvaise mais train pas vide → buffer plein
+        # DISPATCH candidate: poor delivery but train not empty → full buffer
+        dispatch_candidate = (delivery_rate is not None and delivery_rate < 50 and empty_r < 0.3)
+
+        # Verdict — priorité: livraison > vides > charge / Priority: delivery > empty > load
         if empty_r == 1.0:
             verdict = "critical"
             label   = "100% vides"
+        elif delivery_rate is not None and delivery_rate < 25:
+            verdict = "critical"
+            label   = f"Jamais vidé à dest. ({delivery_rate}% livré)"
         elif empty_r >= 0.4:
             verdict = "warning"
             label   = f"{empty_r*100:.0f}% vides"
+        elif delivery_rate is not None and delivery_rate < 60:
+            verdict = "warning"
+            label   = f"Peu livré ({delivery_rate}%)"
         elif lpw < 300 and avg_qty > 0:
             verdict = "warning"
             label   = f"Très sous-chargé ({lpw:.0f} items/wagon)"
@@ -704,20 +763,22 @@ def get_perf_trains():
             "wagons": round(avg_wag), "stations": stations,
             "item": last_item, "score": round(score, 1),
             "verdict": verdict, "label": label,
+            "delivery_rate":   delivery_rate,
+            "loaded_avg":      loaded_avg,
+            "delivered_avg":   delivered_avg,
+            "dispatch_candidate": dispatch_candidate,
         })
 
     results.sort(key=lambda x: -x["score"])
     period_from = entries[0]["ts"]  if entries else "—"
     period_to   = entries[-1]["ts"] if entries else "—"
 
-    # Durée réelle couverte par les entrées
     duration_min = None
     try:
-        from datetime import datetime
-        fmt = "%d/%m %H:%M:%S"
-        t0 = datetime.strptime(period_from, fmt)
-        t1 = datetime.strptime(period_to,   fmt)
-        duration_min = round((t1 - t0).total_seconds() / 60)
+        t0 = _parse_log_ts(period_from)
+        t1 = _parse_log_ts(period_to)
+        if t0 and t1:
+            duration_min = round((t1 - t0).total_seconds() / 60)
     except Exception:
         pass
 

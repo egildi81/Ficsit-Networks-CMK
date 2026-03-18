@@ -1,4 +1,4 @@
-const VERSION = "1.5.0";
+const VERSION = "1.6.0";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -282,7 +282,7 @@ function toArr(v) { return Array.isArray(v) ? v : []; }
 
 // ── Check Perf ───────────────────────────────────────────────
 // ~100 entrées/min tous tags confondus (mesuré en production)
-const PERF_ENTRIES_PER_MIN = 100;
+// Fenêtre Check Perf filtrée par horodatage côté serveur / Time window filtered server-side by timestamp
 
 function openCheckPerf() {
     document.getElementById('perf-modal').classList.add('open');
@@ -293,9 +293,8 @@ async function loadCheckPerf(minutes, btn) {
     document.querySelectorAll('.perf-range-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     document.getElementById('perf-body').innerHTML = 'Chargement…';
-    const limit = Math.min(Math.ceil(minutes * PERF_ENTRIES_PER_MIN), 8000);
     try {
-        const r = await fetch(`/api/perf/trains?limit=${limit}&minutes=${minutes}`);
+        const r = await fetch(`/api/perf/trains?minutes=${minutes}`);
         const d = await r.json();
         document.getElementById('perf-body').innerHTML = renderCheckPerf(d, minutes);
     } catch(e) {
@@ -322,13 +321,28 @@ function renderCheckPerf(d, minutes) {
         const c  = VERDICT_COLOR[t.verdict] || '#888';
         const ic = VERDICT_ICON[t.verdict]  || '⚪';
         const stations = t.stations.join(' ↔ ');
+
+        // Ligne livraison si disponible et problématique / Delivery line if available and problematic
+        const hasDelivery = t.delivery_rate !== null && t.delivery_rate !== undefined;
+        const deliveryHtml = (hasDelivery && t.delivery_rate < 80) ? `
+            <div style="font-size:0.72em;margin-top:3px">
+                <span style="color:#555">chargé </span><span style="color:#aaa">${t.loaded_avg}</span>
+                <span style="color:#555"> → livré </span>
+                <span style="color:${t.delivery_rate < 25 ? '#f44' : '#fa0'}">${t.delivered_avg} (${t.delivery_rate}%)</span>
+            </div>` : '';
+
+        const dispatchHtml = t.dispatch_candidate
+            ? `<span style="color:#00cccc;font-size:0.68em;font-weight:600;margin-left:6px">🎯 Candidat DISPATCH</span>`
+            : '';
+
         html += `
         <div style="margin-bottom:10px;border-left:3px solid ${c};padding-left:10px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
                 <span style="color:#555;font-size:0.7em;font-weight:700">#${i+1}</span>
                 <span style="color:#ddd;font-size:0.85em;font-weight:700">${esc(t.name)}</span>
                 <span style="font-size:0.75em">${ic}</span>
                 <span style="color:${c};font-size:0.72em;font-weight:600">${esc(t.label)}</span>
+                ${dispatchHtml}
             </div>
             <div style="color:#555;font-size:0.72em;font-family:monospace;margin-bottom:2px">
                 ${esc(stations)}
@@ -340,6 +354,7 @@ function renderCheckPerf(d, minutes) {
                 <span>${t.empty_pct}% vides</span>
                 ${t.item ? `<span style="color:#555">${esc(t.item)}</span>` : ''}
             </div>
+            ${deliveryHtml}
         </div>`;
     }
     return html;
