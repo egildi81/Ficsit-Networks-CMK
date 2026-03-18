@@ -1,4 +1,4 @@
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -207,7 +207,7 @@ def receive_push():
         _dispatch_status["server_ts"] = time.time()
     new_logs = body.get("logs") or []
     if new_logs:
-        ts = datetime.now(timezone.utc).strftime("%d/%m %H:%M:%S")
+        ts = datetime.now().strftime("%d/%m %H:%M:%S")
         parsed = [{"ts": ts, "tag": str(e.get("tag", "?")), "msg": str(e.get("msg", ""))} for e in new_logs]
         _log_ring.extend(parsed)
         _log_total_ever += len(parsed)
