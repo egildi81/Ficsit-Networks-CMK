@@ -1,4 +1,4 @@
-const VERSION = "1.6.1";
+const VERSION = "1.6.2";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -1347,10 +1347,26 @@ function _dpUpdateLists(data) {
             if (t.name)    _dpKnownTrains.add(t.name);
         });
     }
-    // Source autoritaire : nicks containers reçus du dernier push CENTRAL
-    // Authoritative source: container nicks from last CENTRAL push (rebuilt from scratch — no stale entries)
-    if (Array.isArray(data.known_buffer_nicks) && data.known_buffer_nicks.length > 0) {
-        _dpKnownBuffers = new Map(data.known_buffer_nicks.map(n => [n, n]));
+    // Rebuild complet du datalist buffers à chaque update (pas d'accumulation)
+    // Full rebuild of buffer datalist on each update (no stale accumulation)
+    const newBufMap = new Map();
+    // 1. Containers CENTRAL (nicks physiques des conteneurs) / CENTRAL containers (physical container nicks)
+    if (Array.isArray(data.known_buffer_nicks)) {
+        data.known_buffer_nicks.forEach(n => newBufMap.set(n, n));
+    }
+    // 2. Zones configurées (zones logiques STOCKAGE) / Configured zones (logical STOCKAGE zones)
+    const zc = data.stockage_zone_config;
+    if (zc && Array.isArray(zc.zones)) {
+        zc.zones.forEach(z => {
+            if (!z.name) return;
+            newBufMap.set(z.name, z.name);
+            if (z.subzones) z.subzones.forEach(sz => {
+                if (sz.name) { const lbl = `(${z.name}) ${sz.name}`; newBufMap.set(lbl, lbl); }
+            });
+        });
+    }
+    if (newBufMap.size > 0) {
+        _dpKnownBuffers = newBufMap;
         const dlBuf = document.getElementById('dp-dl-buffers');
         if (dlBuf) {
             dlBuf.innerHTML = '';
