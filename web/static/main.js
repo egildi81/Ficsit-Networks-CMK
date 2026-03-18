@@ -1,4 +1,4 @@
-const VERSION = "1.7.16";
+const VERSION = "1.7.17";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2307,17 +2307,12 @@ function renderFactory(fac) {
         const outTotal   = machines.reduce((s, m) => s + (m.outputItems || []).reduce((a, i) => a + (i.count || 0), 0), 0);
 
         return `<div class="fac-recipe-group">
-            <div class="fac-recipe-header">
+            <div class="fac-card-header">
                 <span class="fac-recipe-name">${esc(recipe)}</span>
-                <span class="fac-recipe-count">${machines.length} mach.</span>
-                <span style="color:${prodColor};font-size:0.75em;font-weight:700">${avgProd.toFixed(0)}%</span>
+                <span class="fac-card-pct" style="color:${prodColor}">${avgProd.toFixed(0)}%</span>
             </div>
-            <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(avgProd,100)}%;background:${prodColor}"></div></div>
-            <div class="fac-recipe-bottom">
-                <span title="Total items entrée"><img src="/static/img/IN.png" class="fac-icon"> ${inTotal}</span>
-                <span title="Total items sortie"><img src="/static/img/OUT.png" class="fac-icon"> ${outTotal}</span>
-                <span title="Consommation totale"><img src="/static/img/POWER.png" class="fac-icon"> ${totalPow.toFixed(1)} MW</span>
-            </div>
+            <div class="fac-bar-bg"><div class="fac-bar" style="width:${Math.min(avgProd,100)}%;background:${prodColor}"></div></div>
+            <div class="fac-card-meta">${machines.length} mach. &nbsp;·&nbsp; <img src="/static/img/IN.png" class="fac-icon"> ${inTotal} &nbsp;·&nbsp; <img src="/static/img/OUT.png" class="fac-icon"> ${outTotal} &nbsp;·&nbsp; <img src="/static/img/POWER.png" class="fac-icon"> ${totalPow.toFixed(1)} MW</div>
         </div>`;
     }
 

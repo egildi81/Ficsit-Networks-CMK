@@ -623,15 +623,17 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .fac-subzone-info-header { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: #0d0d0d; }
 .fac-subzone-info-name { color: #99ff00; opacity: 0.7; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; }
 
-/* ── Groupes recette (vue agrégée) ── */
-.fac-recipe-list { padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; }
-.fac-recipe-group { background: #0c0c0c; border: 1px solid #1a1a1a; border-radius: 4px; padding: 7px 10px; }
-.fac-recipe-off { opacity: 0.55; }
-.fac-recipe-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.fac-recipe-name { color: #ddd; font-size: 0.8em; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fac-recipe-count { color: #999; font-size: 0.68em; white-space: nowrap; flex-shrink: 0; }
-.fac-off-badge { background: #1a1a1a; color: #888; font-size: 0.65em; font-weight: 700; padding: 1px 6px; border-radius: 3px; letter-spacing: 1px; flex-shrink: 0; }
-.fac-recipe-bottom { display: flex; align-items: center; gap: 10px; font-size: 0.72em; color: #bbb; margin-top: 5px; }
+/* ── Groupes recette (vue agrégée — pattern STOCKAGE) ── */
+.fac-recipe-list  { padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+.fac-recipe-group { background: #0c0c0c; border: 1px solid #1a1a1a; border-radius: 4px; padding: 10px 12px; }
+.fac-recipe-off   { opacity: 0.55; }
+.fac-recipe-name  { color: #ddd; font-size: 0.82em; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-off-badge    { background: #1a1a1a; color: #888; font-size: 0.65em; font-weight: 700; padding: 1px 6px; border-radius: 3px; letter-spacing: 1px; flex-shrink: 0; }
+.fac-card-header  { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.fac-card-pct     { font-size: 1.3em; font-weight: 700; flex-shrink: 0; }
+.fac-bar-bg       { background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; margin: 0 0 8px; }
+.fac-bar          { height: 100%; border-radius: 3px; transition: width .5s; }
+.fac-card-meta    { color: #bbb; font-size: 0.74em; }
 .fac-detail-btn { margin-left: auto; background: #1a1a1a; border: 1px solid #2a2a2a; color: #999; border-radius: 4px; padding: 2px 10px; font-size: 0.72em; cursor: pointer; flex-shrink: 0; }
 .fac-detail-btn:hover { color: #99ff00; border-color: #99ff00; }
 .fac-icon { height: 11px; width: 11px; object-fit: contain; vertical-align: -2px; opacity: 0.85; }
