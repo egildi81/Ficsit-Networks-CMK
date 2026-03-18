@@ -17,7 +17,7 @@ const LOG_TAG_COLORS = {
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
     STARTER:     '#cc2222',
-    FAC_CENTRAL: '#99ff00',
+    FAC_CENTRAL: '#ff00bf',
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';
@@ -1864,7 +1864,7 @@ function _appendLogEntries(entries) {
     entries.forEach(e => {
         const col = LOG_TAG_COLORS[e.tag]
             || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : null)
-            || (e.tag && e.tag.startsWith('FAC:') ? '#ff7a50' : null)
+            || (e.tag && e.tag.startsWith('FAC:') ? '#8080ff' : null)
             || '#888';
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
