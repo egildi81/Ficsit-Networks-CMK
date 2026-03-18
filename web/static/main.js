@@ -1,4 +1,4 @@
-const VERSION = "1.7.19";
+const VERSION = "1.7.20";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2395,7 +2395,6 @@ function renderFactory(fac) {
                 <span class="fac-subzone-info-name">${esc(name)}</span>
                 <span class="fac-sz-pct" style="color:${st.color}">${st.avg}%</span>
             </div>
-            <div class="fac-sz-bar-bg"><div class="fac-sz-bar" style="width:${Math.min(st.avg,100)}%;background:${st.color}"></div></div>
             <div class="fac-recipe-list">${sectionHtml(nicks, false)}</div>
         </div>`;
     }
