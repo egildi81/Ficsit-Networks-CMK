@@ -631,15 +631,15 @@ def get_perf_trains():
     for e in entries:
         if e.get("tag") != "LOGGER":
             continue
-        m = re.search(r"LOG: (.+?) (IN|OUT) (.+?)->(.+?) d=(\d+)s wagons=(\d+)(?:\s*\|\s*(.+?) x(\d+))?", e["msg"])
+        m = re.search(r"LOG: (.+?)§(.+?)->(.+?) d=(\d+)s wagons=(\d+)(?:\s*\|\s*(.+?) x(\d+))?", e["msg"])
         if not m:
             continue
         name = m.group(1).strip()
-        qty  = int(m.group(8)) if m.group(8) else 0
+        qty  = int(m.group(7)) if m.group(7) else 0
         trains[name].append({
-            "dir": m.group(2), "from": m.group(3).strip(), "to": m.group(4).strip(),
-            "dur": int(m.group(5)), "wagons": int(m.group(6)),
-            "item": m.group(7), "qty": qty,
+            "from": m.group(2).strip(), "to": m.group(3).strip(),
+            "dur": int(m.group(4)), "wagons": int(m.group(5)),
+            "item": m.group(6), "qty": qty,
         })
 
     results = []
