@@ -270,6 +270,7 @@ def stockage_central_push():
                 continue
             new_version = sat.get("version", "?")
             _satellite_versions[addr] = {
+                "addr":      addr,
                 "nick":      sat.get("nick", "?"),
                 "version":   new_version,
                 "server_ts": time.time(),
@@ -367,7 +368,9 @@ def satellite_reboot():
     body = request.get_json(silent=True)
     if not body or not body.get("addrs"):
         return jsonify({"error": "addrs manquant"}), 400
-    addrs = body["addrs"]
+    addrs = [a for a in body["addrs"] if a and isinstance(a, str)]  # filtre null/undefined / filter null/undefined
+    if not addrs:
+        return jsonify({"error": "Aucun addr valide"}), 400
     entries = []
     for addr in addrs:
         info = _satellite_versions.get(addr, {})
