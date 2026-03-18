@@ -2,7 +2,7 @@ const VERSION = "1.6.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
-const _dispatchPages = ['page-dispatch', 'page-dispatch-config'];
+const _dispatchPages = ['page-dispatch', 'page-dispatch-config', 'page-dispatch-live2'];
 const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-dispatch-config', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
@@ -59,10 +59,13 @@ function switchSection(name, btn) {
 function switchDispatchTab(name, btn) {
     _dispatchPages.forEach(id => document.getElementById(id).classList.remove('active'));
     document.querySelectorAll('#dispatch-tabs .tab').forEach(t => t.classList.remove('active'));
-    _lastDispatchPage = name === 'live' ? 'page-dispatch' : 'page-dispatch-config';
+    _lastDispatchPage = name === 'live' ? 'page-dispatch'
+                      : name === 'live2' ? 'page-dispatch-live2'
+                      : 'page-dispatch-config';
     document.getElementById(_lastDispatchPage).classList.add('active');
     btn.classList.add('active');
     if (name === 'config') renderDispatch2();
+    if (name === 'live2')  _dp2RenderLive();
 }
 
 // ── Navigation onglets (sous STOCKAGE) ────────────────────────
@@ -1429,15 +1432,16 @@ function renderDispatch(dispatch, routesConfig) {
     // Ne pas toucher la config ni re-rendre si éditeur ouvert (évite d'écraser les saisies en cours)
     // Do not update config or re-render if editor is open (prevents overwriting in-progress edits)
     if (_dpEditingIndex >= 0) return;
-    // Met à jour si le serveur a des données, OU si on n'a encore rien chargé (premier poll)
-    // Update if server has data, OR if we haven't loaded anything yet (first poll)
-    if (Array.isArray(routesConfig) && (routesConfig.length > 0 || _dpRoutesConfig.length === 0)) {
-        _dpRoutesConfig = routesConfig;
+    // Ne pas écraser la config si dp2 a une sélection active (évite de perdre les modifs en cours)
+    // Don't overwrite config if dp2 has an active selection (avoids losing in-progress edits)
+    if (_dp2SelectedIndex < 0) {
+        if (Array.isArray(routesConfig) && (routesConfig.length > 0 || _dpRoutesConfig.length === 0)) {
+            _dpRoutesConfig = routesConfig;
+        }
     }
     renderDpRoutes();
-    // Mettre à jour la liste dp2 si l'onglet config est actif (sans toucher le formulaire)
-    // Update dp2 list if config tab is active (without overwriting the form)
-    if (_lastDispatchPage === 'page-dispatch-config') _dp2RenderList();
+    // Mise à jour live2 si actif / Update live2 if active
+    if (_lastDispatchPage === 'page-dispatch-live2') _dp2RenderLive();
 }
 
 function renderDpRoutes() {
@@ -1740,11 +1744,9 @@ function dp2SaveRoute() {
     r.maxEnRoute = +(document.getElementById('dp2-f-max')?.value || 1);
     const trainsRaw = (document.getElementById('dp2-f-trains')?.value || '').trim();
     r.trains     = trainsRaw ? trainsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
-    r.enabled    = document.getElementById('dp2-f-enabled')?.checked !== false;
+    r.enabled    = !!(document.getElementById('dp2-f-enabled')?.checked);
     _dp2RenderList();
-    dpSaveRoutes(true);
-    const st = document.getElementById('dp2-save-status');
-    if (st) { st.textContent = 'Sauvegarde...'; }
+    _dp2SaveConfig();
 }
 
 function dp2DeleteRoute() {
@@ -1754,7 +1756,91 @@ function dp2DeleteRoute() {
     _dpRoutesConfig.splice(i, 1);
     _dp2SelectedIndex = _dpRoutesConfig.length > 0 ? Math.min(i, _dpRoutesConfig.length - 1) : -1;
     renderDispatch2();
-    dpSaveRoutes(true);
+    _dp2SaveConfig();
+}
+
+async function _dp2SaveConfig() {
+    // Sauvegarde directe sans guard hasContent — gère aussi tableaux vides (delete all)
+    // Direct save without hasContent guard — handles empty arrays too (delete all)
+    const st = document.getElementById('dp2-save-status');
+    if (st) st.textContent = 'Sauvegarde...';
+    try {
+        const resp = await fetch('/api/dispatch/routes', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(_dpRoutesConfig),
+        });
+        const d = await resp.json();
+        if (st) st.textContent = d.status === 'ok' ? `✓ ${d.count} route(s)` : '✗ Erreur serveur';
+        setTimeout(() => { const s = document.getElementById('dp2-save-status'); if (s) s.textContent = ''; }, 3000);
+        if (d.status === 'ok') setTimeout(() => sendDispatchCmd('reload', null, null), 800);
+    } catch(e) {
+        if (st) st.textContent = '✗ Erreur réseau';
+    }
+}
+
+// ── DISPATCH LIVE 2 — vue cards ──────────────────────────────
+function _dp2RenderLive() {
+    const el = document.getElementById('dp2-live-grid');
+    if (!el) return;
+    if (_dpRoutesConfig.length === 0) {
+        el.innerHTML = '<div style="color:#444;font-size:0.82em;padding:20px">Aucune route configurée.</div>';
+        return;
+    }
+    el.innerHTML = _dpRoutesConfig.map(r => {
+        const live    = _dpLiveRoutes && _dpLiveRoutes.find(lr => lr.name === r.name);
+        const enabled = r.enabled !== false;
+        const badge   = live
+            ? `<span class="dp-badge ok" style="font-size:0.65em;padding:1px 7px">● Live</span>`
+            : `<span class="dp-badge warn" style="font-size:0.65em;padding:1px 7px">⏳</span>`;
+        const disTag  = !enabled ? `<span class="dp2-off-tag" style="margin-left:4px">OFF</span>` : '';
+
+        let statsHtml = '';
+        if (live) {
+            const enRoute = live.enRoute || 0;
+            const max     = live.maxEnRoute || r.maxEnRoute || 1;
+            const pct     = Math.round(enRoute / max * 100);
+            const barCls  = enRoute >= max ? 'full' : enRoute > 0 ? 'partial' : '';
+            statsHtml = `
+            <div class="dp2c-stats">
+                <div class="dp2c-stat"><span class="dp2c-sl">ETA</span> <span class="dp2c-sv">${Math.round(live.eta?.avg||0)}s <span style="color:#555">±${Math.round(live.eta?.sigma||0)}s</span></span></div>
+                <div class="dp2c-stat"><span class="dp2c-sl">buf</span> <span class="dp2c-sv">${live.buffer?.items||0}</span> <span class="dp2c-sl">drain</span> <span class="dp2c-sv">${(live.buffer?.drain||0).toFixed(2)}/s</span></div>
+                <div class="dp2c-stat dp2c-enroute">
+                    <span class="dp2c-sl">en route</span>
+                    <span class="dp2c-sv ${barCls}">${enRoute}/${max}</span>
+                    <div class="dp2c-bar-bg"><div class="dp2c-bar ${barCls}" style="width:${pct}%"></div></div>
+                </div>
+            </div>`;
+        } else {
+            statsHtml = `<div class="dp2c-offline-meta">${esc(r.park||'?')} → ${esc(r.delivery||'?')}<br><span style="color:#3a3a3a">buf: ${esc(r.buffer||'?')}</span></div>`;
+        }
+
+        const trainsHtml = live ? toArr(live.trains).map(st => {
+            const phase   = st.phase || '?';
+            const pCls    = phase==='PARK'?'park':phase==='EN_ROUTE'?'route':phase==='DELIVERY'?'delivery':'unknown';
+            const dec     = st.decision==='go'?'Go':st.decision==='hold'?'Hold':'Idle';
+            const dCls    = st.decision==='go'?'dec-go':st.decision==='hold'?'dec-hold':'dec-idle';
+            return `<div class="dp2c-train">
+                <span class="dp2c-tname">${esc(st.name)}</span>
+                <span class="dp-train-phase ${pCls}" style="font-size:0.67em">${phase}</span>
+                <span class="dp-train-decision ${dCls}" style="font-size:0.7em;min-width:28px">${dec}</span>
+                <div class="dp-btns" style="margin-left:auto">
+                    <button class="dp-btn go"   onclick="sendDispatchCmd('force_go','${esc(st.name)}','${esc(r.name)}')">GO</button>
+                    <button class="dp-btn hold" onclick="sendDispatchCmd('force_hold','${esc(st.name)}','${esc(r.name)}')">HOLD</button>
+                    <button class="dp-btn rec"  onclick="sendDispatchCmd('recovery','${esc(st.name)}','${esc(r.name)}')">REC</button>
+                </div>
+            </div>`;
+        }).join('') : '';
+
+        return `<div class="dp2c-card">
+            <div class="dp2c-header">
+                <span class="dp2c-name">${esc(r.name||'(sans nom)')}</span>
+                ${badge}${disTag}
+            </div>
+            ${statsHtml}
+            ${trainsHtml ? `<div class="dp2c-trains">${trainsHtml}</div>` : ''}
+        </div>`;
+    }).join('');
 }
 
 // ── Cache window.innerWidth (mis à jour sur resize uniquement) ──

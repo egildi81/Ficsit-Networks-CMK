@@ -464,6 +464,28 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 .dp-save-btn:hover { background: rgba(0,170,204,0.22); }
 
+/* ── DISPATCH LIVE 2 — Cards ── */
+.dp2-live-grid { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 0; align-items: flex-start; }
+.dp2c-card { background: #111; border: 1px solid #1a1a1a; border-radius: 8px; width: 270px; overflow: hidden; flex-shrink: 0; }
+.dp2c-header { background: #090d0f; border-bottom: 2px solid #00aacc; padding: 8px 12px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dp2c-name { color: #00aacc; font-size: 0.8em; font-weight: 700; letter-spacing: 1px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp2c-stats { padding: 8px 12px 6px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid #161616; }
+.dp2c-stat { display: flex; align-items: center; gap: 5px; font-size: 0.72em; flex-wrap: wrap; }
+.dp2c-sl { color: #555; }
+.dp2c-sv { color: #bbb; font-weight: 600; }
+.dp2c-enroute { gap: 5px; }
+.dp2c-sv.full    { color: #33cc55; }
+.dp2c-sv.partial { color: #ff8800; }
+.dp2c-bar-bg { flex: 1; background: #1a1a1a; height: 3px; border-radius: 2px; overflow: hidden; min-width: 40px; }
+.dp2c-bar { height: 100%; border-radius: 2px; background: #555; transition: width .3s; }
+.dp2c-bar.partial { background: #ff8800; }
+.dp2c-bar.full    { background: #33cc55; }
+.dp2c-offline-meta { padding: 10px 12px; color: #444; font-size: 0.74em; line-height: 1.7; }
+.dp2c-trains { border-top: 1px solid #161616; }
+.dp2c-train { padding: 5px 10px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid #141414; flex-wrap: nowrap; }
+.dp2c-train:last-child { border-bottom: none; }
+.dp2c-tname { color: #ddd; font-size: 0.78em; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
 /* ── DISPATCH 2 — Configurateur deux panneaux ── */
 .dp2-layout { display: flex; height: calc(100vh - 88px); overflow: hidden; }
 .dp2-left { width: 240px; flex-shrink: 0; background: #111; border-right: 1px solid #1e1e1e; display: flex; flex-direction: column; overflow: hidden; }
