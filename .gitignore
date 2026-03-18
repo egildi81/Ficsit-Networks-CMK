@@ -2,9 +2,13 @@
 # Config lié à l'utisateur
 api/api_keys.json
 web/config.py
+Utils/config.ini
 
 # Préférence de l'utilisateur
 web/stockage_order.json
+
+# Donnée de l'utilisateur
+web/logs/fin_logs.jsonl
 
 # Python
 *__pycache__*
@@ -12,3 +16,8 @@ web/stockage_order.json
 # Edition Egild
 .codex/*
 Documentation/*
+
+
+# EN COURS
+Tutorial/FinCmk/readme.md
+

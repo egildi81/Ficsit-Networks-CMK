@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Update each lua file with personal custom address read from Utils/config.ini
+# Usage : ./Utils/replace_web_url.sh
+
+set -euo pipefail
+
+# Two patterns handled:
+# 1) local WEB_URL = "http://127.0.0.1:8081"
+# 2) local WEB_URL="http://127.0.0.1:8081"
+PATTERNS=(
+  'local[[:space:]]+WEB_URL[[:space:]]*=[[:space:]]*"http://127\.0\.0\.1:8081"'
+  'local[[:space:]]+WEB_URL="http://127\.0\.0\.1:8081"'
+)
+
+# Work from repo root (script lives in Utils/).
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+CONFIG_FILE="$ROOT_DIR/Utils/config.ini"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "Config file not found ($CONFIG_FILE). Nothing to do."
+  exit 0
+fi
+
+# Read WEB_URL value from config.ini (expected line: WEB_URL=https://example.tld)
+TARGET_URL="$(awk -F= '/^[[:space:]]*WEB_URL[[:space:]]*=/ {val=$0; sub(/^[[:space:]]*WEB_URL[[:space:]]*=[[:space:]]*/, "", val); gsub(/^[[:space:]]+|[[:space:]]+$/, "", val); if (val != "") {print val; exit}}' "$CONFIG_FILE")"
+if [[ -z "$TARGET_URL" ]]; then
+  echo "WEB_URL not set in $CONFIG_FILE. Nothing to do."
+  exit 0
+fi
+
+REPLACEMENT="local WEB_URL = \"$TARGET_URL\""
+
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+
+declare -A seen
+files=()
+
+collect_matches() {
+  local pat="$1"
+  if command -v rg >/dev/null 2>&1; then
+    while IFS= read -r -d '' file; do
+      if [[ -z ${seen["$file"]+x} ]]; then
+        files+=("$file")
+        seen["$file"]=1
+      fi
+    done < <(rg --hidden --no-ignore --glob '!.git/*' -0 -l "$pat" || true)
+  else
+    while IFS= read -r -d '' file; do
+      if [[ -z ${seen["$file"]+x} ]]; then
+        files+=("$file")
+        seen["$file"]=1
+      fi
+    done < <(find . -path ./.git -prune -o -type f -print0 | xargs -0 grep -Z -l -E "$pat" || true)
+  fi
+}
+
+for pat in "${PATTERNS[@]}"; do
+  collect_matches "$pat"
+done
+
+if ((${#files[@]} == 0)); then
+  echo "No files to update."
+  exit 0
+fi
+
+printf 'Updating %d file(s):\n' "${#files[@]}"
+for f in "${files[@]}"; do
+  # Avoid rewriting this helper script itself.
+  if [[ "$(realpath "$f")" == "$SCRIPT_PATH" ]]; then
+    echo " - $f (skipped: helper script)"
+    continue
+  fi
+  echo " - $f"
+  for pat in "${PATTERNS[@]}"; do
+    perl -0777 -pi -e "s#${pat}#\\Q${REPLACEMENT}\\E#g" "$f"
+  done
+done
+
+echo "Done."
