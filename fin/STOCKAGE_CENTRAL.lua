@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.6"
+local VERSION = "1.1.7"
 
 -- === CONFIGURATION ===
 local WEB_URL          = "http://127.0.0.1:8081"
@@ -29,7 +29,7 @@ local PORT_SHUTDOWN = 50
 local PORT_DISPATCH = 55
 local PORT_SAT_DATA = 56
 local PORT_SAT_DISC = 57
-local PORT_BUF      = 69  -- broadcast BUF: vers DISPATCH / broadcast BUF: to DISPATCH
+local PORT_BUF      = 69  -- point-à-point BUF: vers DISPATCH / point-to-point BUF: to DISPATCH
 
 -- === INIT MATÉRIEL / HARDWARE INIT ===
 local net  = computer.getPCIDevices(classes.NetworkCard)[1]
@@ -289,17 +289,69 @@ local function pushDiscovery(satNick, satAddr, containerNicks)
     pcall(function() f:await() end)
 end
 
--- === BROADCAST BUF: VERS DISPATCH (port 69) ===
--- Rediffuse les données de chaque conteneur au format BUF: compris par DISPATCH.
--- Re-broadcasts each container's data in BUF: format understood by DISPATCH.
-local function broadcastBufToDispatch(containers)
-    for _, c in ipairs(containers or {}) do
-        if c.nick then
-            local msg = "BUF:"..c.nick..":"..tostring(c.totalItems or 0)
-                        ..":"..tostring(c.slotsTotal or 0)
-                        ..":"..tostring(c.slotsUsed or 0)
-            pcall(function() net:broadcast(PORT_BUF, msg) end)
+-- === MAPPING CONTENEUR → ZONE (depuis zone config WEB) ===
+-- Chaque sous-zone assigne ses conteneurs → DISPATCH peut lire par nom de zone.
+-- Each subzone assigns its containers → DISPATCH can read by zone name.
+local containerToZone = {}  -- {[nick] = "zoneKey"} ex: "(OIL'S CLUB) IN CHARBON COMPACT"
+local ZONE_CONFIG_INTERVAL = 60  -- secondes / seconds
+local lastZoneConfigFetch  = -(ZONE_CONFIG_INTERVAL * 1000)  -- forcer fetch au boot / force fetch at boot
+
+local function fetchZoneConfig()
+    local ok, f = pcall(function()
+        return inet:request(WEB_URL.."/api/stockage/zone-config.lua", "GET", "")
+    end)
+    if not ok then return end
+    local ok2, code, body = pcall(function() return f:await() end)
+    if not ok2 or code ~= 200 or not body or body == "nil" then return end
+    local ok3, cfg = pcall(function() return (load("return "..body))() end)
+    if not ok3 or type(cfg) ~= "table" then return end
+    local newMap = {}
+    local total = 0
+    for _, z in ipairs(cfg.zones or {}) do
+        local zname = z.name or ""
+        -- Conteneurs directement dans la zone / Containers directly in the zone
+        for _, nick in ipairs(z.containers or {}) do
+            newMap[nick] = zname; total = total + 1
         end
+        -- Conteneurs dans les sous-zones / Containers in subzones
+        for _, sz in ipairs(z.subzones or {}) do
+            local key = "("..zname..") "..(sz.name or "")
+            for _, nick in ipairs(sz.containers or {}) do
+                newMap[nick] = key; total = total + 1
+            end
+        end
+    end
+    containerToZone = newMap
+    if total > 0 then
+        print("ZoneConfig: "..total.." conteneur(s) mappé(s)")
+    end
+end
+
+-- === ENVOI BUF: VERS DISPATCH (point-à-point port 69) ===
+-- Agrège les conteneurs par zone et envoie les totaux à DISPATCH.
+-- Aggregates containers by zone and sends totals to DISPATCH.
+local function sendZoneBufToDispatch()
+    if not dispatchAddr then return end
+    if next(containerToZone) == nil then return end  -- pas de mapping / no mapping
+    local cutoff = computer.millis() - SAT_TIMEOUT * 1000
+    local totals = {}
+    for _, sat in pairs(satellites) do
+        if sat.data and sat.lastSeen and sat.lastSeen >= cutoff then
+            for _, c in ipairs(sat.data.containers or {}) do
+                local zkey = containerToZone[c.nick]
+                if zkey then
+                    if not totals[zkey] then totals[zkey] = {items=0, slotsTotal=0, slotsUsed=0} end
+                    totals[zkey].items      = totals[zkey].items      + (c.totalItems or 0)
+                    totals[zkey].slotsTotal = totals[zkey].slotsTotal + (c.slotsTotal or 0)
+                    totals[zkey].slotsUsed  = totals[zkey].slotsUsed  + (c.slotsUsed  or 0)
+                end
+            end
+        end
+    end
+    for zkey, t in pairs(totals) do
+        local msg = "BUF:"..zkey..":"..tostring(t.items)
+                    ..":"..tostring(t.slotsTotal)..":"..tostring(t.slotsUsed)
+        pcall(function() net:send(dispatchAddr, PORT_BUF, msg) end)
     end
 end
 
@@ -334,6 +386,13 @@ while true do
     if now - lastCmdPoll >= POLL_CMD_INTERVAL * 1000 then
         lastCmdPoll = computer.millis()
         pollCommand()
+    end
+
+    -- Fetch zone config périodique / Periodic zone config fetch
+    if now - lastZoneConfigFetch >= ZONE_CONFIG_INTERVAL * 1000 then
+        lastZoneConfigFetch = computer.millis()
+        fetchZoneConfig()
+        sendZoneBufToDispatch()
     end
 
     -- Push périodique vers LOGGER + web / Periodic push to LOGGER + web
@@ -401,9 +460,8 @@ while true do
                     satellites[sndr].lastSeen = computer.millis()
                     -- Stocker la version du satellite / Store satellite version
                     if data.version then satellites[sndr].version = data.version end
-                    -- Rediffuser vers DISPATCH : BUF:nick:items:slotsTotal:slotsUsed
-                    -- Re-broadcast to DISPATCH: BUF:nick:items:slotsTotal:slotsUsed
-                    broadcastBufToDispatch(data.containers)
+                    -- Envoyer totaux par zone à DISPATCH / Send zone totals to DISPATCH
+                    sendZoneBufToDispatch()
                 end
             else
                 -- Satellite inconnu : lui demander de se présenter / Unknown satellite: ask it to register

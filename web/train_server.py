@@ -1,4 +1,4 @@
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -293,6 +293,12 @@ def stockage_central_push():
 @app.route("/api/stockage/zone-config", methods=["GET"])
 def get_zone_config():
     return jsonify(_stockage_zone_config)
+
+
+@app.route("/api/stockage/zone-config.lua", methods=["GET"])
+def get_zone_config_lua():
+    """Retourne la zone config au format table Lua — pour STOCKAGE_CENTRAL (InternetCard)."""
+    return _to_lua(_stockage_zone_config), 200, {"Content-Type": "text/plain"}
 
 
 @app.route("/api/stockage/zone-config", methods=["POST"])
