@@ -639,9 +639,11 @@ def get_dispatch_report():
     # Broken buffer alerts: routes configured with a buffer not in stockage_zone_config
     valid_buffers = set()
     for z in (_stockage_zone_config.get("zones") or []):
-        if z.get("name"): valid_buffers.add(z["name"])
-        for sz in (z.get("subzones") or []):
-            if sz.get("name"): valid_buffers.add(f"({z['name']}) {sz['name']}")
+        if z.get("name"):
+            valid_buffers.add(z["name"])
+            if z.get("mainLabel"): valid_buffers.add(f"({z['name']}) {z['mainLabel']}")
+            for sz in (z.get("subzones") or []):
+                if sz.get("name"): valid_buffers.add(f"({z['name']}) {sz['name']}")
     buffer_alerts = []
     if valid_buffers:
         for route in _dispatch_routes:
