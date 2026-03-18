@@ -1383,6 +1383,8 @@ function _dpUpdateLists(data) {
             zc.zones.forEach(z => {
                 if (!z.name) return;
                 newBufMap.set(z.name, z.name);
+                // Groupe principal (mainLabel) — CENTRAL envoie BUF:(zone) mainLabel / main group — CENTRAL sends BUF:(zone) mainLabel
+                if (z.mainLabel) { const lbl = `(${z.name}) ${z.mainLabel}`; newBufMap.set(lbl, lbl); }
                 if (z.subzones) z.subzones.forEach(sz => {
                     if (sz.name) { const lbl = `(${z.name}) ${sz.name}`; newBufMap.set(lbl, lbl); }
                 });
