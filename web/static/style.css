@@ -616,6 +616,10 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 .fac-machine-bottom { display: flex; gap: 10px; font-size: 0.68em; color: #888; margin-top: 3px; }
 
+.fac-subzone-info { border-top: 1px solid #161616; }
+.fac-subzone-info-header { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: #0d0d0d; }
+.fac-subzone-info-name { color: #99ff00; opacity: 0.7; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; }
+
 /* ── Config USINE DnD ─────────────────────────────────────── */
 .fac-cfg-layout { display: flex; gap: 16px; align-items: flex-start; }
 .fac-cfg-pool { width: 210px; flex-shrink: 0; position: sticky; top: 88px; max-height: calc(100vh - 120px); overflow-y: auto; align-self: flex-start; scrollbar-width: thin; scrollbar-color: #2a2a2a #0d0d0d; }
