@@ -615,3 +615,41 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .fac-prod-bar    { height: 3px; border-radius: 2px; transition: width .4s; }
 
 .fac-machine-bottom { display: flex; gap: 10px; font-size: 0.68em; color: #888; margin-top: 3px; }
+
+/* ── Config USINE DnD ─────────────────────────────────────── */
+.fac-cfg-layout { display: flex; gap: 16px; align-items: flex-start; }
+.fac-cfg-pool { width: 210px; flex-shrink: 0; position: sticky; top: 88px; max-height: calc(100vh - 120px); overflow-y: auto; align-self: flex-start; scrollbar-width: thin; scrollbar-color: #2a2a2a #0d0d0d; }
+.fac-cfg-pool::-webkit-scrollbar { width: 4px; }
+.fac-cfg-pool::-webkit-scrollbar-track { background: #0d0d0d; }
+.fac-cfg-pool::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.fac-cfg-pool-title { color: #888; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+.fac-cfg-filter { display: block; width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; color: #bbb; font-size: 0.74em; padding: 5px 8px; outline: none; box-sizing: border-box; margin-bottom: 8px; }
+.fac-cfg-filter:focus { border-color: #99ff00; }
+.fac-cfg-filter::placeholder { color: #555; }
+.fac-cfg-zones { flex: 1; min-width: 0; }
+.fac-zone-cfg-card { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+.fac-zone-cfg-header { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #0c120c; border-bottom: 1px solid #1e1e1e; }
+.fac-zone-cfg-name { background: transparent; border: none; border-bottom: 1px solid transparent; color: #99ff00; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; outline: none; flex: 1; min-width: 80px; }
+.fac-zone-cfg-name:focus { border-bottom-color: #99ff00; }
+.fac-btn-collapse { background: none; border: none; color: #777; cursor: pointer; font-size: 0.8em; padding: 0 2px; flex-shrink: 0; line-height: 1; }
+.fac-btn-collapse:hover { color: #ccc; }
+.fac-subzone-cfg-card { border-top: 1px solid #1a1a1a; }
+.fac-subzone-cfg-header { display: flex; align-items: center; gap: 6px; padding: 5px 14px 0; }
+.fac-subzone-cfg-name { background: transparent; border: none; border-bottom: 1px solid transparent; color: #99ff00; opacity: 0.7; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; outline: none; flex: 1; min-width: 60px; }
+.fac-subzone-cfg-name:focus { border-bottom-color: #99ff00; opacity: 1; }
+.fac-btn-sm { background: #1a1a1a; border: 1px solid #2a2a2a; color: #777; border-radius: 4px; padding: 2px 8px; font-size: 0.72em; cursor: pointer; white-space: nowrap; }
+.fac-btn-sm:hover { color: #99ff00; border-color: #99ff00; }
+.fac-btn-del:hover { color: #cc3333 !important; border-color: #cc3333 !important; }
+.fac-drop-area { min-height: 44px; padding: 6px; display: flex; flex-wrap: wrap; gap: 5px; transition: background .15s, outline .15s; border-radius: 4px; }
+.fac-drop-area.drag-over { background: #0f1a0f; outline: 1px dashed #99ff00; }
+.fac-drop-hint { color: #666; font-size: 0.7em; font-style: italic; align-self: center; padding: 2px 4px; pointer-events: none; }
+.fac-mach-card { background: #0d0d0d; border: 1px solid #222; border-radius: 5px; padding: 5px 8px; cursor: grab; width: 180px; transition: border-color .15s, opacity .15s; user-select: none; }
+.fac-mach-card:hover { border-color: #444; }
+.fac-mach-card.dragging { opacity: 0.3; cursor: grabbing; }
+.fac-mach-nick { color: #ccc; font-size: 0.78em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-mach-cls  { color: #4d7a4d; font-size: 0.68em; font-weight: 400; margin: 1px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-mach-prod { color: #777; font-size: 0.68em; margin-bottom: 3px; }
+.fac-mach-bar-bg { background: #1a1a1a; height: 3px; border-radius: 2px; overflow: hidden; }
+.fac-mach-bar { height: 100%; border-radius: 2px; }
+.fac-cfg-actions { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
+#usine-config-content { padding: 0 14px 14px; }
