@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.5"
+local VERSION = "1.1.6"
 
 -- === CONFIGURATION ===
 local WEB_URL          = "http://127.0.0.1:8081"
@@ -29,6 +29,7 @@ local PORT_SHUTDOWN = 50
 local PORT_DISPATCH = 55
 local PORT_SAT_DATA = 56
 local PORT_SAT_DISC = 57
+local PORT_BUF      = 69  -- broadcast BUF: vers DISPATCH / broadcast BUF: to DISPATCH
 
 -- === INIT MATÉRIEL / HARDWARE INIT ===
 local net  = computer.getPCIDevices(classes.NetworkCard)[1]
@@ -288,6 +289,20 @@ local function pushDiscovery(satNick, satAddr, containerNicks)
     pcall(function() f:await() end)
 end
 
+-- === BROADCAST BUF: VERS DISPATCH (port 69) ===
+-- Rediffuse les données de chaque conteneur au format BUF: compris par DISPATCH.
+-- Re-broadcasts each container's data in BUF: format understood by DISPATCH.
+local function broadcastBufToDispatch(containers)
+    for _, c in ipairs(containers or {}) do
+        if c.nick then
+            local msg = "BUF:"..c.nick..":"..tostring(c.totalItems or 0)
+                        ..":"..tostring(c.slotsTotal or 0)
+                        ..":"..tostring(c.slotsUsed or 0)
+            pcall(function() net:broadcast(PORT_BUF, msg) end)
+        end
+    end
+end
+
 -- === PROPAGATION FAST MODE AUX SATELLITES CONCERNÉS ===
 -- Notifie uniquement les satellites qui gèrent les buffers dans la liste DISPATCH.
 -- Notifies only satellites that manage buffers in the DISPATCH priority list.
@@ -386,6 +401,9 @@ while true do
                     satellites[sndr].lastSeen = computer.millis()
                     -- Stocker la version du satellite / Store satellite version
                     if data.version then satellites[sndr].version = data.version end
+                    -- Rediffuser vers DISPATCH : BUF:nick:items:slotsTotal:slotsUsed
+                    -- Re-broadcast to DISPATCH: BUF:nick:items:slotsTotal:slotsUsed
+                    broadcastBufToDispatch(data.containers)
                 end
             else
                 -- Satellite inconnu : lui demander de se présenter / Unknown satellite: ask it to register
