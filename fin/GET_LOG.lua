@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 -- Throttle dessin : évite le flood GPU quand de nombreux messages arrivent en rafale
 -- Draw throttle: avoids GPU flood when many messages arrive in rapid succession
 local DRAW_INTERVAL = 200  -- ms minimum entre deux draw() / ms minimum between draws
@@ -135,7 +135,8 @@ local function draw()
             or (l.src:sub(1,4)=="FAC:" and PE)   -- satellites FACTORY  / FACTORY satellites
             or WH
         gpu:drawText({x=20,  y=y}, l.ts,              FONT, YE,  false)
-        gpu:drawText({x=200, y=y}, "["..l.src.."]",   FONT, col, false)
+        local tag = l.src:len()>17 and l.src:sub(1,17) or l.src  -- tronque à 17 chars / truncate to 17 chars
+        gpu:drawText({x=200, y=y}, "["..tag.."]",   FONT, col, false)
         gpu:drawText({x=500, y=y}, l.msg,             FONT, WH,  false)
         y = y + LINE_H
     end
