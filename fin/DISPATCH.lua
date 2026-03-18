@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.3.5"
+local VERSION = "4.3.6"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -472,6 +472,14 @@ local function countBufferItems(rs)
     end
     -- Fallback : lecture directe FIN (si STOCKAGE pas encore connecté ou pas en mode rapide)
     -- Fallback: direct FIN read (if STOCKAGE not yet connected or not in fast mode)
+    -- Re-résolution si bufBox nil (composant reconstruit après boot) / Re-resolve if nil (component rebuilt after boot)
+    if not rs.bufBox and rs.bufName then
+        local ids=component.findComponent(rs.bufName)
+        if ids and ids[1] then
+            pcall(function() rs.bufBox=component.proxy(ids[1]) end)
+            if rs.bufBox then print("Route "..rs.name.." : buffer '"..rs.bufName.."' re-résolu") end
+        end
+    end
     if not rs.bufBox then return 0 end
     local total=0
     pcall(function()
