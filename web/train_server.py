@@ -1,4 +1,4 @@
-__version__ = "1.0.8"
+__version__ = "1.0.9"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -492,7 +492,12 @@ def get_data():
         "stockage_discovery":   list(_stockage_discovery.values()),
         "stockage_zone_config": _stockage_zone_config,
         "satellite_versions":   _satellite_versions,
-        "sat_update_results":   _sat_update_results,
+        "sat_update_results":   {
+            addr: r for addr, r in _sat_update_results.items()
+            # Masquer les résultats "updated" après 5 minutes (badge transitoire)
+            # Hide "updated" results after 5 minutes (transient badge)
+            if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
+        },
         "sat_latest_version":   _get_latest_satellite_version(),
     })
 
