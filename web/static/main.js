@@ -1759,6 +1759,13 @@ function dp2DeleteRoute() {
     _dp2SaveConfig();
 }
 
+function dp2ToggleEnabled(i) {
+    if (i < 0 || i >= _dpRoutesConfig.length) return;
+    _dpRoutesConfig[i].enabled = !(_dpRoutesConfig[i].enabled !== false);
+    _dp2RenderLive();
+    _dp2SaveConfig();
+}
+
 async function _dp2SaveConfig() {
     // Sauvegarde directe sans guard hasContent — gère aussi tableaux vides (delete all)
     // Direct save without hasContent guard — handles empty arrays too (delete all)
@@ -1787,13 +1794,13 @@ function _dp2RenderLive() {
         el.innerHTML = '<div style="color:#444;font-size:0.82em;padding:20px">Aucune route configurée.</div>';
         return;
     }
-    el.innerHTML = _dpRoutesConfig.map(r => {
+    el.innerHTML = _dpRoutesConfig.map((r, i) => {
         const live    = _dpLiveRoutes && _dpLiveRoutes.find(lr => lr.name === r.name);
         const enabled = r.enabled !== false;
         const badge   = live
             ? `<span class="dp-badge ok" style="font-size:0.65em;padding:1px 7px">● Live</span>`
             : `<span class="dp-badge warn" style="font-size:0.65em;padding:1px 7px">⏳</span>`;
-        const disTag  = !enabled ? `<span class="dp2-off-tag" style="margin-left:4px">OFF</span>` : '';
+        const toggleBtn = `<button class="dp2c-toggle ${enabled ? 'on' : 'off'}" onclick="dp2ToggleEnabled(${i})">${enabled ? 'ON' : 'OFF'}</button>`;
 
         let statsHtml = '';
         if (live) {
@@ -1837,7 +1844,7 @@ function _dp2RenderLive() {
         return `<div class="dp2c-card">
             <div class="dp2c-header">
                 <span class="dp2c-name">${esc(r.name||'(sans nom)')}</span>
-                ${badge}${disTag}
+                ${badge}${toggleBtn}
             </div>
             ${statsHtml}
             ${trainsHtml ? `<div class="dp2c-trains">${trainsHtml}</div>` : ''}

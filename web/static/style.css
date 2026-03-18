@@ -481,6 +481,11 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .dp2c-bar.partial { background: #ff8800; }
 .dp2c-bar.full    { background: #33cc55; }
 .dp2c-offline-meta { padding: 10px 12px; color: #444; font-size: 0.74em; line-height: 1.7; }
+.dp2c-toggle { border-radius: 4px; border: 1px solid; font-size: 0.65em; font-weight: 700; padding: 1px 7px; cursor: pointer; transition: background .15s, color .15s; }
+.dp2c-toggle.on  { background: rgba(51,204,85,0.1);  border-color: #33cc55; color: #33cc55; }
+.dp2c-toggle.on:hover  { background: rgba(51,204,85,0.22); }
+.dp2c-toggle.off { background: rgba(100,100,100,0.1); border-color: #555; color: #555; }
+.dp2c-toggle.off:hover { background: rgba(100,100,100,0.22); color: #888; border-color: #888; }
 .dp2c-trains { border-top: 1px solid #161616; }
 .dp2c-train { padding: 5px 10px 6px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid #141414; }
 .dp2c-train:last-child { border-bottom: none; }
