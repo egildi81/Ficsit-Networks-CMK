@@ -931,6 +931,7 @@ function _saveStockageZoneConfig() {
 let _satVersionsCache      = {};
 let _satUpdateResultsCache = {};
 let _satLatestVersion      = null;
+let _satShowOutdatedOnly   = false;  // filtre "obsolètes seulement" / "outdated only" filter
 
 function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
     const el = document.getElementById('stockage-update-content');
@@ -939,13 +940,16 @@ function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
     _satUpdateResultsCache = satUpdateResults  || {};
     _satLatestVersion      = latestVersion     || null;
 
-    const satList = Object.values(_satVersionsCache);
-    if (!satList.length) {
+    const satListFull = Object.values(_satVersionsCache);
+    const satList = _satShowOutdatedOnly
+        ? satListFull.filter(s => !latestVersion || s.version !== latestVersion)
+        : satListFull;
+    if (!satListFull.length) {
         el.innerHTML = '<div class="stock-empty" style="padding:32px">Aucun satellite connu — en attente de données...</div>';
         return;
     }
 
-    const outdated = satList.filter(s => latestVersion && s.version !== latestVersion);
+    const outdated = satListFull.filter(s => latestVersion && s.version !== latestVersion);
 
     const cards = satList.map(sat => {
         const result    = _satUpdateResultsCache[sat.addr] || null;
@@ -967,10 +971,9 @@ function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
             badge = `<span class="stk-upd-badge stk-upd-old">↑ Obsolète</span>`;
         }
 
-        const busy   = status === 'rebooting' || status === 'en attente';
-        const btnHtml = !busy
-            ? `<button class="stk-upd-btn" onclick="_satReboot('${esc(sat.addr)}')">Mettre à jour</button>`
-            : '';
+        const busy       = status === 'rebooting' || status === 'en attente';
+        const btnDisabled = isUpToDate || busy;
+        const btnHtml = `<button class="stk-upd-btn" ${btnDisabled ? 'disabled' : `onclick="_satReboot('${esc(sat.addr)}')"`}>Mettre à jour</button>`;
 
         return `<div class="stk-upd-card">
             <div class="stk-upd-card-header">
@@ -996,7 +999,7 @@ function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
             <div class="stk-upd-actions">
                 <button class="stock-purge-btn" onclick="_satRebootAll()">Tout mettre à jour</button>
                 ${outdated.length > 0
-                    ? `<button class="stock-purge-btn" onclick="_satRebootOutdated()">Obsolètes (${outdated.length})</button>`
+                    ? `<button class="stock-purge-btn${_satShowOutdatedOnly ? ' stk-upd-filter-active' : ''}" onclick="_satToggleOutdatedFilter()">Obsolètes (${outdated.length})</button>`
                     : ''}
             </div>
         </div>
@@ -1017,15 +1020,9 @@ function _satRebootAll() {
         body: JSON.stringify({ addrs })
     }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
 }
-function _satRebootOutdated() {
-    if (!_satLatestVersion) return;
-    const addrs = Object.values(_satVersionsCache)
-        .filter(s => s.version !== _satLatestVersion).map(s => s.addr);
-    if (!addrs.length) return;
-    fetch('/api/stockage/satellite/reboot', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addrs })
-    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
+function _satToggleOutdatedFilter() {
+    _satShowOutdatedOnly = !_satShowOutdatedOnly;
+    _prevJson.sat_update = null;  // force re-render
 }
 
 // ── Power ─────────────────────────────────────────────────────

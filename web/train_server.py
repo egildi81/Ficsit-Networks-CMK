@@ -374,19 +374,31 @@ def satellite_reboot():
     entries = []
     for addr in addrs:
         info = _satellite_versions.get(addr, {})
-        nick    = info.get("nick", "?")
-        old_ver = info.get("version", "?")
-        entries.append({"addr": addr, "nick": nick, "old_version": old_ver})
-        _sat_update_results[addr] = {
-            "nick": nick, "old_version": old_ver,
-            "new_version": None, "status": "en attente", "ts": time.time(),
-        }
-    if not _sat_update_current and entries:
-        first = entries.pop(0)
+        entries.append({"addr": addr, "nick": info.get("nick", "?"), "old_version": info.get("version", "?")})
+
+    if not _sat_update_current:
+        # Nouveau run — vider les résultats précédents pour repartir propre
+        # New run — clear previous results for a clean start
+        _sat_update_results.clear()
+        _sat_update_queue.clear()
+        for e in entries:
+            _sat_update_results[e["addr"]] = {
+                "nick": e["nick"], "old_version": e["old_version"],
+                "new_version": None, "status": "en attente", "ts": time.time(),
+            }
+        first = entries[0]
         _sat_update_current  = {**first, "started": time.time()}
         _central_pending_cmd = {"cmd": "reboot_satellite", "addr": first["addr"]}
         _sat_update_results[first["addr"]]["status"] = "rebooting"
-    _sat_update_queue.extend(entries)
+        _sat_update_queue.extend(entries[1:])
+    else:
+        # Ajout à la file existante / Append to existing queue
+        for e in entries:
+            _sat_update_results[e["addr"]] = {
+                "nick": e["nick"], "old_version": e["old_version"],
+                "new_version": None, "status": "en attente", "ts": time.time(),
+            }
+        _sat_update_queue.extend(entries)
     return jsonify({"status": "ok", "queued": len(addrs)})
 
 
