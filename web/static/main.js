@@ -1,4 +1,4 @@
-const VERSION = "1.7.11";
+const VERSION = "1.7.12";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2191,8 +2191,8 @@ function openFacDetail(idx) {
             </div>
             <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
             <div class="fac-machine-bottom">
-                <span title="Inventaire entrée"><img src="/static/img/IN.png" style="height:10px;vertical-align:middle;opacity:0.8"> ${inTotal}</span>
-                <span title="Inventaire sortie"><img src="/static/img/OUT.png" style="height:10px;vertical-align:middle;opacity:0.8;margin-top:-2px"> ${outTotal}</span>
+                <span title="Inventaire entrée"><img src="/static/img/IN.png" style="height:10px;vertical-align:text-top;opacity:0.8"> ${inTotal}</span>
+                <span title="Inventaire sortie"><img src="/static/img/OUT.png" style="height:10px;vertical-align:text-top;opacity:0.8"> ${outTotal}</span>
                 <span title="Puissance">${(m.power ?? 0).toFixed(1)} MW</span>
                 ${m.cycleTime ? `<span title="Durée cycle">⏱ ${m.cycleTime.toFixed(1)}s</span>` : ''}
                 ${m.potential != null && m.potential !== 100 ? `<span title="Overclock" style="color:#ffaa00">${m.potential.toFixed(0)}%⚡</span>` : ''}
@@ -2314,8 +2314,8 @@ function renderFactory(fac) {
             </div>
             <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(avgProd,100)}%;background:${prodColor}"></div></div>
             <div class="fac-recipe-bottom">
-                <span title="Total items entrée"><img src="/static/img/IN.png" style="height:10px;vertical-align:middle;opacity:0.8"> ${inTotal}</span>
-                <span title="Total items sortie"><img src="/static/img/OUT.png" style="height:10px;vertical-align:middle;opacity:0.8;margin-top:-2px"> ${outTotal}</span>
+                <span title="Total items entrée"><img src="/static/img/IN.png" style="height:10px;vertical-align:text-top;opacity:0.8"> ${inTotal}</span>
+                <span title="Total items sortie"><img src="/static/img/OUT.png" style="height:10px;vertical-align:text-top;opacity:0.8"> ${outTotal}</span>
                 <span title="Consommation totale">${totalPow.toFixed(1)} MW</span>
             </div>
         </div>`;
@@ -2349,8 +2349,8 @@ function renderFactory(fac) {
             </div>
             <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
             <div class="fac-machine-bottom">
-                <span title="Inventaire entrée"><img src="/static/img/IN.png" style="height:10px;vertical-align:middle;opacity:0.8"> ${inTotal}</span>
-                <span title="Inventaire sortie"><img src="/static/img/OUT.png" style="height:10px;vertical-align:middle;opacity:0.8;margin-top:-2px"> ${outTotal}</span>
+                <span title="Inventaire entrée"><img src="/static/img/IN.png" style="height:10px;vertical-align:text-top;opacity:0.8"> ${inTotal}</span>
+                <span title="Inventaire sortie"><img src="/static/img/OUT.png" style="height:10px;vertical-align:text-top;opacity:0.8"> ${outTotal}</span>
                 <span title="Puissance">${(m.power ?? 0).toFixed(1)} MW</span>
                 ${m.cycleTime ? `<span title="Durée cycle">⏱ ${m.cycleTime.toFixed(1)}s</span>` : ''}
                 ${m.recipe ? `<span class="fac-machine-recipe" style="margin-left:auto">${esc(m.recipe)}</span>` : ''}
