@@ -1,4 +1,4 @@
-const VERSION = "1.7.4";
+const VERSION = "1.7.5";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2232,7 +2232,13 @@ function renderFactory(fac) {
 
     // Lookup machine par nick / Machine lookup by nick
     const byNick = {};
-    for (const z of fac.zones) for (const m of (z.machines || [])) byNick[m.nick] = m;
+    for (const z of fac.zones) for (const m of (z.machines || [])) {
+        // Normaliser inputItems/outputItems en array (le satellite peut envoyer {} si vide)
+        // Normalize inputItems/outputItems to array (satellite may send {} when empty)
+        if (!Array.isArray(m.inputItems))  m.inputItems  = [];
+        if (!Array.isArray(m.outputItems)) m.outputItems = [];
+        byNick[m.nick] = m;
+    }
 
     // Groupe les machines par recette — OFF séparé / Group machines by recipe — OFF separate
     function groupByRecipe(nicks) {
