@@ -417,8 +417,10 @@ def get_dispatch_routes():
 
 @app.route("/api/dispatch/routes.lua", methods=["GET", "POST"])
 def get_dispatch_routes_lua():
-    """Config dispatch pour LOGGER — GET (debug/curl) ou POST (FIN InternetCard, GET non supporté)."""
-    return _to_lua(_dispatch_routes), 200, {"Content-Type": "text/plain"}
+    """Config dispatch pour LOGGER — GET (debug/curl) ou POST (FIN InternetCard, GET non supporté).
+    Seules les routes activées (enabled != false) sont transmises à DISPATCH.lua."""
+    active_routes = [r for r in _dispatch_routes if r.get("enabled", True)]
+    return _to_lua(active_routes), 200, {"Content-Type": "text/plain"}
 
 @app.route("/api/dispatch/routes", methods=["PUT"])
 def put_dispatch_routes():
