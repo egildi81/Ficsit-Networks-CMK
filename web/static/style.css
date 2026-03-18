@@ -634,6 +634,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .fac-recipe-bottom { display: flex; align-items: center; gap: 10px; font-size: 0.72em; color: #bbb; margin-top: 5px; }
 .fac-detail-btn { margin-left: auto; background: #1a1a1a; border: 1px solid #2a2a2a; color: #999; border-radius: 4px; padding: 2px 10px; font-size: 0.72em; cursor: pointer; flex-shrink: 0; }
 .fac-detail-btn:hover { color: #99ff00; border-color: #99ff00; }
+.fac-icon { height: 11px; width: 11px; object-fit: contain; vertical-align: -2px; opacity: 0.85; }
 
 /* ── Modal détail USINE ── */
 #fac-detail-modal {
