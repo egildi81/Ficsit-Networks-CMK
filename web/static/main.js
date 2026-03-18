@@ -1,4 +1,4 @@
-const VERSION = "1.6.2";
+const VERSION = "1.6.3";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -1347,14 +1347,9 @@ function _dpUpdateLists(data) {
             if (t.name)    _dpKnownTrains.add(t.name);
         });
     }
-    // Rebuild complet du datalist buffers à chaque update (pas d'accumulation)
-    // Full rebuild of buffer datalist on each update (no stale accumulation)
+    // Rebuild complet depuis les zones configurées (pas d'accumulation stale)
+    // Full rebuild from configured zones only (no stale accumulation)
     const newBufMap = new Map();
-    // 1. Containers CENTRAL (nicks physiques des conteneurs) / CENTRAL containers (physical container nicks)
-    if (Array.isArray(data.known_buffer_nicks)) {
-        data.known_buffer_nicks.forEach(n => newBufMap.set(n, n));
-    }
-    // 2. Zones configurées (zones logiques STOCKAGE) / Configured zones (logical STOCKAGE zones)
     const zc = data.stockage_zone_config;
     if (zc && Array.isArray(zc.zones)) {
         zc.zones.forEach(z => {
