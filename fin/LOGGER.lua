@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.6.8"
+local VERSION = "1.6.9"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -380,7 +380,7 @@ local function saveTrip(tn,fr,to,d,ts,it,nv)
     pcall(function()net:broadcast(42,tn,fr,to,d,ts,invStr)end)
     local invLog=""
     for item,cnt in pairs(it) do invLog=invLog.." | "..item.." x"..cnt end
-    log("LOG: "..tn.." "..seg.." d="..d.."s wagons="..nv..invLog)
+    log("LOG: "..tn.."§"..seg.." d="..d.."s wagons="..nv..invLog) -- § sépare train/gares sans ambiguïté / § separates train/stations unambiguously
 end
 
 
