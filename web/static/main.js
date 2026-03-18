@@ -1,4 +1,4 @@
-const VERSION = "1.7.18";
+const VERSION = "1.7.19";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2400,17 +2400,19 @@ function renderFactory(fac) {
         </div>`;
     }
 
-    // HTML card zone principale (pattern STOCKAGE) / Main zone card (STOCKAGE pattern)
-    function zoneCardHtml(name, allNicks, zoneIdx, staleTag, content) {
-        const st = zoneStats(allNicks);
+    // HTML card zone principale / Main zone card
+    // showBar=true → barre sous le titre (pas de sous-zones) / bar under title (no subzones)
+    // showBar=false → % seul dans le titre, barre dans chaque sous-zone / % only in title, bar per subzone
+    function zoneCardHtml(name, allNicks, zoneIdx, staleTag, showBar, content) {
+        const st  = zoneStats(allNicks);
+        const bar = showBar ? `<div class="fac-bar-bg"><div class="fac-bar" style="width:${Math.min(st.avg,100)}%;background:${st.color}"></div></div>
+            <div class="fac-card-meta">${st.active}/${st.total} actives &nbsp;·&nbsp; <img src="/static/img/POWER.png" class="fac-icon"> ${st.pow.toFixed(1)} MW</div>` : '';
         return `<div class="fac-zone" onclick="openFacDetail(${zoneIdx})" title="Voir toutes les machines" style="cursor:pointer">
             <div class="fac-card-header">
                 <span class="fac-zone-name">${esc(name)}${staleTag}</span>
                 <span class="fac-card-pct" style="color:${st.color}">${st.avg}%</span>
             </div>
-            <div class="fac-bar-bg"><div class="fac-bar" style="width:${Math.min(st.avg,100)}%;background:${st.color}"></div></div>
-            <div class="fac-card-meta">${st.active}/${st.total} actives &nbsp;·&nbsp; <img src="/static/img/POWER.png" class="fac-icon"> ${st.pow.toFixed(1)} MW</div>
-            ${content}
+            ${bar}${content}
         </div>`;
     }
 
@@ -2433,7 +2435,8 @@ function renderFactory(fac) {
                 : '';
             const subzonesHtml = hasSubs ? zone.subzones.map(sz => subzoneHtml(sz.name, sz.machines || [])).join('') : '';
 
-            return zoneCardHtml(zone.name, allNicks, zoneIdx, '', directHtml + subzonesHtml);
+            const showBar = !hasSubs;
+            return zoneCardHtml(zone.name, allNicks, zoneIdx, '', showBar, directHtml + subzonesHtml);
         }).join('');
     } else {
         // Fallback par satellite / Fallback by satellite
@@ -2443,7 +2446,7 @@ function renderFactory(fac) {
             const zoneIdx = _facDetailGroups.length;
             _facDetailGroups.push({ recipe: zone.name, machines: zone.machines || [] });
             const staleTag = zone.stale ? ' <span class="fac-stale">HORS LIGNE</span>' : '';
-            return zoneCardHtml(zone.name, nicks, zoneIdx, staleTag, `<div class="fac-recipe-list">${sectionHtml(nicks, !!zone.stale)}</div>`);
+            return zoneCardHtml(zone.name, nicks, zoneIdx, staleTag, true, `<div class="fac-recipe-list">${sectionHtml(nicks, !!zone.stale)}</div>`);
         }).join('');
     }
 }
