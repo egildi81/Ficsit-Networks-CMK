@@ -484,8 +484,8 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     background: #111; border: 1px solid #1e1e1e; border-radius: 8px;
     padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
 }
-.stk-upd-card-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.stk-upd-nick { color: #fff; font-size: 0.9em; font-weight: 700; flex: 1; }
+.stk-upd-card-header { display: flex; flex-direction: column; gap: 6px; }
+.stk-upd-nick { color: #fff; font-size: 0.9em; font-weight: 700; }
 
 .stk-upd-badge {
     font-size: 0.68em; font-weight: 600; border-radius: 10px;
