@@ -1,4 +1,4 @@
-const VERSION = "1.7.8";
+const VERSION = "1.7.9";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -1484,6 +1484,7 @@ function _drawPowerChart() {
 const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null, factory: null, factory_zone_config: null };
 let _factoryZoneConfig   = { zones: [] };  // config zones usine persistée / persisted factory zone config
 let _lastFactoryData     = null;           // dernier snapshot factory reçu / last factory snapshot received
+let _facCompact          = true;           // true=vue agrégée recettes / false=vue machines individuelles
 let _stockageZoneConfig  = [];   // config persistée : [{satellite, zone, label}, ...]
 let _stockageCentralCache = null; // dernières données CENTRAL pour toggleStockView
 
@@ -2164,6 +2165,7 @@ async function refreshLogs() {
 
 // ── USINE — modal détail / detail modal ──────────────────────
 let _facDetailGroups = [];  // groupes stockés pour le modal / groups stored for modal
+function _facShortClass(cls) { return (cls || '').replace(/^Build_/, '').replace(/Mk\d+_C$/, '').replace(/_C$/, ''); }
 
 function openFacDetail(idx) {
     const g = _facDetailGroups[idx];
@@ -2173,8 +2175,6 @@ function openFacDetail(idx) {
     const body  = document.getElementById('fac-detail-body');
     if (!modal) return;
     title.textContent = g.recipe || 'Sans recette';
-
-    function shortClass(cls) { return (cls || '').replace(/^Build_/, '').replace(/Mk\d+_C$/, '').replace(/_C$/, ''); }
 
     body.innerHTML = g.machines.map(m => {
         if (!m) return '';
@@ -2186,7 +2186,7 @@ function openFacDetail(idx) {
         return `<div class="fac-machine ${dimClass}" style="margin-bottom:5px">
             <div class="fac-machine-top">
                 <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(m.nick)}</span>
-                <span class="fac-machine-class">${esc(shortClass(m.class))}</span>
+                <span class="fac-machine-class">${esc(_facShortClass(m.class))}</span>
                 <span style="color:${prodColor};font-size:0.75em;font-weight:700;margin-left:auto">${prod.toFixed(0)}%</span>
             </div>
             <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
@@ -2206,6 +2206,42 @@ function openFacDetail(idx) {
 function closeFacDetail() {
     const modal = document.getElementById('fac-detail-modal');
     if (modal) modal.classList.remove('open');
+}
+
+// ── USINE — toggle vue compacte/détaillée ─────────────────────
+function toggleFacView() {
+    _facCompact = !_facCompact;
+    const btn = document.getElementById('fac-view-btn');
+    if (btn) btn.textContent = _facCompact ? 'Vue détaillée' : 'Vue compacte';
+    if (_lastFactoryData) renderFactory(_lastFactoryData);
+}
+
+// ── USINE — purge des machines absentes des satellites ─────────
+function purgeFacInactifs() {
+    if (!_lastFactoryData || !_factoryZoneConfig.zones.length) return;
+    const btn = document.querySelector('#page-usine-info .stock-purge-btn:last-child');
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    // Nicks connus dans les satellites / Known nicks from satellites
+    const known = new Set();
+    for (const z of (_lastFactoryData.zones || [])) for (const m of (z.machines || [])) known.add(m.nick);
+    // Retirer les nicks absents / Remove absent nicks
+    let removed = 0;
+    for (const z of _factoryZoneConfig.zones) {
+        const before = z.machines.length;
+        z.machines = z.machines.filter(n => known.has(n));
+        removed += before - z.machines.length;
+        for (const sz of (z.subzones || [])) {
+            const sbefore = sz.machines.length;
+            sz.machines = sz.machines.filter(n => known.has(n));
+            removed += sbefore - sz.machines.length;
+        }
+    }
+    if (btn) { btn.textContent = removed > 0 ? `${removed} supprimé(s)` : 'Rien à purger'; }
+    setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = 'Purger les inactifs'; } }, 2500);
+    if (removed > 0) {
+        fetch('/api/factory/zone-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(_factoryZoneConfig) })
+            .then(() => { _prevJson.factory = null; setTimeout(() => renderFactory(_lastFactoryData), 0); });
+    }
 }
 
 // ── USINE — rendu machines de production ─────────────────────
@@ -2298,17 +2334,45 @@ function renderFactory(fac) {
     }
 
     // Rendu d'une section de machines (zone ou sous-zone) / Section renderer (zone or subzone)
+    // Rendu vue détaillée — machine individuelle / Detailed view — individual machine card
+    function machineCardHtml(m) {
+        const prod      = m.productivity ?? 0;
+        const prodColor = prod >= 80 ? '#99ff00' : prod >= 50 ? '#ffcc00' : '#ff4444';
+        const dimClass  = !m.active ? 'fac-machine-dim' : '';
+        const inTotal   = (m.inputItems  || []).reduce((s, i) => s + (i.count || 0), 0);
+        const outTotal  = (m.outputItems || []).reduce((s, i) => s + (i.count || 0), 0);
+        return `<div class="fac-machine ${dimClass}">
+            <div class="fac-machine-top">
+                <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(m.nick)}</span>
+                <span class="fac-machine-class">${esc(_facShortClass(m.class))}</span>
+                <span style="color:${prodColor};font-size:0.75em;font-weight:700;margin-left:auto">${prod.toFixed(0)}%</span>
+            </div>
+            <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
+            <div class="fac-machine-bottom">
+                <span title="Inventaire entrée">⬇ ${inTotal}</span>
+                <span title="Inventaire sortie">⬆ ${outTotal}</span>
+                <span title="Puissance">${(m.power ?? 0).toFixed(1)} MW</span>
+                ${m.cycleTime ? `<span title="Durée cycle">⏱ ${m.cycleTime.toFixed(1)}s</span>` : ''}
+                ${m.recipe ? `<span class="fac-machine-recipe" style="margin-left:auto">${esc(m.recipe)}</span>` : ''}
+            </div>
+        </div>`;
+    }
+
     function sectionHtml(nicks, stale) {
         if (stale) {
-            const rows = nicks.map(n => byNick[n]).filter(Boolean).map(m => {
-                return `<div class="fac-recipe-group fac-recipe-off">
+            return nicks.map(n => byNick[n]).filter(Boolean).map(m =>
+                `<div class="fac-recipe-group fac-recipe-off">
                     <div class="fac-recipe-header">
                         <span class="fac-recipe-name" style="color:#555">${esc(m.nick)}</span>
                         <span class="fac-off-badge">HORS LIGNE</span>
                     </div>
-                </div>`;
-            }).join('');
-            return rows;
+                </div>`
+            ).join('');
+        }
+        if (!_facCompact) {
+            // Vue détaillée : machines individuelles / Detailed view: individual machines
+            const machines = nicks.map(n => byNick[n]).filter(Boolean);
+            return `<div class="fac-machine-list">${machines.map(machineCardHtml).join('')}</div>`;
         }
         const { recipeMap, offList } = groupByRecipe(nicks);
         const recipeHtml = Object.keys(recipeMap).sort().map(r => recipeGroupHtml(r, recipeMap[r])).join('');

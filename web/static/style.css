@@ -575,7 +575,9 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     background: #090f00; border-bottom: 2px solid #99ff00;
     padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
 }
-.fac-title  { color: #99ff00; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
+.fac-title         { color: #99ff00; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
+.fac-section-title { color: #99ff00; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
+#page-usine-info .stock-purge-btn:hover { color: #99ff00; border-color: #99ff00; }
 .fac-stat   { color: #aaa; font-size: 0.8em; }
 .fac-stat strong { color: #eee; }
 .fac-stale  { color: #ff4444; font-size: 0.72em; }

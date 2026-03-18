@@ -207,12 +207,13 @@
 
 <!-- ── SECTION USINE — INFO ── -->
 <div id="page-usine-info" class="page">
-    <div class="fac-header">
-        <span class="fac-title">USINE</span>
-        <span class="fac-stat"><strong id="fac-total-active">—</strong>/<strong id="fac-total-cnt">—</strong> machines actives</span>
-        <span class="fac-stat"><strong id="fac-total-power">—</strong></span>
-        <span class="fac-stat" id="fac-zone-count" style="margin-left:auto;color:#555"></span>
-        <span id="fac-stale" style="font-size:0.72em;color:#ff4444"></span>
+    <div class="stock-section-bar">
+        <span class="fac-section-title">USINE</span>
+        <div style="display:flex;gap:8px;align-items:center">
+            <span id="fac-stale" style="font-size:0.72em;color:#ff4444"></span>
+            <button id="fac-view-btn" class="stock-purge-btn" onclick="toggleFacView()">Vue détaillée</button>
+            <button class="stock-purge-btn" onclick="purgeFacInactifs()" title="Supprime les machines absentes des satellites">Purger les inactifs</button>
+        </div>
     </div>
     <div id="fac-grid" class="fac-grid"></div>
 </div>
