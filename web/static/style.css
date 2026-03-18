@@ -465,8 +465,8 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .dp-save-btn:hover { background: rgba(0,170,204,0.22); }
 
 /* ── DISPATCH LIVE 2 — Cards ── */
-.dp2-live-grid { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 0; align-items: flex-start; }
-.dp2c-card { background: #111; border: 1px solid #1a1a1a; border-radius: 8px; width: 270px; overflow: hidden; flex-shrink: 0; }
+.dp2-live-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.dp2c-card { background: #111; border: 1px solid #1a1a1a; border-radius: 8px; overflow: hidden; }
 .dp2c-header { background: #090d0f; border-bottom: 2px solid #00aacc; padding: 8px 12px; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .dp2c-name { color: #00aacc; font-size: 0.8em; font-weight: 700; letter-spacing: 1px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp2c-stats { padding: 8px 12px 6px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid #161616; }

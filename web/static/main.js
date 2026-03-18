@@ -3,7 +3,7 @@ const VERSION = "1.6.4";
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
 const _dispatchPages = ['page-dispatch', 'page-dispatch-config', 'page-dispatch-live2'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-dispatch-config', 'page-logs'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-dispatch-config', 'page-dispatch-live2', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
