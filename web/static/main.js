@@ -1,4 +1,4 @@
-const VERSION = "1.7.0";
+const VERSION = "1.7.2";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2152,129 +2152,219 @@ async function refreshLogs() {
     finally { _logFetching = false; }
 }
 
-// ── USINE — rendu machines de production ─────────────────────
-function renderFactory(fac) {
-    const grid = document.getElementById('fac-grid');
-    if (!grid) return;
+// ── USINE — modal détail / detail modal ──────────────────────
+let _facDetailGroups = [];  // groupes stockés pour le modal / groups stored for modal
 
-    const totalActive = document.getElementById('fac-total-active');
-    const totalCnt    = document.getElementById('fac-total-cnt');
-    const totalPower  = document.getElementById('fac-total-power');
-    const zoneCount   = document.getElementById('fac-zone-count');
-    const staleEl     = document.getElementById('fac-stale');
+function openFacDetail(idx) {
+    const g = _facDetailGroups[idx];
+    if (!g) return;
+    const modal = document.getElementById('fac-detail-modal');
+    const title = document.getElementById('fac-detail-title');
+    const body  = document.getElementById('fac-detail-body');
+    if (!modal) return;
+    title.textContent = g.recipe || 'Sans recette';
 
-    if (!fac || !fac.zones || fac.zones.length === 0) {
-        if (totalActive) totalActive.textContent = '—';
-        if (totalCnt)    totalCnt.textContent    = '—';
-        if (totalPower)  totalPower.textContent  = '—';
-        if (zoneCount)   zoneCount.textContent   = '';
-        if (staleEl)     staleEl.textContent     = '';
-        grid.innerHTML = '<div style="color:#888;padding:20px;font-size:0.85em">En attente des données FACTORY_CENTRAL…</div>';
-        return;
-    }
+    function shortClass(cls) { return (cls || '').replace(/^Build_/, '').replace(/Mk\d+_C$/, '').replace(/_C$/, ''); }
 
-    if (totalActive) totalActive.textContent = fac.activeMachines ?? '—';
-    if (totalCnt)    totalCnt.textContent    = fac.totalMachines  ?? '—';
-    if (totalPower)  totalPower.textContent  = (fac.totalPower != null ? fac.totalPower.toFixed(1) + ' MW' : '—');
-
-    // Fraîcheur / Staleness
-    const ageSec = fac.server_ts ? Math.round(Date.now() / 1000 - fac.server_ts) : null;
-    if (staleEl) staleEl.textContent = ageSec != null && ageSec > 60 ? `Dernière MAJ: ${ageSec}s` : '';
-
-    // Abréviation classe machine / Machine class abbreviation
-    function shortClass(cls) {
-        return (cls || '').replace(/^Build_/, '').replace(/Mk\d+_C$/, '').replace(/_C$/, '');
-    }
-
-    // Lookup machine par nick dans toutes les zones satellite
-    // Machine lookup by nick across all satellite zones
-    const byNick = {};
-    for (const z of fac.zones) for (const m of (z.machines || [])) byNick[m.nick] = m;
-
-    // Rendu d'une machine / Machine row renderer
-    function machineRow(m) {
+    body.innerHTML = g.machines.map(m => {
         if (!m) return '';
         const prod      = m.productivity ?? 0;
         const prodColor = prod >= 80 ? '#99ff00' : prod >= 50 ? '#ffcc00' : '#ff4444';
         const dimClass  = !m.active ? 'fac-machine-dim' : '';
-        return `<div class="fac-machine ${dimClass}">
+        const inTotal   = (m.inputItems  || []).reduce((s, i) => s + (i.count || 0), 0);
+        const outTotal  = (m.outputItems || []).reduce((s, i) => s + (i.count || 0), 0);
+        return `<div class="fac-machine ${dimClass}" style="margin-bottom:5px">
             <div class="fac-machine-top">
                 <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(m.nick)}</span>
                 <span class="fac-machine-class">${esc(shortClass(m.class))}</span>
                 <span style="color:${prodColor};font-size:0.75em;font-weight:700;margin-left:auto">${prod.toFixed(0)}%</span>
             </div>
-            ${m.recipe ? `<div class="fac-machine-recipe">${esc(m.recipe)}</div>` : ''}
             <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
             <div class="fac-machine-bottom">
-                <span title="Inventaire entrée">⬇ ${(m.inputFill ?? 0).toFixed(0)}%</span>
-                <span title="Inventaire sortie">⬆ ${(m.outputFill ?? 0).toFixed(0)}%</span>
+                <span title="Inventaire entrée">⬇ ${inTotal}</span>
+                <span title="Inventaire sortie">⬆ ${outTotal}</span>
                 <span title="Puissance">${(m.power ?? 0).toFixed(1)} MW</span>
                 ${m.cycleTime ? `<span title="Durée cycle">⏱ ${m.cycleTime.toFixed(1)}s</span>` : ''}
+                ${m.potential != null && m.potential !== 100 ? `<span title="Overclock" style="color:#ffaa00">${m.potential.toFixed(0)}%⚡</span>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+
+    modal.classList.add('open');
+}
+
+function closeFacDetail() {
+    const modal = document.getElementById('fac-detail-modal');
+    if (modal) modal.classList.remove('open');
+}
+
+// ── USINE — rendu machines de production ─────────────────────
+function renderFactory(fac) {
+    const grid = document.getElementById('fac-grid');
+    if (!grid) return;
+
+    const totalActiveEl = document.getElementById('fac-total-active');
+    const totalCntEl    = document.getElementById('fac-total-cnt');
+    const totalPowerEl  = document.getElementById('fac-total-power');
+    const zoneCountEl   = document.getElementById('fac-zone-count');
+    const staleEl       = document.getElementById('fac-stale');
+
+    if (!fac || !fac.zones || fac.zones.length === 0) {
+        if (totalActiveEl) totalActiveEl.textContent = '—';
+        if (totalCntEl)    totalCntEl.textContent    = '—';
+        if (totalPowerEl)  totalPowerEl.textContent  = '—';
+        if (zoneCountEl)   zoneCountEl.textContent   = '';
+        if (staleEl)       staleEl.textContent       = '';
+        grid.innerHTML = '<div style="color:#888;padding:20px;font-size:0.85em">En attente des données FACTORY_CENTRAL…</div>';
+        return;
+    }
+
+    if (totalActiveEl) totalActiveEl.textContent = fac.activeMachines ?? '—';
+    if (totalCntEl)    totalCntEl.textContent    = fac.totalMachines  ?? '—';
+    if (totalPowerEl)  totalPowerEl.textContent  = (fac.totalPower != null ? fac.totalPower.toFixed(1) + ' MW' : '—');
+
+    const ageSec = fac.server_ts ? Math.round(Date.now() / 1000 - fac.server_ts) : null;
+    if (staleEl) staleEl.textContent = ageSec != null && ageSec > 60 ? `Dernière MAJ: ${ageSec}s` : '';
+
+    // Lookup machine par nick / Machine lookup by nick
+    const byNick = {};
+    for (const z of fac.zones) for (const m of (z.machines || [])) byNick[m.nick] = m;
+
+    // Groupe les machines par recette — OFF séparé / Group machines by recipe — OFF separate
+    function groupByRecipe(nicks) {
+        const recipeMap = {};  // recipe → [machine, ...]
+        const offList   = [];
+        for (const n of nicks) {
+            const m = byNick[n];
+            if (!m) continue;
+            if (!m.active || !m.recipe) { offList.push(m); continue; }
+            if (!recipeMap[m.recipe]) recipeMap[m.recipe] = [];
+            recipeMap[m.recipe].push(m);
+        }
+        return { recipeMap, offList };
+    }
+
+    // Rendu d'un groupe de recette / Recipe group renderer
+    // Retourne HTML + alimente _facDetailGroups / Returns HTML + populates _facDetailGroups
+    function recipeGroupHtml(recipe, machines) {
+        const idx = _facDetailGroups.length;
+        _facDetailGroups.push({ recipe, machines });
+
+        const activeCnt  = machines.filter(m => m.active).length;
+        const prodSum    = machines.reduce((s, m) => s + (m.productivity ?? 0), 0);
+        const avgProd    = activeCnt > 0 ? prodSum / activeCnt : 0;
+        const prodColor  = avgProd >= 80 ? '#99ff00' : avgProd >= 50 ? '#ffcc00' : '#ff4444';
+        const totalPow   = machines.reduce((s, m) => s + (m.power ?? 0), 0);
+        const inTotal    = machines.reduce((s, m) => s + (m.inputItems  || []).reduce((a, i) => a + (i.count || 0), 0), 0);
+        const outTotal   = machines.reduce((s, m) => s + (m.outputItems || []).reduce((a, i) => a + (i.count || 0), 0), 0);
+
+        return `<div class="fac-recipe-group">
+            <div class="fac-recipe-header">
+                <span class="fac-recipe-name">${esc(recipe)}</span>
+                <span class="fac-recipe-count">${machines.length} mach.</span>
+                <span style="color:${prodColor};font-size:0.75em;font-weight:700">${avgProd.toFixed(0)}%</span>
+            </div>
+            <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(avgProd,100)}%;background:${prodColor}"></div></div>
+            <div class="fac-recipe-bottom">
+                <span title="Total items entrée">⬇ ${inTotal}</span>
+                <span title="Total items sortie">⬆ ${outTotal}</span>
+                <span title="Consommation totale">${totalPow.toFixed(1)} MW</span>
+                <button class="fac-detail-btn" onclick="openFacDetail(${idx})">Détail</button>
             </div>
         </div>`;
     }
 
-    // Stats agrégées pour une liste de nicks / Aggregate stats for a list of nicks
-    function zoneStats(nicks) {
-        let activeCnt = 0, totalCnt = 0, prodSum = 0, power = 0;
+    // Rendu machines OFF / OFF machines renderer
+    function offGroupHtml(offList) {
+        if (!offList.length) return '';
+        const idx = _facDetailGroups.length;
+        _facDetailGroups.push({ recipe: 'OFF', machines: offList });
+        return `<div class="fac-recipe-group fac-recipe-off">
+            <div class="fac-recipe-header">
+                <span class="fac-recipe-name" style="color:#666">Sans recette / Standby</span>
+                <span class="fac-recipe-count">${offList.length} mach.</span>
+                <span class="fac-off-badge">OFF</span>
+            </div>
+            <div class="fac-recipe-bottom">
+                <button class="fac-detail-btn" onclick="openFacDetail(${idx})">Détail</button>
+            </div>
+        </div>`;
+    }
+
+    // Rendu d'une section de machines (zone ou sous-zone) / Section renderer (zone or subzone)
+    function sectionHtml(nicks, stale) {
+        if (stale) {
+            const rows = nicks.map(n => byNick[n]).filter(Boolean).map(m => {
+                return `<div class="fac-recipe-group fac-recipe-off">
+                    <div class="fac-recipe-header">
+                        <span class="fac-recipe-name" style="color:#555">${esc(m.nick)}</span>
+                        <span class="fac-off-badge">HORS LIGNE</span>
+                    </div>
+                </div>`;
+            }).join('');
+            return rows;
+        }
+        const { recipeMap, offList } = groupByRecipe(nicks);
+        const recipeHtml = Object.keys(recipeMap).sort().map(r => recipeGroupHtml(r, recipeMap[r])).join('');
+        return recipeHtml + offGroupHtml(offList);
+    }
+
+    // Stats zone actives seulement / Zone stats active machines only
+    function zoneStatStr(nicks) {
+        let active = 0, total = 0, prodSum = 0, pow = 0;
         for (const n of nicks) {
             const m = byNick[n]; if (!m) continue;
-            totalCnt++;
-            if (m.active) { activeCnt++; prodSum += m.productivity ?? 0; }
-            power += m.power ?? 0;
+            total++;
+            if (m.active && m.recipe) { active++; prodSum += m.productivity ?? 0; pow += m.power ?? 0; }
         }
-        return { activeCnt, totalCnt, avgProd: activeCnt > 0 ? prodSum / activeCnt : 0, power };
+        const avg = active > 0 ? (prodSum / active).toFixed(0) : 0;
+        return `${active}/${total} actives · ${avg}% moy · ${pow.toFixed(1)} MW`;
     }
+
+    _facDetailGroups = [];  // reset à chaque render / reset on each render
 
     const cfgZones = _factoryZoneConfig && _factoryZoneConfig.zones;
 
     if (cfgZones && cfgZones.length) {
-        // ── Mode zones configurées / Configured zones mode ──────
-        if (zoneCount) zoneCount.textContent = cfgZones.length + ' zone' + (cfgZones.length > 1 ? 's' : '');
+        if (zoneCountEl) zoneCountEl.textContent = cfgZones.length + ' zone' + (cfgZones.length > 1 ? 's' : '');
         grid.innerHTML = cfgZones.map(zone => {
             const allNicks = [...(zone.machines || []), ...((zone.subzones || []).flatMap(sz => sz.machines || []))];
-            const st = zoneStats(allNicks);
 
-            // Sous-zones HTML / Subzones HTML
             const subzonesHtml = (zone.subzones && zone.subzones.length) ? zone.subzones.map(sz => {
                 const szNicks = sz.machines || [];
-                const szSt = zoneStats(szNicks);
-                const szRows = szNicks.map(n => machineRow(byNick[n])).join('');
                 return `<div class="fac-subzone-info">
                     <div class="fac-subzone-info-header">
                         <span class="fac-subzone-info-name">${esc(sz.name)}</span>
-                        <span class="fac-zone-stats">${szSt.activeCnt}/${szSt.totalCnt} · ${szSt.avgProd.toFixed(0)}% moy · ${szSt.power.toFixed(1)} MW</span>
+                        <span class="fac-zone-stats">${zoneStatStr(szNicks)}</span>
                     </div>
-                    <div class="fac-machine-list">${szRows || '<div style="color:#888;padding:6px;font-size:0.8em">Aucune machine</div>'}</div>
+                    <div class="fac-recipe-list">${sectionHtml(szNicks, false)}</div>
                 </div>`;
             }).join('') : '';
 
-            // Machines directement dans la zone (hors sous-zones) / Machines directly in zone (not in subzones)
-            const directRows = (zone.machines || []).map(n => machineRow(byNick[n])).join('');
+            const directNicks = zone.machines || [];
+            const directHtml  = directNicks.length ? `<div class="fac-recipe-list">${sectionHtml(directNicks, false)}</div>` : '';
 
             return `<div class="fac-zone">
                 <div class="fac-zone-header">
                     <span class="fac-zone-name">${esc(zone.name)}</span>
-                    <span class="fac-zone-stats">${st.activeCnt}/${st.totalCnt} · ${st.avgProd.toFixed(0)}% moy · ${st.power.toFixed(1)} MW</span>
+                    <span class="fac-zone-stats">${zoneStatStr(allNicks)}</span>
                 </div>
-                ${directRows ? `<div class="fac-machine-list">${directRows}</div>` : ''}
-                ${subzonesHtml}
+                ${directHtml}${subzonesHtml}
             </div>`;
         }).join('');
     } else {
-        // ── Fallback : affichage brut par satellite / Raw display by satellite ──
-        if (zoneCount) zoneCount.textContent = fac.zones.length + ' zone' + (fac.zones.length > 1 ? 's' : '');
+        // Fallback par satellite / Fallback by satellite
+        if (zoneCountEl) zoneCountEl.textContent = fac.zones.length + ' sat.';
         grid.innerHTML = fac.zones.map(zone => {
-            const machines = zone.machines || [];
+            const nicks = (zone.machines || []).map(m => m.nick);
             const staleTag = zone.stale ? '<span class="fac-stale">HORS LIGNE</span>' : '';
-            const rows = machines.map(m => machineRow({ ...m, active: !zone.stale && m.active })).join('');
             return `<div class="fac-zone">
                 <div class="fac-zone-header">
                     <span class="fac-zone-name">${esc(zone.name)}</span>
                     ${staleTag}
-                    <span class="fac-zone-stats">${zone.activeCnt}/${zone.totalCnt} · ${(zone.avgProd ?? 0).toFixed(0)}% moy · ${(zone.totalPower ?? 0).toFixed(1)} MW</span>
+                    <span class="fac-zone-stats">${zoneStatStr(nicks)}</span>
                 </div>
-                <div class="fac-machine-list">${rows || '<div style="color:#888;padding:6px;font-size:0.8em">Aucune machine détectée</div>'}</div>
+                <div class="fac-recipe-list">${sectionHtml(nicks, !!zone.stale)}</div>
             </div>`;
         }).join('');
     }
