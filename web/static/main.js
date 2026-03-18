@@ -1,9 +1,9 @@
-const VERSION = "1.6.4";
+const VERSION = "1.6.5";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
 const _dispatchPages = ['page-dispatch-live2', 'page-dispatch-config'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs', 'page-usine'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -16,7 +16,8 @@ const LOG_TAG_COLORS = {
     TRAIN_STATS:'#ff8800',
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
-    STARTER:    '#cc2222',
+    STARTER:     '#cc2222',
+    FAC_CENTRAL: '#99ff00',
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';
@@ -1237,7 +1238,7 @@ function _drawPowerChart() {
 
 // ── Diff par section — évite les renders inutiles si les données n'ont pas changé
 // ── Per-section diff — skips renders when data is unchanged
-const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null };
+const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null, factory: null };
 let _stockageZoneConfig  = [];   // config persistée : [{satellite, zone, label}, ...]
 let _stockageCentralCache = null; // dernières données CENTRAL pour toggleStockView
 
@@ -1327,6 +1328,8 @@ async function refresh() {
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
         if (document.getElementById('page-logs').classList.contains('active')) { refreshLogs(); }
+        const _fj = JSON.stringify(data.factory || null);
+        if (_fj !== _prevJson.factory) { _prevJson.factory = _fj; rTimes.factory = _t('factory', () => renderFactory(data.factory || null)); }
 
         const tTotal = Math.round(performance.now() - t0);
         const rParts = Object.entries(rTimes).map(([k, v]) => `${k}:${v}ms`).join(' ');
@@ -1859,7 +1862,10 @@ function _appendLogEntries(entries) {
     if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     entries.forEach(e => {
-        const col = LOG_TAG_COLORS[e.tag] || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : '#888');
+        const col = LOG_TAG_COLORS[e.tag]
+            || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : null)
+            || (e.tag && e.tag.startsWith('FAC:') ? '#ff7a50' : null)
+            || '#888';
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
         div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
@@ -1890,6 +1896,77 @@ async function refreshLogs() {
         }
     } catch(e) { console.warn('refreshLogs error', e); }
     finally { _logFetching = false; }
+}
+
+// ── USINE — rendu machines de production ─────────────────────
+function renderFactory(fac) {
+    const grid = document.getElementById('fac-grid');
+    if (!grid) return;
+
+    const totalActive = document.getElementById('fac-total-active');
+    const totalCnt    = document.getElementById('fac-total-cnt');
+    const totalPower  = document.getElementById('fac-total-power');
+    const zoneCount   = document.getElementById('fac-zone-count');
+    const staleEl     = document.getElementById('fac-stale');
+
+    if (!fac || !fac.zones || fac.zones.length === 0) {
+        if (totalActive) totalActive.textContent = '—';
+        if (totalCnt)    totalCnt.textContent    = '—';
+        if (totalPower)  totalPower.textContent  = '—';
+        if (zoneCount)   zoneCount.textContent   = '';
+        if (staleEl)     staleEl.textContent     = '';
+        grid.innerHTML = '<div style="color:#555;padding:20px;font-size:0.85em">En attente des données FACTORY_CENTRAL…</div>';
+        return;
+    }
+
+    if (totalActive) totalActive.textContent = fac.activeMachines ?? '—';
+    if (totalCnt)    totalCnt.textContent    = fac.totalMachines  ?? '—';
+    if (totalPower)  totalPower.textContent  = (fac.totalPower != null ? fac.totalPower.toFixed(1) + ' MW' : '—');
+    if (zoneCount)   zoneCount.textContent   = fac.zones.length + ' zone' + (fac.zones.length > 1 ? 's' : '');
+
+    // Fraîcheur / Staleness
+    const ageSec = fac.server_ts ? Math.round(Date.now() / 1000 - fac.server_ts) : null;
+    if (staleEl) staleEl.textContent = ageSec != null && ageSec > 60 ? `Dernière MAJ: ${ageSec}s` : '';
+
+    // Abréviation classe machine / Machine class abbreviation
+    function shortClass(cls) {
+        return (cls || '').replace(/^Build_/, '').replace(/Mk\d+_C$/, '').replace(/_C$/, '');
+    }
+
+    grid.innerHTML = fac.zones.map(zone => {
+        const machines = zone.machines || [];
+        const staleTag = zone.stale ? '<span class="fac-stale">HORS LIGNE</span>' : '';
+
+        const rows = machines.map(m => {
+            const prod      = m.productivity ?? 0;
+            const prodColor = prod >= 80 ? '#99ff00' : prod >= 50 ? '#ffcc00' : '#ff4444';
+            const dimClass  = (!m.active || zone.stale) ? 'fac-machine-dim' : '';
+            return `<div class="fac-machine ${dimClass}">
+                <div class="fac-machine-top">
+                    <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(m.nick)}</span>
+                    <span class="fac-machine-class">${esc(shortClass(m.class))}</span>
+                    <span style="color:${prodColor};font-size:0.75em;font-weight:700;margin-left:auto">${prod.toFixed(0)}%</span>
+                </div>
+                ${m.recipe ? `<div class="fac-machine-recipe">${esc(m.recipe)}</div>` : ''}
+                <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
+                <div class="fac-machine-bottom">
+                    <span title="Inventaire entrée">⬇ ${(m.inputFill ?? 0).toFixed(0)}%</span>
+                    <span title="Inventaire sortie">⬆ ${(m.outputFill ?? 0).toFixed(0)}%</span>
+                    <span title="Puissance">${(m.power ?? 0).toFixed(1)} MW</span>
+                    ${m.cycleTime ? `<span title="Durée cycle">⏱ ${m.cycleTime.toFixed(1)}s</span>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+
+        return `<div class="fac-zone">
+            <div class="fac-zone-header">
+                <span class="fac-zone-name">${esc(zone.name)}</span>
+                ${staleTag}
+                <span class="fac-zone-stats">${zone.activeCnt}/${zone.totalCnt} · ${(zone.avgProd ?? 0).toFixed(0)}% moy · ${(zone.totalPower ?? 0).toFixed(1)} MW</span>
+            </div>
+            <div class="fac-machine-list">${rows || '<div style="color:#555;padding:6px;font-size:0.8em">Aucune machine détectée</div>'}</div>
+        </div>`;
+    }).join('');
 }
 
 let _isMobile = window.innerWidth < 600;

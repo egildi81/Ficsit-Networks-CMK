@@ -19,7 +19,7 @@
         <button class="section-btn" onclick="switchSection('stockage', this)">STOCKAGE</button>
         <button class="section-btn" onclick="switchSection('power', this)">ÉNERGIE</button>
         <button class="section-btn" onclick="switchSection('logs', this)">LOGS</button>
-        <button class="section-btn" style="opacity:0.35;cursor:not-allowed" disabled title="Bientôt disponible">USINE <span style="font-size:0.75em;color:#aaa">(Soon)</span></button>
+        <button class="section-btn" onclick="switchSection('usine', this)">USINE</button>
     </div>
     <nav class="tabs" id="trains-tabs">
         <button class="tab active" onclick="switchTab('monitor', this)">EN DIRECT</button>
@@ -199,6 +199,18 @@
             <canvas id="pw-chart"></canvas>
         </div>
     </div>
+</div>
+
+<!-- ── SECTION USINE ── -->
+<div id="page-usine" class="page">
+    <div class="fac-header">
+        <span class="fac-title">USINE</span>
+        <span class="fac-stat"><strong id="fac-total-active">—</strong>/<strong id="fac-total-cnt">—</strong> machines actives</span>
+        <span class="fac-stat"><strong id="fac-total-power">—</strong></span>
+        <span class="fac-stat" id="fac-zone-count" style="margin-left:auto;color:#555"></span>
+        <span id="fac-stale" style="font-size:0.72em;color:#ff4444"></span>
+    </div>
+    <div id="fac-grid" class="fac-grid"></div>
 </div>
 
 <!-- ── SECTION LOGS ── -->

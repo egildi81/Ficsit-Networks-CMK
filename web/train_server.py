@@ -1,4 +1,4 @@
-__version__ = "1.1.4"
+__version__ = "1.1.5"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -87,6 +87,10 @@ def _save_dispatch_routes(routes):
 _dispatch_routes      = _load_dispatch_routes()
 _dispatch_status      = {}    # état temps réel poussé par LOGGER (agrégé depuis DISPATCH port 69)
 _dispatch_pending_cmd = None  # commande web en attente d'être consommée par LOGGER
+
+# ── Factory monitoring (FACTORY_CENTRAL → /api/factory/push) ──
+_factory_data         = {}    # dernières données agrégées de FACTORY_CENTRAL
+_factory_pending_cmd  = None  # commande en attente pour FACTORY_CENTRAL
 
 # ── Persistance logs FIN sur disque / FIN log persistence ────
 _LOG_DIR      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -474,6 +478,29 @@ def get_dispatch_command_lua():
     _dispatch_pending_cmd = None
     return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
 
+@app.route("/api/factory/push", methods=["POST"])
+def factory_push():
+    """Reçoit les données agrégées de FACTORY_CENTRAL (toutes les 15s)."""
+    global _factory_data
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    body["server_ts"] = time.time()
+    _factory_data = body
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/factory/central/command.lua", methods=["GET", "POST"])
+def factory_central_command_lua():
+    """FACTORY_CENTRAL poll cette route pour récupérer la prochaine commande."""
+    global _factory_pending_cmd
+    if not _factory_pending_cmd:
+        return "nil", 200, {"Content-Type": "text/plain"}
+    cmd = _factory_pending_cmd
+    _factory_pending_cmd = None
+    return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
+
+
 @app.route("/api/fin/<path:script>", methods=["GET", "POST"])
 def get_fin_script(script):
     """Sert les scripts FIN Lua depuis fin/ — utilisé par les EEPROM bootstrap."""
@@ -507,6 +534,7 @@ def get_data():
             if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
         },
         "sat_latest_version":   _get_latest_satellite_version(),
+        "factory":              _factory_data or None,
     })
 
 
