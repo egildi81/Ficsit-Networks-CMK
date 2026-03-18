@@ -1,4 +1,4 @@
-const VERSION = "1.7.6";
+const VERSION = "1.7.7";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2254,12 +2254,8 @@ function renderFactory(fac) {
         return { recipeMap, offList };
     }
 
-    // Rendu d'un groupe de recette / Recipe group renderer
-    // Retourne HTML + alimente _facDetailGroups / Returns HTML + populates _facDetailGroups
+    // Rendu d'un groupe de recette (visuel seul, pas de onclick) / Recipe group (visual only, no onclick)
     function recipeGroupHtml(recipe, machines) {
-        const idx = _facDetailGroups.length;
-        _facDetailGroups.push({ recipe, machines });
-
         const activeCnt  = machines.filter(m => m.active).length;
         const prodSum    = machines.reduce((s, m) => s + (m.productivity ?? 0), 0);
         const avgProd    = activeCnt > 0 ? prodSum / activeCnt : 0;
@@ -2268,7 +2264,7 @@ function renderFactory(fac) {
         const inTotal    = machines.reduce((s, m) => s + (m.inputItems  || []).reduce((a, i) => a + (i.count || 0), 0), 0);
         const outTotal   = machines.reduce((s, m) => s + (m.outputItems || []).reduce((a, i) => a + (i.count || 0), 0), 0);
 
-        return `<div class="fac-recipe-group" onclick="openFacDetail(${idx})" title="Voir toutes les machines" style="cursor:pointer">
+        return `<div class="fac-recipe-group">
             <div class="fac-recipe-header">
                 <span class="fac-recipe-name">${esc(recipe)}</span>
                 <span class="fac-recipe-count">${machines.length} mach.</span>
@@ -2283,12 +2279,10 @@ function renderFactory(fac) {
         </div>`;
     }
 
-    // Rendu machines OFF / OFF machines renderer
+    // Rendu machines OFF (visuel seul) / OFF machines (visual only)
     function offGroupHtml(offList) {
         if (!offList.length) return '';
-        const idx = _facDetailGroups.length;
-        _facDetailGroups.push({ recipe: 'OFF', machines: offList });
-        return `<div class="fac-recipe-group fac-recipe-off" onclick="openFacDetail(${idx})" title="Voir toutes les machines" style="cursor:pointer">
+        return `<div class="fac-recipe-group fac-recipe-off">
             <div class="fac-recipe-header">
                 <span class="fac-recipe-name" style="color:#666">Sans recette / Standby</span>
                 <span class="fac-recipe-count">${offList.length} mach.</span>
@@ -2335,6 +2329,9 @@ function renderFactory(fac) {
         if (zoneCountEl) zoneCountEl.textContent = cfgZones.length + ' zone' + (cfgZones.length > 1 ? 's' : '');
         grid.innerHTML = cfgZones.map(zone => {
             const allNicks = [...(zone.machines || []), ...((zone.subzones || []).flatMap(sz => sz.machines || []))];
+            // Stocker toutes les machines de la zone pour le modal / Store all zone machines for modal
+            const zoneIdx  = _facDetailGroups.length;
+            _facDetailGroups.push({ recipe: zone.name, machines: allNicks.map(n => byNick[n]).filter(Boolean) });
 
             const subzonesHtml = (zone.subzones && zone.subzones.length) ? zone.subzones.map(sz => {
                 const szNicks = sz.machines || [];
@@ -2350,7 +2347,7 @@ function renderFactory(fac) {
             const directNicks = zone.machines || [];
             const directHtml  = directNicks.length ? `<div class="fac-recipe-list">${sectionHtml(directNicks, false)}</div>` : '';
 
-            return `<div class="fac-zone">
+            return `<div class="fac-zone" onclick="openFacDetail(${zoneIdx})" title="Voir toutes les machines" style="cursor:pointer">
                 <div class="fac-zone-header">
                     <span class="fac-zone-name">${esc(zone.name)}</span>
                     <span class="fac-zone-stats">${zoneStatStr(allNicks)}</span>
@@ -2362,9 +2359,11 @@ function renderFactory(fac) {
         // Fallback par satellite / Fallback by satellite
         if (zoneCountEl) zoneCountEl.textContent = fac.zones.length + ' sat.';
         grid.innerHTML = fac.zones.map(zone => {
-            const nicks = (zone.machines || []).map(m => m.nick);
+            const nicks    = (zone.machines || []).map(m => m.nick);
+            const zoneIdx  = _facDetailGroups.length;
+            _facDetailGroups.push({ recipe: zone.name, machines: (zone.machines || []) });
             const staleTag = zone.stale ? '<span class="fac-stale">HORS LIGNE</span>' : '';
-            return `<div class="fac-zone">
+            return `<div class="fac-zone" onclick="openFacDetail(${zoneIdx})" title="Voir toutes les machines" style="cursor:pointer">
                 <div class="fac-zone-header">
                     <span class="fac-zone-name">${esc(zone.name)}</span>
                     ${staleTag}

@@ -586,7 +586,8 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     gap: 14px; padding: 14px;
 }
 
-.fac-zone { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; overflow: hidden; }
+.fac-zone { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; overflow: hidden; transition: border-color .15s; }
+.fac-zone:hover { border-color: #333; }
 .fac-zone-header {
     background: #0a0f00; border-bottom: 1px solid #161616;
     padding: 9px 14px; display: flex; align-items: center; gap: 10px;
@@ -622,8 +623,7 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 /* ── Groupes recette (vue agrégée) ── */
 .fac-recipe-list { padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; }
-.fac-recipe-group { background: #0c0c0c; border: 1px solid #1a1a1a; border-radius: 4px; padding: 7px 10px; transition: border-color .15s; }
-.fac-recipe-group:hover { border-color: #99ff00; }
+.fac-recipe-group { background: #0c0c0c; border: 1px solid #1a1a1a; border-radius: 4px; padding: 7px 10px; }
 .fac-recipe-off { opacity: 0.55; }
 .fac-recipe-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .fac-recipe-name { color: #ddd; font-size: 0.8em; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
