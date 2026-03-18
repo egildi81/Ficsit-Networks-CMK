@@ -1,4 +1,4 @@
-const VERSION = "1.7.5";
+const VERSION = "1.7.6";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2268,7 +2268,7 @@ function renderFactory(fac) {
         const inTotal    = machines.reduce((s, m) => s + (m.inputItems  || []).reduce((a, i) => a + (i.count || 0), 0), 0);
         const outTotal   = machines.reduce((s, m) => s + (m.outputItems || []).reduce((a, i) => a + (i.count || 0), 0), 0);
 
-        return `<div class="fac-recipe-group">
+        return `<div class="fac-recipe-group" onclick="openFacDetail(${idx})" title="Voir toutes les machines" style="cursor:pointer">
             <div class="fac-recipe-header">
                 <span class="fac-recipe-name">${esc(recipe)}</span>
                 <span class="fac-recipe-count">${machines.length} mach.</span>
@@ -2279,7 +2279,6 @@ function renderFactory(fac) {
                 <span title="Total items entrée">⬇ ${inTotal}</span>
                 <span title="Total items sortie">⬆ ${outTotal}</span>
                 <span title="Consommation totale">${totalPow.toFixed(1)} MW</span>
-                <button class="fac-detail-btn" onclick="openFacDetail(${idx})">Détail</button>
             </div>
         </div>`;
     }
@@ -2289,14 +2288,11 @@ function renderFactory(fac) {
         if (!offList.length) return '';
         const idx = _facDetailGroups.length;
         _facDetailGroups.push({ recipe: 'OFF', machines: offList });
-        return `<div class="fac-recipe-group fac-recipe-off">
+        return `<div class="fac-recipe-group fac-recipe-off" onclick="openFacDetail(${idx})" title="Voir toutes les machines" style="cursor:pointer">
             <div class="fac-recipe-header">
                 <span class="fac-recipe-name" style="color:#666">Sans recette / Standby</span>
                 <span class="fac-recipe-count">${offList.length} mach.</span>
                 <span class="fac-off-badge">OFF</span>
-            </div>
-            <div class="fac-recipe-bottom">
-                <button class="fac-detail-btn" onclick="openFacDetail(${idx})">Détail</button>
             </div>
         </div>`;
     }
