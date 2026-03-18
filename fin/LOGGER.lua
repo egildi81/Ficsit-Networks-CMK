@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.7.0"
+local VERSION = "1.8.0"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -112,6 +112,7 @@ local MAX_SCORE_HISTORY=20
 local lastHistoryUpdate=0
 local loggerStartTime=computer.millis()
 local state={}
+local holdCnt=0   -- trains détectés sans timetable (HOLD) / trains detected without timetable (HOLD)
 local la={}
 local depart={}
 local dk_prev={}
@@ -152,8 +153,18 @@ local function computeStats()
     local avgDur=durCnt>0 and math.floor(durSum/durCnt) or 0
     local avgInv=invN>0 and math.floor(invSum/invN) or 0
 
-    -- Score : mobilité (60%) + consistance (40%)
-    local mobility=totalCnt>0 and (movingCnt/totalCnt) or 0.5
+    -- Score 3 axes :
+    -- mobilité opérationnelle (50%) : parmi les trains actifs (avec timetable), combien roulent
+    -- activation du parc (30%) : proportion du parc total réellement en service (pénalise les HOLD)
+    -- consistance des trajets (20%) : régularité des durées (CV)
+    -- 3-axis score:
+    -- operational mobility (50%): among active trains (with timetable), how many are moving
+    -- fleet activation (30%): proportion of total detected fleet actually in service (penalizes HOLD)
+    -- trip consistency (20%): regularity of trip durations (CV)
+    local activeCnt=totalCnt  -- trains avec timetable / trains with timetable
+    local totalPark=activeCnt+holdCnt  -- parc complet détecté / total detected fleet
+    local mobility=activeCnt>0 and (movingCnt/activeCnt) or 0.5
+    local parkActivation=totalPark>0 and (activeCnt/totalPark) or 1.0
     local consistency=1.0
     if durCnt>=3 then
         local varSum=0
@@ -161,7 +172,7 @@ local function computeStats()
         local cv=avgDur>0 and (math.sqrt(varSum/cap)/avgDur) or 0
         consistency=math.max(0,1-cv*1.5)
     end
-    local score=math.floor((mobility*0.60+consistency*0.40)*100)
+    local score=math.floor((mobility*0.50+parkActivation*0.30+consistency*0.20)*100)
 
     -- Mise à jour historique scores (toutes les 60s)
     local now=computer.millis()
@@ -189,6 +200,7 @@ local function computeStats()
 
     return {
         movingCnt=movingCnt, stoppedCnt=stoppedCnt, dockedCnt=dockedCnt, totalCnt=totalCnt,
+        holdCnt=holdCnt,
         avgSpeed=avgSpeed, avgDur=avgDur, avgInv=avgInv, invN=invN, durCnt=durCnt,
         totalInv=currentTotalInv,
         score=score, conf=conf, scoreHistory=scoreHistory,
@@ -403,6 +415,7 @@ local function tick()
     if not trains then return end
     local now=computer.millis()/1000
     state={}
+    holdCnt=0
     currentTotalInv=0
     for _,t in pairs(trains) do
         local ok2,m=pcall(function()return t:getMaster()end)
@@ -425,7 +438,7 @@ local function tick()
                     cur=st.station.name
                 end
             end)
-            if not hasTT then goto continue end
+            if not hasTT then holdCnt=holdCnt+1 goto continue end
             local spd=0
             pcall(function()spd=math.abs(math.floor(m:getMovement().speed/100*3.6))end)
             local nv=wagons(t)
