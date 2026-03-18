@@ -1,4 +1,4 @@
-__version__ = "1.1.5"
+__version__ = "1.2.0"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -91,6 +91,22 @@ _dispatch_pending_cmd = None  # commande web en attente d'être consommée par L
 # ── Factory monitoring (FACTORY_CENTRAL → /api/factory/push) ──
 _factory_data         = {}    # dernières données agrégées de FACTORY_CENTRAL
 _factory_pending_cmd  = None  # commande en attente pour FACTORY_CENTRAL
+
+# ── Factory zone config (persistée dans factory_zone_config.json) ─────────
+_FACTORY_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "factory_zone_config.json")
+def _load_factory_zone_config():
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"zones": []}
+def _save_factory_zone_config(cfg):
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+_factory_zone_config = _load_factory_zone_config()
 
 # ── Persistance logs FIN sur disque / FIN log persistence ────
 _LOG_DIR      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -490,6 +506,22 @@ def factory_push():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/factory/zone-config", methods=["GET"])
+def get_factory_zone_config():
+    return jsonify(_factory_zone_config)
+
+
+@app.route("/api/factory/zone-config", methods=["POST"])
+def set_factory_zone_config():
+    global _factory_zone_config
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "zones" not in body:
+        return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
+    _factory_zone_config = body
+    _save_factory_zone_config(_factory_zone_config)
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/factory/central/command.lua", methods=["GET", "POST"])
 def factory_central_command_lua():
     """FACTORY_CENTRAL poll cette route pour récupérer la prochaine commande."""
@@ -535,6 +567,7 @@ def get_data():
         },
         "sat_latest_version":   _get_latest_satellite_version(),
         "factory":              _factory_data or None,
+        "factory_zone_config":  _factory_zone_config,
     })
 
 

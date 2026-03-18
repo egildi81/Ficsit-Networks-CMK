@@ -36,6 +36,10 @@
         <button class="tab active" onclick="switchDispatchTab('live', this)">LIVE</button>
         <button class="tab" onclick="switchDispatchTab('config', this)">CONFIGURATION</button>
     </nav>
+    <nav class="tabs" id="usine-tabs" style="display:none">
+        <button class="tab active" id="usine-tab-info" onclick="switchUsineTab('info', this)">INFO</button>
+        <button class="tab" id="usine-tab-config" onclick="switchUsineTab('config', this)">CONFIGURATION</button>
+    </nav>
 </header>
 
 <!-- ── ONGLET EN DIRECT ── -->
@@ -201,8 +205,8 @@
     </div>
 </div>
 
-<!-- ── SECTION USINE ── -->
-<div id="page-usine" class="page">
+<!-- ── SECTION USINE — INFO ── -->
+<div id="page-usine-info" class="page">
     <div class="fac-header">
         <span class="fac-title">USINE</span>
         <span class="fac-stat"><strong id="fac-total-active">—</strong>/<strong id="fac-total-cnt">—</strong> machines actives</span>
@@ -211,6 +215,11 @@
         <span id="fac-stale" style="font-size:0.72em;color:#ff4444"></span>
     </div>
     <div id="fac-grid" class="fac-grid"></div>
+</div>
+
+<!-- ── SECTION USINE — CONFIGURATION ── -->
+<div id="page-usine-config" class="page">
+    <div id="usine-config-content"></div>
 </div>
 
 <!-- ── SECTION LOGS ── -->
