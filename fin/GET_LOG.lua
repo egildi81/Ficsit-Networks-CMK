@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.8"
+local VERSION = "1.2.9"
 -- Throttle dessin : évite le flood GPU quand de nombreux messages arrivent en rafale
 -- Draw throttle: avoids GPU flood when many messages arrive in rapid succession
 local DRAW_INTERVAL = 200  -- ms minimum entre deux draw() / ms minimum between draws
@@ -73,8 +73,10 @@ local CY = {r=0,   g=0.9, b=1,   a=1}  -- cyan
 local PU = {r=0.8, g=0.4, b=1,   a=1}  -- violet / purple
 local MI = {r=0.2, g=1,   b=0.7, a=1}  -- menthe / mint
 local PK = {r=1,   g=0.4, b=0.8, a=1}  -- rose   / pink
-local AM = {r=1,   g=0.78, b=0,   a=1}  -- ambre  / amber   (CENTRAL)
-local TG = {r=1,   g=0.58, b=0.1, a=1}  -- tangerine        (satellites SAT:*)
+local AM = {r=1,   g=0.78, b=0,   a=1}  -- ambre  / amber      (CENTRAL)
+local TG = {r=1,   g=0.58, b=0.1, a=1}  -- tangerine           (satellites SAT:*)
+local LI = {r=0.6, g=1,   b=0,   a=1}  -- lime / citron        (FAC_CENTRAL)
+local CO = {r=1,   g=0.5, b=0.35, a=1}  -- corail / coral      (satellites FAC:*)
 
 -- Couleur par script source (fond noir — ne pas mettre de couleurs sombres)
 -- Color per source script (black background — no dark colors)
@@ -89,6 +91,7 @@ local COLORS = {
     POWER_MON   = PK,  -- rose
     STARTER     = RE,  -- rouge
     CENTRAL     = AM,  -- ambre
+    FAC_CENTRAL = LI,  -- lime
 }
 
 local FONT     = 22
@@ -127,7 +130,10 @@ local function draw()
     local y = HEADER_H + 6
     for _, l in ipairs(lines) do
         -- SAT:* = satellites (préfixe dynamique) / SAT:* = satellites (dynamic prefix)
-        local col = COLORS[l.src] or (l.src:sub(1,4)=="SAT:" and TG or WH)
+        local col = COLORS[l.src]
+            or (l.src:sub(1,4)=="SAT:" and TG)   -- satellites STOCKAGE / STOCKAGE satellites
+            or (l.src:sub(1,4)=="FAC:" and CO)   -- satellites FACTORY  / FACTORY satellites
+            or WH
         gpu:drawText({x=20,  y=y}, l.ts,              FONT, YE,  false)
         gpu:drawText({x=200, y=y}, "["..l.src.."]",   FONT, col, false)
         gpu:drawText({x=500, y=y}, l.msg,             FONT, WH,  false)
