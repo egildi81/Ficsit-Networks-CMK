@@ -1,4 +1,4 @@
-const VERSION = "1.7.17";
+const VERSION = "1.7.18";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2374,16 +2374,44 @@ function renderFactory(fac) {
         return recipeHtml + offGroupHtml(offList);
     }
 
-    // Stats zone actives seulement / Zone stats active machines only
-    function zoneStatStr(nicks) {
+    // Stats zone — retourne objet / Zone stats — returns object
+    function zoneStats(nicks) {
         let active = 0, total = 0, prodSum = 0, pow = 0;
         for (const n of nicks) {
             const m = byNick[n]; if (!m) continue;
             total++;
             if (m.active && m.recipe) { active++; prodSum += m.productivity ?? 0; pow += m.power ?? 0; }
         }
-        const avg = active > 0 ? (prodSum / active).toFixed(0) : 0;
-        return `${active}/${total} actives · ${avg}% moy · ${pow.toFixed(1)} MW`;
+        const avg   = active > 0 ? Math.round(prodSum / active) : 0;
+        const color = avg >= 80 ? '#99ff00' : avg >= 50 ? '#ffcc00' : total > 0 ? '#ff4444' : '#666';
+        return { avg, active, total, pow, color };
+    }
+
+    // HTML section sous-zone (nom + barre petite + recettes) / Subzone HTML (name + small bar + recipes)
+    function subzoneHtml(name, nicks) {
+        const st = zoneStats(nicks);
+        return `<div class="fac-subzone-info">
+            <div class="fac-subzone-info-header">
+                <span class="fac-subzone-info-name">${esc(name)}</span>
+                <span class="fac-sz-pct" style="color:${st.color}">${st.avg}%</span>
+            </div>
+            <div class="fac-sz-bar-bg"><div class="fac-sz-bar" style="width:${Math.min(st.avg,100)}%;background:${st.color}"></div></div>
+            <div class="fac-recipe-list">${sectionHtml(nicks, false)}</div>
+        </div>`;
+    }
+
+    // HTML card zone principale (pattern STOCKAGE) / Main zone card (STOCKAGE pattern)
+    function zoneCardHtml(name, allNicks, zoneIdx, staleTag, content) {
+        const st = zoneStats(allNicks);
+        return `<div class="fac-zone" onclick="openFacDetail(${zoneIdx})" title="Voir toutes les machines" style="cursor:pointer">
+            <div class="fac-card-header">
+                <span class="fac-zone-name">${esc(name)}${staleTag}</span>
+                <span class="fac-card-pct" style="color:${st.color}">${st.avg}%</span>
+            </div>
+            <div class="fac-bar-bg"><div class="fac-bar" style="width:${Math.min(st.avg,100)}%;background:${st.color}"></div></div>
+            <div class="fac-card-meta">${st.active}/${st.total} actives &nbsp;·&nbsp; <img src="/static/img/POWER.png" class="fac-icon"> ${st.pow.toFixed(1)} MW</div>
+            ${content}
+        </div>`;
     }
 
     _facDetailGroups = [];  // reset à chaque render / reset on each render
@@ -2394,49 +2422,28 @@ function renderFactory(fac) {
         if (zoneCountEl) zoneCountEl.textContent = cfgZones.length + ' zone' + (cfgZones.length > 1 ? 's' : '');
         grid.innerHTML = cfgZones.map(zone => {
             const allNicks = [...(zone.machines || []), ...((zone.subzones || []).flatMap(sz => sz.machines || []))];
-            // Stocker toutes les machines de la zone pour le modal / Store all zone machines for modal
             const zoneIdx  = _facDetailGroups.length;
             _facDetailGroups.push({ recipe: zone.name, machines: allNicks.map(n => byNick[n]).filter(Boolean) });
 
-            const subzonesHtml = (zone.subzones && zone.subzones.length) ? zone.subzones.map(sz => {
-                const szNicks = sz.machines || [];
-                return `<div class="fac-subzone-info">
-                    <div class="fac-subzone-info-header">
-                        <span class="fac-subzone-info-name">${esc(sz.name)}</span>
-                        <span class="fac-zone-stats">${zoneStatStr(szNicks)}</span>
-                    </div>
-                    <div class="fac-recipe-list">${sectionHtml(szNicks, false)}</div>
-                </div>`;
-            }).join('') : '';
-
             const directNicks = zone.machines || [];
-            const mainLabel   = zone.mainLabel && zone.subzones && zone.subzones.length ? `<div class="fac-subzone-info"><div class="fac-subzone-info-header"><span class="fac-subzone-info-name">${esc(zone.mainLabel)}</span><span class="fac-zone-stats">${zoneStatStr(directNicks)}</span></div></div>` : '';
-            const directHtml  = directNicks.length ? `${mainLabel}<div class="fac-recipe-list">${sectionHtml(directNicks, false)}</div>` : '';
+            const hasSubs     = zone.subzones && zone.subzones.length;
+            const mainLabel   = zone.mainLabel && hasSubs ? zone.mainLabel : null;
+            const directHtml  = directNicks.length
+                ? (mainLabel ? subzoneHtml(mainLabel, directNicks) : `<div class="fac-recipe-list">${sectionHtml(directNicks, false)}</div>`)
+                : '';
+            const subzonesHtml = hasSubs ? zone.subzones.map(sz => subzoneHtml(sz.name, sz.machines || [])).join('') : '';
 
-            return `<div class="fac-zone" onclick="openFacDetail(${zoneIdx})" title="Voir toutes les machines" style="cursor:pointer">
-                <div class="fac-zone-header">
-                    <span class="fac-zone-name">${esc(zone.name)}</span>
-                    <span class="fac-zone-stats">${zoneStatStr(allNicks)}</span>
-                </div>
-                ${directHtml}${subzonesHtml}
-            </div>`;
+            return zoneCardHtml(zone.name, allNicks, zoneIdx, '', directHtml + subzonesHtml);
         }).join('');
     } else {
         // Fallback par satellite / Fallback by satellite
         if (zoneCountEl) zoneCountEl.textContent = fac.zones.length + ' sat.';
         grid.innerHTML = fac.zones.map(zone => {
-            const nicks    = (zone.machines || []).map(m => m.nick);
-            const zoneIdx  = _facDetailGroups.length;
-            _facDetailGroups.push({ recipe: zone.name, machines: (zone.machines || []) });
-            const staleTag = zone.stale ? '<span class="fac-stale">HORS LIGNE</span>' : '';
-            return `<div class="fac-zone" onclick="openFacDetail(${zoneIdx})" title="Voir toutes les machines" style="cursor:pointer">
-                <div class="fac-zone-header">
-                    <span class="fac-zone-name">${esc(zone.name)}</span>
-                    ${staleTag}
-                    <span class="fac-zone-stats">${zoneStatStr(nicks)}</span>
-                </div>
-                <div class="fac-recipe-list">${sectionHtml(nicks, !!zone.stale)}</div>
-            </div>`;
+            const nicks   = (zone.machines || []).map(m => m.nick);
+            const zoneIdx = _facDetailGroups.length;
+            _facDetailGroups.push({ recipe: zone.name, machines: zone.machines || [] });
+            const staleTag = zone.stale ? ' <span class="fac-stale">HORS LIGNE</span>' : '';
+            return zoneCardHtml(zone.name, nicks, zoneIdx, staleTag, `<div class="fac-recipe-list">${sectionHtml(nicks, !!zone.stale)}</div>`);
         }).join('');
     }
 }

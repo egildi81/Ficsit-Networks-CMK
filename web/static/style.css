@@ -588,14 +588,9 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
     gap: 14px; padding: 14px;
 }
 
-.fac-zone { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; overflow: hidden; transition: border-color .15s; }
+.fac-zone { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; overflow: hidden; transition: border-color .15s; padding: 12px 14px 8px; }
 .fac-zone:hover { border-color: #333; }
-.fac-zone-header {
-    background: #0a0f00; border-bottom: 1px solid #161616;
-    padding: 9px 14px; display: flex; align-items: center; gap: 10px;
-}
-.fac-zone-name  { color: #99ff00; font-size: 0.84em; font-weight: 700; }
-.fac-zone-stats { color: #bbb; font-size: 0.72em; margin-left: auto; }
+.fac-zone-name  { color: #99ff00; font-size: 0.84em; font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .fac-machine-list { padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
 
@@ -619,9 +614,12 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 
 .fac-machine-bottom { display: flex; gap: 10px; font-size: 0.68em; color: #aaa; margin-top: 3px; }
 
-.fac-subzone-info { border-top: 1px solid #161616; }
-.fac-subzone-info-header { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: #0d0d0d; }
-.fac-subzone-info-name { color: #99ff00; opacity: 0.7; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; }
+.fac-subzone-info { border-top: 1px solid #1a1a1a; }
+.fac-subzone-info-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px 4px; }
+.fac-subzone-info-name { color: #99ff00; opacity: 0.75; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; }
+.fac-sz-pct     { font-size: 0.9em; font-weight: 700; flex-shrink: 0; }
+.fac-sz-bar-bg  { background: #0d0d0d; height: 3px; margin: 0 12px 4px; border-radius: 2px; overflow: hidden; }
+.fac-sz-bar     { height: 100%; border-radius: 2px; transition: width .5s; }
 
 /* ── Groupes recette (vue agrégée — pattern STOCKAGE) ── */
 .fac-recipe-list  { padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
