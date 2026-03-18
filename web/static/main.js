@@ -1,4 +1,4 @@
-const VERSION = "1.7.3";
+const VERSION = "1.7.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -996,7 +996,7 @@ function _saveFactoryZoneConfig() {
             if (!r.ok) { if (st) st.textContent = `Erreur HTTP ${r.status}`; return; }
             _factoryZoneConfig = config;
             _prevJson.factory = null;  // forcer re-render INFO / force INFO re-render
-            if (_lastFactoryData) renderFactory(_lastFactoryData);
+            if (_lastFactoryData) setTimeout(() => renderFactory(_lastFactoryData), 0);
             if (st) { st.textContent = 'Sauvegardé ✓'; setTimeout(() => { if (st) st.textContent = ''; }, 2000); }
         })
         .catch(() => { const st = document.getElementById('fac-cfg-status'); if (st) st.textContent = 'Erreur réseau'; });
