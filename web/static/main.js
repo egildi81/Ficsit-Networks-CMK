@@ -1869,7 +1869,7 @@ function _appendLogEntries(entries) {
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
         div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
-            + `<span style="color:${col};font-weight:700;min-width:100px;display:inline-block">${e.tag}</span> `
+            + `<span style="color:${col};font-weight:700;min-width:100px;display:inline-block" title="${e.tag}">${e.tag.slice(0,17)}</span> `
             + `<span style="color:#fff">${e.msg.replace(/</g,'&lt;')}</span>`;
         el.appendChild(div);
     });
