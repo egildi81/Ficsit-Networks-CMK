@@ -2,8 +2,8 @@ const VERSION = "1.6.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
-const _dispatchPages = ['page-dispatch', 'page-dispatch-config', 'page-dispatch-live2'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch', 'page-dispatch-config', 'page-dispatch-live2', 'page-logs'];
+const _dispatchPages = ['page-dispatch-live2', 'page-dispatch-config'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -20,7 +20,7 @@ const LOG_TAG_COLORS = {
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';
-let _lastDispatchPage = 'page-dispatch';
+let _lastDispatchPage = 'page-dispatch-live2';
 
 function switchSection(name, btn) {
     document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
@@ -59,13 +59,11 @@ function switchSection(name, btn) {
 function switchDispatchTab(name, btn) {
     _dispatchPages.forEach(id => document.getElementById(id).classList.remove('active'));
     document.querySelectorAll('#dispatch-tabs .tab').forEach(t => t.classList.remove('active'));
-    _lastDispatchPage = name === 'live' ? 'page-dispatch'
-                      : name === 'live2' ? 'page-dispatch-live2'
-                      : 'page-dispatch-config';
+    _lastDispatchPage = name === 'live' ? 'page-dispatch-live2' : 'page-dispatch-config';
     document.getElementById(_lastDispatchPage).classList.add('active');
     btn.classList.add('active');
     if (name === 'config') renderDispatch2();
-    if (name === 'live2')  _dp2RenderLive();
+    if (name === 'live')   _dp2RenderLive();
 }
 
 // ── Navigation onglets (sous STOCKAGE) ────────────────────────
@@ -1417,15 +1415,13 @@ function renderDispatch(dispatch, routesConfig) {
     // Badges config/safeMode — mis à jour sur les deux vues LIVE / updated on both LIVE views
     const cfgTxt = dispatch && dispatch.configOk ? 'Config OK' : (dispatch ? 'Config manquante' : 'LOGGER hors ligne');
     const cfgCls = dispatch && dispatch.configOk ? 'dp-badge ok' : 'dp-badge err';
-    ['dp-badge-config', 'dp2-badge-config'].forEach(id => {
-        const el = document.getElementById(id); if (!el) return;
-        el.textContent = cfgTxt; el.className = cfgCls;
-    });
-    ['dp-badge-safe', 'dp2-badge-safe'].forEach(id => {
-        const el = document.getElementById(id); if (!el) return;
-        if (dispatch && dispatch.safeMode) { el.style.display = ''; el.className = 'dp-badge warn'; el.textContent = 'SAFE MODE'; }
-        else { el.style.display = 'none'; }
-    });
+    const badgeCfg  = document.getElementById('dp-badge-config');
+    const badgeSafe = document.getElementById('dp-badge-safe');
+    if (badgeCfg)  { badgeCfg.textContent = cfgTxt; badgeCfg.className = cfgCls; }
+    if (badgeSafe) {
+        if (dispatch && dispatch.safeMode) { badgeSafe.style.display = ''; badgeSafe.className = 'dp-badge warn'; badgeSafe.textContent = 'SAFE MODE'; }
+        else { badgeSafe.style.display = 'none'; }
+    }
     // Live routes depuis DISPATCH
     _dpOnline     = !!(dispatch && dispatch.configOk);
     _dpLiveRoutes = (dispatch && dispatch.routes && dispatch.routes.length > 0) ? dispatch.routes : null;
@@ -1439,13 +1435,13 @@ function renderDispatch(dispatch, routesConfig) {
             _dpRoutesConfig = routesConfig;
         }
     }
-    renderDpRoutes();
-    // Mise à jour live2 si actif / Update live2 if active
+    // Mise à jour live si actif / Update live if active
     if (_lastDispatchPage === 'page-dispatch-live2') _dp2RenderLive();
 }
 
 function renderDpRoutes() {
     const container = document.getElementById('dp-routes');
+    if (!container) return;
     container.innerHTML = '';
     // Bannière hors-ligne / Offline banner
     if (!_dpOnline) {
