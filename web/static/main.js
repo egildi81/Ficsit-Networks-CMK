@@ -1414,20 +1414,18 @@ function _dpUpdateLists(data) {
 }
 
 function renderDispatch(dispatch, routesConfig) {
-    // Badges config/safeMode
-    const badgeCfg  = document.getElementById('dp-badge-config');
-    const badgeSafe = document.getElementById('dp-badge-safe');
-    if (dispatch && dispatch.configOk) {
-        badgeCfg.textContent = 'Config OK'; badgeCfg.className = 'dp-badge ok';
-    } else {
-        badgeCfg.textContent = dispatch ? 'Config manquante' : 'LOGGER hors ligne';
-        badgeCfg.className = 'dp-badge err';
-    }
-    if (dispatch && dispatch.safeMode) {
-        badgeSafe.style.display = ''; badgeSafe.className = 'dp-badge warn'; badgeSafe.textContent = 'SAFE MODE';
-    } else {
-        badgeSafe.style.display = 'none';
-    }
+    // Badges config/safeMode — mis à jour sur les deux vues LIVE / updated on both LIVE views
+    const cfgTxt = dispatch && dispatch.configOk ? 'Config OK' : (dispatch ? 'Config manquante' : 'LOGGER hors ligne');
+    const cfgCls = dispatch && dispatch.configOk ? 'dp-badge ok' : 'dp-badge err';
+    ['dp-badge-config', 'dp2-badge-config'].forEach(id => {
+        const el = document.getElementById(id); if (!el) return;
+        el.textContent = cfgTxt; el.className = cfgCls;
+    });
+    ['dp-badge-safe', 'dp2-badge-safe'].forEach(id => {
+        const el = document.getElementById(id); if (!el) return;
+        if (dispatch && dispatch.safeMode) { el.style.display = ''; el.className = 'dp-badge warn'; el.textContent = 'SAFE MODE'; }
+        else { el.style.display = 'none'; }
+    });
     // Live routes depuis DISPATCH
     _dpOnline     = !!(dispatch && dispatch.configOk);
     _dpLiveRoutes = (dispatch && dispatch.routes && dispatch.routes.length > 0) ? dispatch.routes : null;

@@ -129,8 +129,14 @@
     <div id="stockage-update-content"></div>
 </div>
 
-<!-- ── SECTION DISPATCH — LIVE 2 (cards) ── -->
+<!-- ── SECTION DISPATCH — LIVE 1 (cards) ── -->
 <div id="page-dispatch-live2" class="page">
+    <div class="dp-status-bar">
+        <span id="dp2-badge-config" class="dp-badge warn">Config...</span>
+        <span id="dp2-badge-safe" class="dp-badge" style="display:none">SAFE MODE</span>
+        <button class="dp-btn" onclick="sendDispatchCmd('reload',null,null)" title="Recharge la config depuis LOGGER">↺ Reload</button>
+        <button class="dp-btn" onclick="dpReport()" title="Rapport sur les 300 derniers logs DISPATCH">📊 Rapport</button>
+    </div>
     <div id="dp2-live-grid" class="dp2-live-grid"></div>
 </div>
 
