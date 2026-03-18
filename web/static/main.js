@@ -1,4 +1,4 @@
-const VERSION = "1.7.7";
+const VERSION = "1.7.8";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -831,8 +831,9 @@ function _facAddZone()               { _facZones.push({ id: _facIdCnt++, name: '
 function _facRemoveZone(id)          { _facZones = _facZones.filter(z => z.id !== id); _facRenderConfig(); }
 function _facAddSubzone(zid)         { const z = _facZones.find(z => z.id === zid); if (z) z.subzones.push({ id: _facIdCnt++, name: 'Sous-zone', machines: [] }); _facRenderConfig(); }
 function _facRemoveSubzone(zid, sid) { const z = _facZones.find(z => z.id === zid); if (z) z.subzones = z.subzones.filter(s => s.id !== sid); _facRenderConfig(); }
-function _facRenameZone(id, v)       { const z = _facZones.find(z => z.id === id); if (z) z.name = v; }
-function _facRenameSz(zid, sid, v)   { const z = _facZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
+function _facRenameZone(id, v)         { const z = _facZones.find(z => z.id === id); if (z) z.name = v; }
+function _facRenameMainLabel(id, v)    { const z = _facZones.find(z => z.id === id); if (z) z.mainLabel = v; }
+function _facRenameSz(zid, sid, v)     { const z = _facZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
 function _facToggleZone(id)          { _facCollapsed.has(id) ? _facCollapsed.delete(id) : _facCollapsed.add(id); _facRenderConfig(); }
 
 function _facApplyPoolFilter(v) {
@@ -900,6 +901,10 @@ function _facRenderConfig() {
         const collapsed  = _facCollapsed.has(z.id);
         const totalMachs = z.machines.length + z.subzones.reduce((s, sz) => s + sz.machines.length, 0);
         const body = collapsed ? '' : `
+            ${z.subzones.length > 0 ? `<div class="fac-subzone-cfg-header" style="padding:5px 14px">
+                <input class="fac-subzone-cfg-name" value="${esc(z.mainLabel)}" placeholder="Principal"
+                       onchange="_facRenameMainLabel(${z.id},this.value)">
+            </div>` : ''}
             ${_facDropArea(z.id, -1, z.machines)}
             ${z.subzones.map(sz => `
                 <div class="fac-subzone-cfg-card">
@@ -973,7 +978,7 @@ function renderFactoryConfig(fac, zoneConfig) {
     if (cfgZones && cfgZones.length) {
         for (const z of cfgZones) {
             _facZones.push({
-                id: _facIdCnt++, name: z.name,
+                id: _facIdCnt++, name: z.name, mainLabel: z.mainLabel || '',
                 machines: [...(z.machines || [])],
                 subzones: (z.subzones || []).map(sz => ({ id: _facIdCnt++, name: sz.name, machines: [...(sz.machines || [])] }))
             });
@@ -986,6 +991,7 @@ function _saveFactoryZoneConfig() {
     const config = {
         zones: _facZones.map(z => ({
             name: z.name,
+            mainLabel: z.mainLabel || '',
             machines: z.machines,
             subzones: z.subzones.map(sz => ({ name: sz.name, machines: sz.machines }))
         }))
@@ -2345,7 +2351,8 @@ function renderFactory(fac) {
             }).join('') : '';
 
             const directNicks = zone.machines || [];
-            const directHtml  = directNicks.length ? `<div class="fac-recipe-list">${sectionHtml(directNicks, false)}</div>` : '';
+            const mainLabel   = zone.mainLabel && zone.subzones && zone.subzones.length ? `<div class="fac-subzone-info"><div class="fac-subzone-info-header"><span class="fac-subzone-info-name">${esc(zone.mainLabel)}</span><span class="fac-zone-stats">${zoneStatStr(directNicks)}</span></div></div>` : '';
+            const directHtml  = directNicks.length ? `${mainLabel}<div class="fac-recipe-list">${sectionHtml(directNicks, false)}</div>` : '';
 
             return `<div class="fac-zone" onclick="openFacDetail(${zoneIdx})" title="Voir toutes les machines" style="cursor:pointer">
                 <div class="fac-zone-header">
