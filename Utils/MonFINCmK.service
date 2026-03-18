@@ -1,0 +1,15 @@
+[Unit]
+Description=Monitor Ficsit Network by CMK (Without Discord)
+After=network.target
+
+[Service]
+Type=simple
+User=satisfactory
+Group=satisfactory
+WorkingDirectory=/opt/MonFINCmk/web
+ExecStart=/usr/bin/python3 /opt/MonFINCmk/web/train_simple_server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

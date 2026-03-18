@@ -1,0 +1,35 @@
+#!/bin/bash
+# Script d'administration du service
+set -euo pipefail
+
+SERVICE="MonFINCmK.service"
+CLEAN_SCRIPT="/opt/MonFINCmk/Utils/MonFINCmKclean"
+
+case "${1:-}" in
+	start)
+		systemctl start "$SERVICE"
+		;;
+
+	stop)
+		systemctl stop "$SERVICE"
+		;;
+
+	restart)
+		systemctl restart "$SERVICE"
+		;;
+
+	status)
+		systemctl status "$SERVICE"
+		;;
+
+	clean-restart)
+		systemctl stop "$SERVICE"
+		"$CLEAN_SCRIPT"
+		systemctl start "$SERVICE"
+		;;
+
+	*)
+		echo "Usage: $0 {start|stop|restart|status|clean-restart}"
+		exit 1
+		;;
+esac

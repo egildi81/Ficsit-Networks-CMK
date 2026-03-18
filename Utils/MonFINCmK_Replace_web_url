@@ -73,7 +73,7 @@ for f in "${files[@]}"; do
   fi
   echo " - $f"
   for pat in "${PATTERNS[@]}"; do
-    perl -0777 -pi -e "s#${pat}#\\Q${REPLACEMENT}\\E#g" "$f"
+    perl -0777 -pi -e "s#${pat}#${REPLACEMENT}#g" "$f"
   done
 done
 

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Script de nettoayage des logs
+set -euo pipefail
+
+rm -f /opt/MonFINCmk/web/logs/fin_logs.jsonl

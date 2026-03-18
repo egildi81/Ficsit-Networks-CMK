@@ -6,6 +6,8 @@ Utils/config.ini
 
 # Préférence de l'utilisateur
 web/stockage_order.json
+web/dispatch_routes.json
+web/stockage_zone_config.json
 
 # Donnée de l'utilisateur
 web/logs/fin_logs.jsonl
@@ -16,8 +18,10 @@ web/logs/fin_logs.jsonl
 # Edition Egild
 .codex/*
 Documentation/*
-
+Utils/egild.install.sh
 
 # EN COURS
 Tutorial/FinCmk/readme.md
+
+
 
