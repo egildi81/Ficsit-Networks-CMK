@@ -1,4 +1,4 @@
-const VERSION = "1.6.3";
+const VERSION = "1.6.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -1329,7 +1329,8 @@ let _dpLiveRoutes    = null; // état temps réel depuis DISPATCH (via LOGGER)
 let _dpOnline        = false; // DISPATCH en ligne et configuré / DISPATCH online and configured
 let _dpEditingIndex  = -1;   // index route en cours d'édition (-1 = aucune)
 let _dpKnownStations = new Set();
-let _dpKnownBuffers  = new Map();  // Map<value, label> — value=nom réel, label=affichage avec parent / value=actual name, label=display with parent
+let _dpKnownBuffers      = new Map();  // Map<value, label> — value=nom réel, label=affichage avec parent / value=actual name, label=display with parent
+let _dpZoneConfigHash    = '';         // hash dernière config zones — évite rebuild datalist inutile / last zone config hash — avoids unnecessary datalist rebuild
 let _dpKnownTrains   = new Set();
 
 function _dpUpdateLists(data) {
@@ -1347,27 +1348,31 @@ function _dpUpdateLists(data) {
             if (t.name)    _dpKnownTrains.add(t.name);
         });
     }
-    // Rebuild complet depuis les zones configurées (pas d'accumulation stale)
-    // Full rebuild from configured zones only (no stale accumulation)
-    const newBufMap = new Map();
+    // Rebuild datalist buffers uniquement si la config a changé (évite de fermer le dropdown)
+    // Rebuild buffer datalist only when config changed (avoids closing the open dropdown)
     const zc = data.stockage_zone_config;
-    if (zc && Array.isArray(zc.zones)) {
-        zc.zones.forEach(z => {
-            if (!z.name) return;
-            newBufMap.set(z.name, z.name);
-            if (z.subzones) z.subzones.forEach(sz => {
-                if (sz.name) { const lbl = `(${z.name}) ${sz.name}`; newBufMap.set(lbl, lbl); }
+    const zcHash = JSON.stringify(zc);
+    if (zcHash !== _dpZoneConfigHash) {
+        _dpZoneConfigHash = zcHash;
+        const newBufMap = new Map();
+        if (zc && Array.isArray(zc.zones)) {
+            zc.zones.forEach(z => {
+                if (!z.name) return;
+                newBufMap.set(z.name, z.name);
+                if (z.subzones) z.subzones.forEach(sz => {
+                    if (sz.name) { const lbl = `(${z.name}) ${sz.name}`; newBufMap.set(lbl, lbl); }
+                });
             });
-        });
-    }
-    if (newBufMap.size > 0) {
-        _dpKnownBuffers = newBufMap;
-        const dlBuf = document.getElementById('dp-dl-buffers');
-        if (dlBuf) {
-            dlBuf.innerHTML = '';
-            [..._dpKnownBuffers.keys()].sort().forEach(value => {
-                const opt = document.createElement('option'); opt.value = value; dlBuf.appendChild(opt);
-            });
+        }
+        if (newBufMap.size > 0) {
+            _dpKnownBuffers = newBufMap;
+            const dlBuf = document.getElementById('dp-dl-buffers');
+            if (dlBuf) {
+                dlBuf.innerHTML = '';
+                [..._dpKnownBuffers.keys()].sort().forEach(value => {
+                    const opt = document.createElement('option'); opt.value = value; dlBuf.appendChild(opt);
+                });
+            }
         }
     }
     const _refreshDl = (id, set) => {
