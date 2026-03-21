@@ -5,11 +5,11 @@
 -- Prérequis : NetworkCard (+ InternetCard dans l'EEPROM uniquement pour le boot)
 -- Requirements: NetworkCard (+ InternetCard in EEPROM only for boot)
 -- Port 43 : broadcast logs → GET_LOG
--- Port 50 : SHUTDOWN
+-- Port 60 : SHUTDOWN STOCKAGE (port dédié — évite cross-reboot avec STARTER port 50)
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
@@ -26,7 +26,7 @@ local CONTAINER_CLASSES = {
 
 -- === PORTS ===
 local PORT_LOG      = 43
-local PORT_SHUTDOWN = 50
+local PORT_SHUTDOWN = 60  -- port dédié STOCKAGE (évite cross-reboot STARTER port 50) / dedicated STOCKAGE shutdown port
 local PORT_SAT_DATA = 56
 local PORT_SAT_DISC = 57
 

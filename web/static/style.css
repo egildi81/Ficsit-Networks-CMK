@@ -568,4 +568,6 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 }
 .stk-upd-btn:hover:not(:disabled) { background: rgba(255,136,0,0.22); }
 .stk-upd-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+.stk-upd-btn-reboot { background: rgba(80,160,255,0.10) !important; border-color: rgba(80,160,255,0.35) !important; color: #50a0ff !important; }
+.stk-upd-btn-reboot:hover:not(:disabled) { background: rgba(80,160,255,0.2) !important; }
 .stk-upd-filter-active { background: rgba(255,136,0,0.18) !important; border-color: #ff8800 !important; color: #ff8800 !important; }

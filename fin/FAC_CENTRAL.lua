@@ -5,7 +5,7 @@
 --
 -- Prérequis : NetworkCard + InternetCard / Requirements: NetworkCard + InternetCard
 -- Port 43 : broadcast logs → GET_LOG
--- Port 50 : SHUTDOWN
+-- Port 61 : SHUTDOWN FACTORY (port dédié — évite cross-reboot avec STARTER port 50)
 -- Port 58 : FAC_SATELLITE → FAC_CENTRAL (données scan) / scan data from satellites
 -- Port 59 : FAC_SATELLITE ↔ FAC_CENTRAL (découverte + commandes) / discovery + commands
 
@@ -20,7 +20,7 @@ local ZONE_CONFIG_INTERVAL = 60  -- secondes entre chaque fetch zone config / se
 
 -- === PORTS ===
 local PORT_LOG      = 43
-local PORT_SHUTDOWN = 50
+local PORT_SHUTDOWN = 61  -- port dédié FACTORY (évite cross-reboot STARTER port 50) / dedicated FACTORY shutdown port
 local PORT_FAC_DATA = 58
 local PORT_FAC_DISC = 59
 

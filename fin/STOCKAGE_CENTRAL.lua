@@ -7,12 +7,12 @@
 -- Port 43 : broadcast logs → GET_LOG
 -- Port 46 : découverte LOGGER (WHO_IS_LOGGER) / LOGGER discovery
 -- Port 48 : données agrégées → LOGGER (net:send) / aggregated data → LOGGER
--- Port 50 : SHUTDOWN
+-- Port 60 : SHUTDOWN STOCKAGE (port dédié — évite cross-reboot avec STARTER port 50)
 -- Port 55 : DISPATCH ↔ CENTRAL (heartbeat priorité buffers) / buffer priority heartbeat
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 -- === CONFIGURATION ===
 local WEB_URL          = "http://127.0.0.1:8081"
@@ -25,7 +25,7 @@ local POLL_CMD_INTERVAL = 5   -- secondes entre chaque poll commandes WEB / seco
 local PORT_LOG      = 43
 local PORT_LOGGER   = 46
 local PORT_LOGGER_D = 48
-local PORT_SHUTDOWN = 50
+local PORT_SHUTDOWN = 60  -- port dédié STOCKAGE (évite cross-reboot STARTER port 50) / dedicated STOCKAGE shutdown port
 local PORT_DISPATCH = 55
 local PORT_SAT_DATA = 56
 local PORT_SAT_DISC = 57

@@ -5,7 +5,7 @@
 -- Prérequis : NetworkCard (+ InternetCard dans l'EEPROM uniquement pour le boot)
 -- Requirements: NetworkCard (+ InternetCard in EEPROM only for boot)
 -- Port 43 : broadcast logs → GET_LOG
--- Port 50 : SHUTDOWN
+-- Port 61 : SHUTDOWN FACTORY (port dédié — évite cross-reboot avec STARTER port 50)
 -- Port 58 : données scan → FAC_CENTRAL (net:send ciblé) / scan data → FAC_CENTRAL (targeted)
 -- Port 59 : FAC_SATELLITE ↔ FAC_CENTRAL (découverte + commandes) / discovery + commands
 
@@ -17,7 +17,7 @@ local DISC_TIMEOUT  = 15000 -- ms attente FAC_CENTRAL au boot / ms to wait for F
 
 -- === PORTS ===
 local PORT_LOG      = 43
-local PORT_SHUTDOWN = 50
+local PORT_SHUTDOWN = 61  -- port dédié FACTORY (évite cross-reboot STARTER port 50) / dedicated FACTORY shutdown port
 local PORT_FAC_DATA = 58
 local PORT_FAC_DISC = 59
 

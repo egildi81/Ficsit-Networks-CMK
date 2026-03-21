@@ -1035,6 +1035,8 @@ function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
         let badge = '';
         if (status === 'updated') {
             badge = `<span class="stk-upd-badge stk-upd-ok">✓ Mis à jour → v${esc(result.new_version)}</span>`;
+        } else if (status === 'rebooted') {
+            badge = `<span class="stk-upd-badge stk-upd-ok">↻ Redémarré</span>`;
         } else if (status === 'rebooting') {
             badge = `<span class="stk-upd-badge stk-upd-pending">↻ Redémarrage...</span>`;
         } else if (status === 'en attente') {
@@ -1047,9 +1049,17 @@ function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
             badge = `<span class="stk-upd-badge stk-upd-old">↑ Obsolète</span>`;
         }
 
-        const busy       = status === 'rebooting' || status === 'en attente';
-        const btnDisabled = isUpToDate || busy;
-        const btnHtml = `<button class="stk-upd-btn" ${btnDisabled ? 'disabled' : `onclick="_satReboot('${esc(sat.addr)}')"`}>Mettre à jour</button>`;
+        const busy = status === 'rebooting' || status === 'en attente';
+        // Satellite à jour → bouton "Reboot" (reboot_only) ; obsolète → "Mettre à jour"
+        // Up-to-date satellite → "Reboot" button (reboot_only) ; outdated → "Update" button
+        let btnHtml;
+        if (busy) {
+            btnHtml = `<button class="stk-upd-btn" disabled>${isUpToDate ? 'Reboot' : 'Mettre à jour'}</button>`;
+        } else if (isUpToDate) {
+            btnHtml = `<button class="stk-upd-btn stk-upd-btn-reboot" onclick="_satRebootOnly('${esc(sat.addr)}')">Reboot</button>`;
+        } else {
+            btnHtml = `<button class="stk-upd-btn" onclick="_satReboot('${esc(sat.addr)}')">Mettre à jour</button>`;
+        }
 
         return `<div class="stk-upd-card">
             <div class="stk-upd-card-header">
@@ -1088,13 +1098,23 @@ function _satReboot(addr) {
         body: JSON.stringify({ addrs: [addr] })
     }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
 }
+function _satRebootOnly(addr) {
+    // Reboot simple sans mise à jour (satellite déjà à jour) / Simple reboot, no update (already up-to-date)
+    fetch('/api/stockage/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs: [addr], reboot_only: true })
+    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot-only', e));
+}
 function _satRebootAll() {
-    const addrs = Object.keys(_satVersionsCache);
+    // N'envoie que les satellites obsolètes — les satellites à jour sont ignorés
+    // Only send outdated satellites — up-to-date satellites are skipped
+    const addrs = Object.keys(_satVersionsCache)
+        .filter(addr => !_satLatestVersion || _satVersionsCache[addr]?.version !== _satLatestVersion);
     if (!addrs.length) return;
     fetch('/api/stockage/satellite/reboot', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ addrs })
-    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot', e));
+    }).then(() => { _prevJson.sat_update = null; }).catch(e => console.error('reboot-all', e));
 }
 function _satToggleOutdatedFilter() {
     _satShowOutdatedOnly = !_satShowOutdatedOnly;

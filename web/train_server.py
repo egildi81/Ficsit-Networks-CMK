@@ -196,7 +196,8 @@ def _advance_update_queue():
         return
     next_sat = _sat_update_queue.pop(0)
     old_ver  = _satellite_versions.get(next_sat["addr"], {}).get("version", "?")
-    _sat_update_current = {**next_sat, "old_version": old_ver, "started": time.time()}
+    _sat_update_current = {**next_sat, "old_version": old_ver, "started": time.time(),
+                           "reboot_only": next_sat.get("reboot_only", False)}
     _central_pending_cmd = {"cmd": "reboot_satellite", "addr": next_sat["addr"]}
     _sat_update_results[next_sat["addr"]] = {
         "nick": next_sat["nick"], "old_version": old_ver,
@@ -321,13 +322,17 @@ def stockage_central_push():
                 "server_ts": time.time(),
             }
             # Vérifier si ce satellite a terminé sa mise à jour / Check if satellite completed update
+            # reboot_only=True → accepter même version (simple redémarrage, pas de mise à jour)
+            # reboot_only=True → accept same version (simple reboot, not an update)
+            reboot_only = _sat_update_current and _sat_update_current.get("reboot_only", False)
+            version_changed = new_version != _sat_update_current.get("old_version") if _sat_update_current else False
             if (_sat_update_current and _sat_update_current["addr"] == addr
-                    and new_version != _sat_update_current.get("old_version")):
+                    and (version_changed or reboot_only)):
                 _sat_update_results[addr] = {
                     "nick":        _sat_update_current["nick"],
                     "old_version": _sat_update_current.get("old_version"),
                     "new_version": new_version,
-                    "status":      "updated",
+                    "status":      "rebooted" if reboot_only else "updated",
                     "ts":          time.time(),
                 }
                 _sat_update_current = None
@@ -414,18 +419,38 @@ def central_command_lua():
 
 @app.route("/api/stockage/satellite/reboot", methods=["POST"])
 def satellite_reboot():
-    """Démarre la mise à jour de un ou plusieurs satellites / Start update of one or more satellites."""
+    """Démarre la mise à jour ou le reboot d'un ou plusieurs satellites.
+    reboot_only=true → reboot sans attente de changement de version.
+    Start update or reboot of one or more satellites.
+    reboot_only=true → reboot without waiting for version change."""
     global _sat_update_queue, _sat_update_current, _central_pending_cmd, _sat_update_results
     body = request.get_json(silent=True)
     if not body or not body.get("addrs"):
         return jsonify({"error": "addrs manquant"}), 400
-    addrs = [a for a in body["addrs"] if a and isinstance(a, str)]  # filtre null/undefined / filter null/undefined
+    addrs       = [a for a in body["addrs"] if a and isinstance(a, str)]
+    reboot_only = bool(body.get("reboot_only", False))
+    latest_ver  = _get_latest_satellite_version()
+
     if not addrs:
         return jsonify({"error": "Aucun addr valide"}), 400
+
+    # Si PAS reboot_only (= "Tout mettre à jour") → exclure ceux déjà à jour
+    # If NOT reboot_only (= "Update all") → skip satellites already at latest version
+    if not reboot_only and latest_ver:
+        addrs = [a for a in addrs
+                 if _satellite_versions.get(a, {}).get("version") != latest_ver]
+    if not addrs:
+        return jsonify({"status": "ok", "queued": 0, "skipped": "all_up_to_date"})
+
     entries = []
     for addr in addrs:
         info = _satellite_versions.get(addr, {})
-        entries.append({"addr": addr, "nick": info.get("nick", "?"), "old_version": info.get("version", "?")})
+        entries.append({
+            "addr":        addr,
+            "nick":        info.get("nick", "?"),
+            "old_version": info.get("version", "?"),
+            "reboot_only": reboot_only,
+        })
 
     if not _sat_update_current:
         # Nouveau run — vider les résultats précédents pour repartir propre
@@ -438,7 +463,7 @@ def satellite_reboot():
                 "new_version": None, "status": "en attente", "ts": time.time(),
             }
         first = entries[0]
-        _sat_update_current  = {**first, "started": time.time()}
+        _sat_update_current  = {**first, "started": time.time(), "reboot_only": first.get("reboot_only", False)}
         _central_pending_cmd = {"cmd": "reboot_satellite", "addr": first["addr"]}
         _sat_update_results[first["addr"]]["status"] = "rebooting"
         _sat_update_queue.extend(entries[1:])
