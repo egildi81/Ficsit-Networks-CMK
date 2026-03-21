@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.6"
+local VERSION = "1.2.0"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
@@ -130,9 +130,16 @@ end
 print("Scan des containers...")
 local allContainers, allNicks = discoverContainers()
 
--- Rapport au CENTRAL (liste des nicks) / Report to CENTRAL (nick list)
+-- Table {nick, uuid} pour identification sans collision de nicks
+-- {nick, uuid} table for nick-collision-free identification
+local allContainerIds = {}
+for _, c in ipairs(allContainers) do
+    table.insert(allContainerIds, {nick=c.nick, uuid=c.id})
+end
+
+-- Rapport au CENTRAL ({nick, uuid}) / Report to CENTRAL ({nick, uuid})
 if centralAddr then
-    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allNicks)) end)
+    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allContainerIds)) end)
 end
 
 -- === SCAN D'UN INVENTAIRE / INVENTORY SCAN ===
@@ -172,7 +179,7 @@ local function scanAll(onlyNicks)
 
     for _, c in ipairs(allContainers) do
         -- En mode rapide : ignorer les containers non prioritaires / In fast mode: skip non-priority containers
-        if onlyNicks and not onlyNicks[c.nick] then goto continue end
+        if onlyNicks and not onlyNicks[c.id] then goto continue end
         -- Pause réelle entre chaque conteneur / Real pause between containers
         event.pull(0.01)
         local ok, proxy = pcall(function() return component.proxy(c.id) end)
@@ -191,6 +198,7 @@ local function scanAll(onlyNicks)
                 for _, d in pairs(items) do cTotal = cTotal + d.count end
                 local cFill = total > 0 and math.floor(used / total * 1000) / 10 or 0
                 table.insert(containerData, {
+                    uuid       = c.id,    -- UUID FIN interne — différenciation sans collision / internal FIN UUID — collision-free identification
                     nick       = c.nick,
                     slotsTotal = total,
                     slotsUsed  = used,
@@ -284,7 +292,7 @@ while true do
                     -- CENTRAL (re)démarré / CENTRAL (re)started
                     centralAddr = sndr
                     print("CENTRAL (re)détecté: "..sndr)
-                    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allNicks)) end)
+                    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allContainerIds)) end)
 
                 elseif a1 == "IDENTIFY" then
                     -- CENTRAL nous a perdus, on se réenregistre / CENTRAL lost us, re-register

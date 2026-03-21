@@ -10,7 +10,7 @@ Config  : renseigner config.py (token, channel_id)
 """
 
 from flask import Flask, jsonify, send_from_directory, request
-import json, os, threading, time, logging, re
+import json, os, threading, time, logging, re, uuid as _uuid_mod
 from datetime import datetime, timezone
 
 import discord
@@ -52,12 +52,24 @@ _stockage_order = _load_order()
 
 # ── Zone config stockage (persistée dans stockage_zone_config.json) ────────
 _STOCKAGE_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_zone_config.json")
+def _ensure_zone_ids(cfg):
+    """Ajoute des IDs stables aux zones/sous-zones sans ID (migration one-shot).
+    Add stable IDs to zones/subzones missing one (one-shot migration)."""
+    for z in cfg.get("zones", []):
+        if not z.get("id"):
+            z["id"] = "z_" + _uuid_mod.uuid4().hex[:8]
+        for sz in z.get("subzones", []):
+            if not sz.get("id"):
+                sz["id"] = "sz_" + _uuid_mod.uuid4().hex[:8]
+    return cfg
+
 def _load_zone_config():
     try:
         with open(_STOCKAGE_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            cfg = json.load(f)
     except Exception:
         return {"zones": []}
+    return _ensure_zone_ids(cfg)
 def _save_zone_config(cfg):
     try:
         with open(_STOCKAGE_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -307,7 +319,7 @@ def set_zone_config():
     body = request.get_json(silent=True)
     if not isinstance(body, dict) or "zones" not in body:
         return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
-    _stockage_zone_config = body
+    _stockage_zone_config = _ensure_zone_ids(body)
     _save_zone_config(_stockage_zone_config)
     return jsonify({"status": "ok"})
 

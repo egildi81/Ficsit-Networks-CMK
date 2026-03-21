@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.8"
+local VERSION = "1.2.0"
 
 -- === CONFIGURATION ===
 local WEB_URL          = "http://127.0.0.1:8081"
@@ -57,7 +57,7 @@ end
 print("=== STOCKAGE CENTRAL v"..VERSION.." BOOT ===")
 
 -- === ÉTAT GLOBAL / GLOBAL STATE ===
--- satellites[addr] = { nick, lastSeen, data, containers{nick=true} }
+-- satellites[addr] = { nick, lastSeen, data, containers{[uuid]=nick} }
 local satellites  = {}
 local loggerAddr  = nil
 local dispatchAddr = nil
@@ -240,6 +240,7 @@ local function pushWeb()
                     end
                     table.insert(allContainers, {
                         satellite  = sat.nick,
+                        uuid       = c.uuid,   -- UUID FIN interne / internal FIN UUID
                         nick       = c.nick,
                         slotsTotal = c.slotsTotal,
                         slotsUsed  = c.slotsUsed,
@@ -353,7 +354,9 @@ local function sendZoneBufToDispatch()
     for _, sat in pairs(satellites) do
         if sat.data and sat.lastSeen and sat.lastSeen >= cutoff then
             for _, c in ipairs(sat.data.containers or {}) do
-                local zkey = containerToZone[c.nick]
+                -- UUID d'abord (nouveau format), nick en fallback (ancienne zone config)
+                -- UUID first (new format), nick fallback (old zone config)
+                local zkey = containerToZone[c.uuid] or containerToZone[c.nick]
                 if zkey then
                     if not totals[zkey] then totals[zkey] = {items=0, slotsTotal=0, slotsUsed=0} end
                     totals[zkey].items      = totals[zkey].items      + (c.totalItems or 0)
@@ -381,22 +384,35 @@ local function notifyFastMode(bufferList)
     for addr, sat in pairs(satellites) do
         if sat.containers then
             local concerned = false
-            local satNicks  = {}  -- nicks prioritaires pour ce satellite / priority nicks for this satellite
+            local satUuids  = {}  -- UUIDs prioritaires pour ce satellite / priority UUIDs for this satellite
             for _, zoneKey in ipairs(bufferList) do
-                local nicks = zoneToContainers[zoneKey]
-                if nicks then
-                    for _, nick in ipairs(nicks) do
-                        if sat.containers[nick] then
+                local keys = zoneToContainers[zoneKey]
+                if keys then
+                    for _, key in ipairs(keys) do
+                        -- key = UUID (nouveau format zone config) ou nick (ancien format)
+                        -- key = UUID (new zone config format) or nick (old format)
+                        if sat.containers[key] then
+                            -- Match direct UUID / Direct UUID match
                             concerned = true
-                            table.insert(satNicks, nick)
+                            table.insert(satUuids, key)
+                        else
+                            -- Fallback nick : chercher UUID correspondant dans ce satellite
+                            -- Nick fallback: search matching UUID in this satellite
+                            for uuid, nick in pairs(sat.containers) do
+                                if nick == key then
+                                    concerned = true
+                                    table.insert(satUuids, uuid)
+                                    break
+                                end
+                            end
                         end
                     end
                 end
             end
             if concerned then
-                -- Envoie la liste des nicks (pas des zone keys) pour que le satellite filtre ses scans
-                -- Send nick list (not zone keys) so satellite can filter its scans
-                pcall(function() net:send(addr, PORT_SAT_DISC, "FAST_MODE", ser(satNicks)) end)
+                -- Envoie les UUIDs pour que le satellite filtre ses scans
+                -- Send UUIDs so satellite can filter its scans
+                pcall(function() net:send(addr, PORT_SAT_DISC, "FAST_MODE", ser(satUuids)) end)
             end
         end
     end
@@ -469,11 +485,24 @@ while true do
                 if satellites[sndr] then
                     local ok, data = pcall(function() return (load("return "..a2))() end)
                     if ok and type(data) == "table" then
-                        -- Stocker comme set pour lookup O(1) / Store as set for O(1) lookup
-                        local cset = {}
-                        for _, nick in ipairs(data) do cset[nick] = true end
+                        -- {[uuid] = nick} — évite collisions de nicks entre satellites
+                        -- {[uuid] = nick} — avoids nick collisions across satellites
+                        local cset     = {}
+                        local contList = {}
+                        for _, item in ipairs(data) do
+                            if type(item) == "table" and item.uuid then
+                                cset[item.uuid] = item.nick
+                                table.insert(contList, {nick=item.nick, uuid=item.uuid})
+                            else
+                                -- Rétrocompat : ancien satellite envoie un nick string
+                                -- Backward compat: old satellite sends nick string
+                                local s = tostring(item)
+                                cset[s] = s
+                                table.insert(contList, {nick=s, uuid=s})
+                            end
+                        end
                         satellites[sndr].containers = cset
-                        pushDiscovery(satellites[sndr].nick, sndr, data)
+                        pushDiscovery(satellites[sndr].nick, sndr, contList)
                         print("Discovery "..satellites[sndr].nick..": "..#data.." containers")
                     end
                 end

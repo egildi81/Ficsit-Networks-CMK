@@ -683,20 +683,23 @@ function renderStockageInfo(zoneConfig, centralData) {
         grid.innerHTML = '<div class="stock-empty">Aucune zone configurée — définissez vos zones dans l\'onglet Configuration</div>';
         return;
     }
-    // Lookup conteneurs par nick / Container lookup by nick
-    const byNick = {};
-    for (const c of ((centralData && centralData.containers) || [])) byNick[c.nick] = c;
+    // Lookup conteneurs par UUID (ou nick en fallback ancienne config) / Container lookup by UUID (nick fallback for old config)
+    const byKey = {};
+    for (const c of ((centralData && centralData.containers) || [])) {
+        if (c.uuid) byKey[c.uuid] = c;
+        if (!byKey[c.nick]) byKey[c.nick] = c;  // fallback ancienne zone config / old zone config fallback
+    }
 
     const now = Date.now() / 1000;
     const payloadStale = centralData && centralData.server_ts && (now - centralData.server_ts) > 120;
 
     // Agrège, retourne items triés + flag hasStale si un conteneur est hors-ligne
     // Aggregates, returns sorted items + hasStale flag if any container is offline
-    function aggr(nicks) {
+    function aggr(keys) {
         let slotsTotal = 0, slotsUsed = 0, totalItems = 0, hasStale = false;
         const itemsMap = {};
-        for (const nick of nicks) {
-            const c = byNick[nick]; if (!c) continue;
+        for (const key of keys) {
+            const c = byKey[key]; if (!c) continue;
             if (c.stale) { hasStale = true; continue; }  // satellite hors-ligne / offline satellite
             slotsTotal += c.slotsTotal || 0;
             slotsUsed  += c.slotsUsed  || 0;
@@ -715,8 +718,8 @@ function renderStockageInfo(zoneConfig, centralData) {
     // Construire le cache pour la modal (format compatible openStockModal)
     // Build cache for modal (openStockModal-compatible format)
     _stockageCache = zones.map(zone => {
-        const allNicks = [...(zone.containers || []), ...((zone.subzones || []).flatMap(sz => sz.containers || []))];
-        const za = aggr(allNicks);
+        const allKeys = [...(zone.containers || []), ...((zone.subzones || []).flatMap(sz => sz.containers || []))];
+        const za = aggr(allKeys);
         const subzones = [];
         if (zone.subzones && zone.subzones.length > 0) {
             if (zone.containers && zone.containers.length) subzones.push({ name: zone.mainLabel || 'Principal', ...aggr(zone.containers) });
@@ -767,7 +770,7 @@ function renderStockageInfo(zoneConfig, centralData) {
 // ── Config DnD ───────────────────────────────────────────────
 let _stkZones      = [];     // [{id, name, containers:[nick], subzones:[{id, name, containers:[nick]}]}]
 let _stkAllConts   = [];     // [{satellite, nick, slotsTotal, slotsUsed, fillRate, totalItems}]
-let _stkDragNick   = null;   // nick du conteneur en cours de drag / nick of dragged container
+let _stkDragKey    = null;   // clé interne (UUID ou nick) du conteneur en cours de drag / internal key (UUID or nick) of dragged container
 let _stkIdCnt      = 0;
 let _stkCollapsed  = new Set(); // IDs de zones réduites / collapsed zone IDs
 let _stkPoolFilter = '';        // filtre texte pool disponibles / available pool text filter
@@ -776,36 +779,36 @@ let _stkZonesSrch  = '';        // recherche conteneur dans zones / container se
 function _stkAssigned() {
     const s = new Set();
     for (const z of _stkZones) {
-        z.containers.forEach(n => s.add(n));
-        z.subzones.forEach(sz => sz.containers.forEach(n => s.add(n)));
+        z.containers.forEach(k => s.add(k));
+        z.subzones.forEach(sz => sz.containers.forEach(k => s.add(k)));
     }
     return s;
 }
-function _stkRemoveNick(nick) {
+function _stkRemoveKey(key) {
     for (const z of _stkZones) {
-        z.containers = z.containers.filter(n => n !== nick);
-        z.subzones.forEach(sz => { sz.containers = sz.containers.filter(n => n !== nick); });
+        z.containers = z.containers.filter(k => k !== key);
+        z.subzones.forEach(sz => { sz.containers = sz.containers.filter(k => k !== key); });
     }
 }
-function _stkDragStart(ev, nick) { _stkDragNick = nick; ev.target.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; }
-function _stkDragEnd(ev)         { ev.target.classList.remove('dragging'); _stkDragNick = null; }
-function _stkLeave(ev)           { if (!ev.currentTarget.contains(ev.relatedTarget)) ev.currentTarget.classList.remove('drag-over'); }
+function _stkDragStart(ev, key) { _stkDragKey = key; ev.target.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; }
+function _stkDragEnd(ev)        { ev.target.classList.remove('dragging'); _stkDragKey = null; }
+function _stkLeave(ev)          { if (!ev.currentTarget.contains(ev.relatedTarget)) ev.currentTarget.classList.remove('drag-over'); }
 function _stkDrop(ev, zoneId, szId) {
     ev.preventDefault();
     ev.currentTarget.classList.remove('drag-over');
-    if (!_stkDragNick) return;
-    _stkRemoveNick(_stkDragNick);
+    if (!_stkDragKey) return;
+    _stkRemoveKey(_stkDragKey);
     if (zoneId >= 0) {
         const z = _stkZones.find(z => z.id === zoneId);
         if (!z) return;
-        if (szId < 0) z.containers.push(_stkDragNick);
-        else { const sz = z.subzones.find(s => s.id === szId); if (sz) sz.containers.push(_stkDragNick); }
+        if (szId < 0) z.containers.push(_stkDragKey);
+        else { const sz = z.subzones.find(s => s.id === szId); if (sz) sz.containers.push(_stkDragKey); }
     }
     _stkRenderConfig();
 }
-function _stkAddZone()             { _stkZones.push({ id: _stkIdCnt++, name: 'Nouvelle zone', mainLabel: '', containers: [], subzones: [] }); _stkRenderConfig(); }
+function _stkAddZone()             { _stkZones.push({ id: _stkIdCnt++, persistId: null, name: 'Nouvelle zone', mainLabel: '', containers: [], subzones: [] }); _stkRenderConfig(); }
 function _stkRemoveZone(id)        { _stkZones = _stkZones.filter(z => z.id !== id); _stkRenderConfig(); }
-function _stkAddSubzone(zid)       { const z = _stkZones.find(z => z.id === zid); if (z) z.subzones.push({ id: _stkIdCnt++, name: 'Sous-zone', containers: [] }); _stkRenderConfig(); }
+function _stkAddSubzone(zid)       { const z = _stkZones.find(z => z.id === zid); if (z) z.subzones.push({ id: _stkIdCnt++, persistId: null, name: 'Sous-zone', containers: [] }); _stkRenderConfig(); }
 function _stkRemoveSubzone(zid, sid) { const z = _stkZones.find(z => z.id === zid); if (z) z.subzones = z.subzones.filter(s => s.id !== sid); _stkRenderConfig(); }
 function _stkRenameZone(id, v)        { const z = _stkZones.find(z => z.id === id); if (z) z.name = v; }
 function _stkRenameMainLabel(id, v)   { const z = _stkZones.find(z => z.id === id); if (z) z.mainLabel = v; }
@@ -834,24 +837,29 @@ function _stkApplyZonesSearch(v) {
         const zoneId = parseInt(card.dataset.zoneId);
         const zone = _stkZones.find(z => z.id === zoneId);
         if (!zone) { card.style.display = ''; return; }
-        const allNicks = [...zone.containers, ...zone.subzones.flatMap(sz => sz.containers)];
-        card.style.display = allNicks.some(n => n.toLowerCase().includes(term)) ? '' : 'none';
+        const allKeys = [...zone.containers, ...zone.subzones.flatMap(sz => sz.containers)];
+        // Chercher dans les nicks (clé UUID → nick via _keyToNick) / Search in nicks (UUID key → nick via _keyToNick)
+        card.style.display = allKeys.some(k => _keyToNick(k).toLowerCase().includes(term)) ? '' : 'none';
     });
 }
 
+function _keyToNick(key) {
+    const c = _stkAllConts.find(c => c.key === key);
+    return c ? c.nick : key;
+}
 function _stkContCard(c) {
     const fill = c.fillRate ?? 0, color = fill >= 80 ? '#ee3333' : fill >= 50 ? '#eeee22' : '#22ee22';
     return `<div class="stk-cont-card" draggable="true"
-                 ondragstart="_stkDragStart(event,'${esc(c.nick)}')" ondragend="_stkDragEnd(event)"
+                 ondragstart="_stkDragStart(event,'${esc(c.key)}')" ondragend="_stkDragEnd(event)"
                  title="${esc(c.satellite || '')} — ${c.slotsUsed ?? 0}/${c.slotsTotal ?? 0} slots">
         <div class="stk-cont-nick">${esc(c.nick)}</div>
         ${c.satellite ? `<div class="stk-cont-sat">${esc(c.satellite)}</div>` : ''}
         ${fill > 0 ? `<div class="stk-cont-fill">${fill}%</div><div class="stk-cont-bar-bg"><div class="stk-cont-bar" style="width:${fill}%;background:${color}"></div></div>` : ''}
     </div>`;
 }
-function _stkDropArea(zoneId, szId, nickList) {
-    const cards = nickList.map(nick => {
-        const c = _stkAllConts.find(c => c.nick === nick) || { nick, satellite: '', fillRate: 0, slotsTotal: 0, slotsUsed: 0 };
+function _stkDropArea(zoneId, szId, keyList) {
+    const cards = keyList.map(key => {
+        const c = _stkAllConts.find(c => c.key === key) || { key, nick: _keyToNick(key), satellite: '', fillRate: 0, slotsTotal: 0, slotsUsed: 0 };
         return _stkContCard(c);
     }).join('');
     return `<div class="stk-drop-area"
@@ -867,7 +875,7 @@ function _stkRenderConfig() {
     const el = document.getElementById('stockage-config-content');
     if (!el) return;
     const assigned = _stkAssigned();
-    const pool = _stkAllConts.filter(c => !assigned.has(c.nick));
+    const pool = _stkAllConts.filter(c => !assigned.has(c.key));
 
     const zonesHtml = _stkZones.map(z => {
         const collapsed = _stkCollapsed.has(z.id);
@@ -934,24 +942,36 @@ function _stkRenderConfig() {
 }
 
 function renderStockageConfig(discovery, centralData, zoneConfig) {
-    // Construire la liste des conteneurs depuis les données CENTRAL ou la découverte
-    // Build container list from CENTRAL data or discovery
+    // Construire la liste des conteneurs avec clé interne (UUID ou nick en fallback)
+    // Build container list with internal key (UUID or nick fallback)
     if (centralData && centralData.containers && centralData.containers.length) {
-        _stkAllConts = centralData.containers;
+        _stkAllConts = centralData.containers.map(c => ({ ...c, key: c.uuid || c.nick }));
     } else {
-        _stkAllConts = (discovery || []).flatMap(d =>
-            (d.containers || []).map(nick => ({ satellite: d.satellite, nick, slotsTotal: 0, slotsUsed: 0, fillRate: 0, totalItems: 0, items: {} }))
-        );
+        _stkAllConts = (discovery || []).flatMap(d => {
+            return (d.containers || []).map(item => {
+                // item peut être {nick, uuid} (nouveau) ou string nick (ancien satellite)
+                // item can be {nick, uuid} (new) or nick string (old satellite)
+                const nick = typeof item === 'object' ? item.nick : item;
+                const uuid = typeof item === 'object' ? item.uuid : null;
+                const key  = uuid || nick;
+                return { satellite: d.satellite, nick, uuid, key, slotsTotal: 0, slotsUsed: 0, fillRate: 0, totalItems: 0, items: {} };
+            });
+        });
     }
-    // Init zones depuis config serveur / Init zones from server config
+    // Init zones depuis config serveur — id persistant séparé de l'id DOM
+    // Init zones from server config — persistent id separate from DOM id
     const cfgZones = zoneConfig && zoneConfig.zones;
     _stkIdCnt = 0; _stkZones = [];
     if (cfgZones && cfgZones.length) {
         for (const z of cfgZones) {
             _stkZones.push({
-                id: _stkIdCnt++, name: z.name, mainLabel: z.mainLabel || '',
+                id: _stkIdCnt++, persistId: z.id || null,
+                name: z.name, mainLabel: z.mainLabel || '',
                 containers: [...(z.containers || [])],
-                subzones: (z.subzones || []).map(sz => ({ id: _stkIdCnt++, name: sz.name, containers: [...(sz.containers || [])] }))
+                subzones: (z.subzones || []).map(sz => ({
+                    id: _stkIdCnt++, persistId: sz.id || null,
+                    name: sz.name, containers: [...(sz.containers || [])]
+                }))
             });
         }
     }
@@ -961,10 +981,15 @@ function renderStockageConfig(discovery, centralData, zoneConfig) {
 function _saveStockageZoneConfig() {
     const config = {
         zones: _stkZones.map(z => ({
+            ...(z.persistId ? { id: z.persistId } : {}),  // conserve l'ID serveur si présent / preserve server ID if present
             name: z.name,
             mainLabel: z.mainLabel || '',
             containers: z.containers,
-            subzones: z.subzones.map(sz => ({ name: sz.name, containers: sz.containers }))
+            subzones: z.subzones.map(sz => ({
+                ...(sz.persistId ? { id: sz.persistId } : {}),
+                name: sz.name,
+                containers: sz.containers
+            }))
         }))
     };
     fetch('/api/stockage/zone-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
