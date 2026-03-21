@@ -78,6 +78,39 @@ def _save_zone_config(cfg):
         pass
 _stockage_zone_config = _load_zone_config()
 
+# ── Zone config factory (persistée dans factory_zone_config.json) ─────────
+_FACTORY_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "factory_zone_config.json")
+
+def _ensure_factory_zone_ids(cfg):
+    """Ajoute des IDs stables aux zones/sous-zones factory sans ID.
+    Add stable IDs to factory zones/subzones missing one."""
+    for z in cfg.get("zones", []):
+        if not z.get("id"):
+            z["id"] = "fz_" + _uuid_mod.uuid4().hex[:8]
+        for sz in z.get("subzones", []):
+            if not sz.get("id"):
+                sz["id"] = "fsz_" + _uuid_mod.uuid4().hex[:8]
+    return cfg
+
+def _load_factory_zone_config():
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        return {"zones": []}
+    return _ensure_factory_zone_ids(cfg)
+
+def _save_factory_zone_config(cfg):
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+_factory_zone_config = _load_factory_zone_config()
+_factory_central     = {}   # données FAC_CENTRAL agrégées
+_factory_discovery   = {}   # satellites FAC découverts : {nick: {satellite, addr, machines, server_ts}}
+
 # ── Dispatch routes (persistées dans dispatch_routes.json) ────
 _DISPATCH_ROUTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch_routes.json")
 
@@ -486,6 +519,74 @@ def get_dispatch_command_lua():
     _dispatch_pending_cmd = None
     return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
 
+# ══════════════════════════════════════════════════════════════════════
+# FACTORY — endpoints FAC_CENTRAL + zone config
+# ══════════════════════════════════════════════════════════════════════
+
+@app.route("/api/factory/push", methods=["POST"])
+def factory_central_push():
+    """Reçoit les données agrégées de FAC_CENTRAL (machines)."""
+    global _factory_central
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    body["server_ts"] = time.time()
+    _factory_central = body
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/factory/discovery", methods=["POST"])
+def factory_discovery():
+    """Reçoit la liste des machines découvertes par un FAC_SATELLITE."""
+    global _factory_discovery
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    addr = body.get("addr", "")
+    sat  = body.get("satellite") or addr or "?"
+    if addr:
+        for old_key in [k for k, v in _factory_discovery.items()
+                        if v.get("addr") == addr and k != sat]:
+            del _factory_discovery[old_key]
+    _factory_discovery[sat] = {
+        "satellite": sat,
+        "addr":      addr,
+        "machines":  body.get("machines", []),  # [{nick, uuid, class}]
+        "server_ts": time.time(),
+    }
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/factory/zone-config", methods=["GET"])
+def get_factory_zone_config():
+    return jsonify(_factory_zone_config)
+
+
+@app.route("/api/factory/zone-config.lua", methods=["GET"])
+def get_factory_zone_config_lua():
+    """Retourne la zone config factory au format table Lua — pour FAC_CENTRAL."""
+    return _to_lua(_factory_zone_config), 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/api/factory/zone-config", methods=["POST"])
+def set_factory_zone_config():
+    global _factory_zone_config
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "zones" not in body:
+        return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
+    _factory_zone_config = _ensure_factory_zone_ids(body)
+    _save_factory_zone_config(_factory_zone_config)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/factory/central/command.lua", methods=["GET", "POST"])
+def factory_central_command_lua():
+    """FAC_CENTRAL poll cette route pour récupérer la prochaine commande."""
+    # Pas de commandes en attente → nil (FAC_CENTRAL arrête le pcall proprement)
+    # No pending commands → nil (FAC_CENTRAL stops pcall cleanly)
+    return "nil", 200, {"Content-Type": "text/plain"}
+
+
 @app.route("/api/fin/<path:script>", methods=["GET", "POST"])
 def get_fin_script(script):
     """Sert les scripts FIN Lua depuis fin/ — utilisé par les EEPROM bootstrap."""
@@ -512,6 +613,9 @@ def get_data():
         "stockage_discovery":   list(_stockage_discovery.values()),
         "stockage_zone_config": _stockage_zone_config,
         "satellite_versions":   _satellite_versions,
+        "factory_central":      _factory_central or None,
+        "factory_discovery":    list(_factory_discovery.values()),
+        "factory_zone_config":  _factory_zone_config,
         "sat_update_results":   {
             addr: r for addr, r in _sat_update_results.items()
             # Masquer les résultats "updated" après 5 minutes (badge transitoire)
