@@ -643,9 +643,9 @@ def get_data():
         "factory_zone_config":  _factory_zone_config,
         "sat_update_results":   {
             addr: r for addr, r in _sat_update_results.items()
-            # Masquer les résultats "updated" après 5 minutes (badge transitoire)
-            # Hide "updated" results after 5 minutes (transient badge)
-            if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
+            # Masquer les badges transitoires après 5 minutes (updated, rebooted, timeout)
+            # Hide transient badges after 5 minutes (updated, rebooted, timeout)
+            if not (r.get("status") in ("updated", "rebooted", "timeout") and now - r.get("ts", 0) > 300)
         },
         "sat_latest_version":   _get_latest_satellite_version(),
     })
