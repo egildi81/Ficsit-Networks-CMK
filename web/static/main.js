@@ -858,7 +858,9 @@ function _stkContCard(c) {
     </div>`;
 }
 function _stkDropArea(zoneId, szId, keyList) {
-    const cards = keyList.map(key => {
+    const sorted = [...keyList].sort((a, b) =>
+        _keyToNick(a).localeCompare(_keyToNick(b), undefined, { numeric: true, sensitivity: 'base' }));
+    const cards = sorted.map(key => {
         const c = _stkAllConts.find(c => c.key === key) || { key, nick: _keyToNick(key), satellite: '', fillRate: 0, slotsTotal: 0, slotsUsed: 0 };
         return _stkContCard(c);
     }).join('');
@@ -875,7 +877,9 @@ function _stkRenderConfig() {
     const el = document.getElementById('stockage-config-content');
     if (!el) return;
     const assigned = _stkAssigned();
-    const pool = _stkAllConts.filter(c => !assigned.has(c.key));
+    const pool = _stkAllConts
+        .filter(c => !assigned.has(c.key))
+        .sort((a, b) => (a.nick || '').localeCompare(b.nick || '', undefined, { numeric: true, sensitivity: 'base' }));
 
     const zonesHtml = _stkZones.map(z => {
         const collapsed = _stkCollapsed.has(z.id);
