@@ -1355,7 +1355,7 @@ async function refresh() {
             // Mettre à jour les fill rates dans le pool config si la page est visible
             // Update fill rates in config pool if config page is visible
             if (_stockageCentralCache && _stockageCentralCache.containers) {
-                _stkAllConts = _stockageCentralCache.containers;
+                _stkAllConts = _stockageCentralCache.containers.map(c => ({ ...c, key: c.uuid || c.nick }));
                 if (document.getElementById('page-stockage-config').classList.contains('active')) _stkRenderConfig();
             }
         }
