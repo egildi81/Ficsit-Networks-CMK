@@ -867,7 +867,7 @@ function _stkDropArea(zoneId, szId, keyList) {
                  ondragenter="this.classList.add('drag-over')"
                  ondragleave="_stkLeave(event)"
                  ondrop="_stkDrop(event,${zoneId},${szId})">
-        ${cards}<div class="stk-drop-hint">${nickList.length ? '' : 'Glisser ici'}</div>
+        ${cards}<div class="stk-drop-hint">${keyList.length ? '' : 'Glisser ici'}</div>
     </div>`;
 }
 
