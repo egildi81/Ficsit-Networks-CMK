@@ -1722,16 +1722,18 @@ async function refresh() {
             _stockageZoneConfig  = data.stockage_zone_config || _stockageZoneConfig;
             _stockageCentralCache = data.stockage_central || null;
             rTimes.stockage = _t('stk-info', () => renderStockageInfo(_stockageZoneConfig, _stockageCentralCache));
-            // Mettre à jour les fill rates dans le pool config si la page est visible
-            // Update fill rates in config pool if config page is visible
+            // Mettre à jour silencieusement les fill rates du pool (sans re-render si config active)
+            // Silently update pool fill rates (no re-render while config page is open)
             if (_stockageCentralCache && _stockageCentralCache.containers) {
                 _stkAllConts = _stockageCentralCache.containers.map(c => ({ ...c, key: c.uuid || c.nick }));
-                if (document.getElementById('page-stockage-config').classList.contains('active')) _stkRenderConfig();
             }
         }
+        const stkCfgActive = document.getElementById('page-stockage-config').classList.contains('active');
         if (_zdj !== _prevJson.stockage_discovery) {
             _prevJson.stockage_discovery = _zdj;
-            _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageCentralCache, _stockageZoneConfig));
+            // Ne pas réinitialiser les zones si la page config est ouverte (écraserait les éditions en cours)
+            // Do not reinit zones if config page is open (would overwrite in-progress edits)
+            if (!stkCfgActive) _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageCentralCache, _stockageZoneConfig));
         }
         // Factory USINE / USINE factory
         const _fij = JSON.stringify({ c: data.factory_central || null, z: data.factory_zone_config || {} });
@@ -1739,12 +1741,12 @@ async function refresh() {
         if (_fij !== _prevJson.factory_info) {
             _prevJson.factory_info = _fij;
             rTimes.usine = _t('fac-info', () => renderUsineInfo(data.factory_zone_config || null, data.factory_central || null));
-            // Mettre à jour statuts dans pool config si la page est visible / Update statuses in config pool if page visible
-            if (data.factory_central && document.getElementById('page-usine-config').classList.contains('active')) _facRenderConfig();
         }
+        const facCfgActive = document.getElementById('page-usine-config').classList.contains('active');
         if (_fdj !== _prevJson.factory_discovery) {
             _prevJson.factory_discovery = _fdj;
-            _t('fac-cfg', () => renderUsineConfig(data.factory_discovery || [], data.factory_central || null, data.factory_zone_config || null));
+            // Ne pas réinitialiser si la page config est ouverte / Do not reinit while config page is open
+            if (!facCfgActive) _t('fac-cfg', () => renderUsineConfig(data.factory_discovery || [], data.factory_central || null, data.factory_zone_config || null));
         }
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
         const _uj = JSON.stringify({ v: data.satellite_versions || {}, r: data.sat_update_results || {} });
