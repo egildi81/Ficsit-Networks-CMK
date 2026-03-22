@@ -9,7 +9,7 @@
 -- Port 58 : données scan → FACTORY_CENTRAL (net:send ciblé) / scan data → FACTORY_CENTRAL (targeted)
 -- Port 59 : FACTORY_SAT ↔ FACTORY_CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 
 -- === CONFIGURATION ===
 -- Classes de machines à monitorer (vanilla uniquement — retirer si non utilisé)
@@ -212,6 +212,19 @@ local function scanMachine(m)
             end)
         end
     end)
+
+    -- Taux réel en items/min selon rendement actuel / Real rate in items/min at current productivity
+    -- Formule : amount / cycleTime * 60 * (productivity / 100)
+    -- Formula:  amount / cycleTime * 60 * (productivity / 100)
+    if cycleTime > 0 then
+        local effFactor = productivity / 100
+        for _, ing in ipairs(ingredients) do
+            ing.ratePerMin = math.floor(ing.amount / cycleTime * 60 * effFactor * 100) / 100
+        end
+        for _, prod in ipairs(products) do
+            prod.ratePerMin = math.floor(prod.amount / cycleTime * 60 * effFactor * 100) / 100
+        end
+    end
 
     -- Inventaires entrée / sortie / Input / output inventories
     local inputItems,  inputFill  = {}, 0

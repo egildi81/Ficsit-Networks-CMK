@@ -1,4 +1,4 @@
-const VERSION = "1.7.26";
+const VERSION = "1.7.27";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2429,19 +2429,16 @@ function renderFactory(fac) {
         const inTotal    = machines.reduce((s, m) => s + (m.inputItems  || []).reduce((a, i) => a + (i.count || 0), 0), 0);
         const outTotal   = machines.reduce((s, m) => s + (m.outputItems || []).reduce((a, i) => a + (i.count || 0), 0), 0);
 
-        // Somme des ingrédients consommés en /min (amount / cycleTime * 60) / Consumed ingredients in /min
-        const cycleTime = (machines.find(m => m.cycleTime > 0) || {}).cycleTime || 0;
+        // Somme des taux réels par ingrédient (ratePerMin calculé côté satellite au rendement actuel)
+        // Sum of real rates per ingredient (ratePerMin computed satellite-side at current productivity)
         const ingMap = {};
         machines.forEach(m => {
             (m.ingredients || []).forEach(ing => {
-                ingMap[ing.name] = (ingMap[ing.name] || 0) + (ing.amount || 0);
+                ingMap[ing.name] = (ingMap[ing.name] || 0) + (ing.ratePerMin ?? 0);
             });
         });
         const ingHtml = Object.entries(ingMap)
-            .map(([n, a]) => {
-                const perMin = cycleTime > 0 ? (a / cycleTime * 60).toFixed(1) : a;
-                return `<span class="fac-ing">${esc(n.replace(/^Desc_|_C$/g, ''))}: ${perMin}/min</span>`;
-            })
+            .map(([n, r]) => `<span class="fac-ing">${esc(n.replace(/^Desc_|_C$/g, ''))}: ${r.toFixed(1)}/min</span>`)
             .join('');
 
         return `<div class="fac-recipe-group">
