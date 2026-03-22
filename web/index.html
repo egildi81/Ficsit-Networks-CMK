@@ -17,9 +17,9 @@
         <button class="section-btn active" onclick="switchSection('trains', this)">TRAINS</button>
         <button class="section-btn" onclick="switchSection('dispatch', this)">DISPATCH</button>
         <button class="section-btn" onclick="switchSection('stockage', this)">STOCKAGE</button>
+        <button class="section-btn" onclick="switchSection('usine', this)">USINE</button>
         <button class="section-btn" onclick="switchSection('power', this)">ÉNERGIE</button>
         <button class="section-btn" onclick="switchSection('logs', this)">LOGS</button>
-        <button class="section-btn" style="opacity:0.35;cursor:not-allowed" disabled title="Bientôt disponible">USINE <span style="font-size:0.75em;color:#aaa">(Soon)</span></button>
     </div>
     <nav class="tabs" id="trains-tabs">
         <button class="tab active" onclick="switchTab('monitor', this)">EN DIRECT</button>
@@ -31,6 +31,10 @@
         <button class="tab active" id="stockage-tab-info" onclick="switchStockTab('info', this)">INFO</button>
         <button class="tab" id="stockage-tab-config" onclick="switchStockTab('config', this)">CONFIGURATION</button>
         <button class="tab" id="stockage-tab-update" onclick="switchStockTab('update', this)">MISE À JOUR</button>
+    </nav>
+    <nav class="tabs" id="usine-tabs" style="display:none">
+        <button class="tab active" id="usine-tab-info" onclick="switchUsineTab('info', this)">INFO</button>
+        <button class="tab" id="usine-tab-config" onclick="switchUsineTab('config', this)">CONFIGURATION</button>
     </nav>
     <nav class="tabs" id="dispatch-tabs" style="display:none">
         <button class="tab active" onclick="switchDispatchTab('live', this)">LIVE</button>
@@ -126,6 +130,20 @@
 <!-- ── SECTION STOCKAGE — MISE À JOUR ── -->
 <div id="page-stockage-update" class="page">
     <div id="stockage-update-content"></div>
+</div>
+
+<!-- ── SECTION USINE — INFO ── -->
+<div id="page-usine-info" class="page">
+    <div class="fac-section-bar">
+        <span class="fac-section-title">USINE</span>
+        <span id="fac-global-stats" class="fac-section-stats"></span>
+    </div>
+    <div id="usine-grid" class="fac-grid"></div>
+</div>
+
+<!-- ── SECTION USINE — CONFIGURATION ── -->
+<div id="page-usine-config" class="page">
+    <div id="usine-config-content"></div>
 </div>
 
 <!-- ── SECTION DISPATCH — LIVE (cards) ── -->
@@ -251,6 +269,22 @@
         <div class="stock-bar-bg"><div class="stock-bar" id="stock-modal-bar"></div></div>
         <div class="stock-meta" id="stock-modal-meta"></div>
         <div class="stock-items" id="stock-modal-body"></div>
+    </div>
+</div>
+
+<!-- ── MODAL DÉTAIL ZONE USINE ── -->
+<div id="fac-modal" onclick="if(event.target===this)closeFacModal()">
+    <div id="fac-modal-panel">
+        <div class="fac-card-header" style="padding:12px 18px;flex-shrink:0;border-bottom:1px solid #1e1e1e">
+            <span class="fac-zone" id="fac-modal-title">—</span>
+            <div style="display:flex;align-items:center;gap:10px">
+                <span class="fac-pct" id="fac-modal-pct">—</span>
+                <button class="stock-modal-close" onclick="closeFacModal()">✕</button>
+            </div>
+        </div>
+        <div class="fac-bar-bg" id="fac-modal-bar-wrap" style="margin:0;border-radius:0;flex-shrink:0"><div class="fac-bar" id="fac-modal-bar"></div></div>
+        <div class="fac-meta" id="fac-modal-meta" style="padding:8px 18px 4px;margin:0;flex-shrink:0"></div>
+        <div id="fac-modal-body" style="overflow-y:auto;flex:1;padding:4px 18px 12px;scrollbar-width:thin;scrollbar-color:#333 #111"></div>
     </div>
 </div>
 

@@ -571,3 +571,82 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .stk-upd-btn-reboot { background: rgba(80,160,255,0.10) !important; border-color: rgba(80,160,255,0.35) !important; color: #50a0ff !important; }
 .stk-upd-btn-reboot:hover:not(:disabled) { background: rgba(80,160,255,0.2) !important; }
 .stk-upd-filter-active { background: rgba(255,136,0,0.18) !important; border-color: #ff8800 !important; color: #ff8800 !important; }
+
+/* ── USINE ── */
+.fac-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.fac-card { background: #111; border-radius: 8px; padding: 16px 18px; border: 1px solid #1a1a1a; cursor: grab; transition: border-color .15s, opacity .15s; }
+.fac-card:hover { border-color: #333; }
+.fac-card.dragging { opacity: 0.35; cursor: grabbing; }
+.fac-card.drag-over { border-color: #cc44cc; }
+.fac-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.fac-zone { color: #cc44cc; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+.fac-pct { font-size: 1.4em; font-weight: 700; }
+.fac-bar-bg { background: #0d0d0d; height: 6px; border-radius: 3px; overflow: hidden; margin: 4px 0 12px; }
+.fac-bar { height: 100%; border-radius: 3px; transition: width .5s; }
+.fac-meta { color: #888; font-size: 0.76em; margin-bottom: 10px; }
+.fac-machine-row { display: grid; grid-template-columns: 1fr 100px 40px; gap: 4px; font-size: 0.78em; align-items: center; padding: 3px 0; }
+.fac-machine-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-machine-recipe { color: #777; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-machine-pct { color: #555; text-align: right; }
+.fac-empty { color: #888; font-size: 0.82em; font-style: italic; padding: 8px 0; }
+.fac-stale { opacity: 0.45; }
+.fac-offline-badge { background: #441111; color: #cc4444; font-size: 0.65em; font-weight: 700; letter-spacing: 0.8px; padding: 1px 6px; border-radius: 3px; margin: 0 6px; vertical-align: middle; text-transform: uppercase; }
+
+/* ── SOUS-ZONES USINE ── */
+.fac-subzones { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.fac-subzone { background: #0d0d0d; border-radius: 4px; padding: 7px 10px; border-left: 2px solid #2a2a2a; }
+.fac-subzone-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+.fac-subzone-name { color: #993399; font-size: 0.72em; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+.fac-subzone-pct { font-size: 0.82em; font-weight: 700; }
+.fac-subzone-bar-bg { background: #1a1a1a; height: 3px; border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
+.fac-subzone-bar { height: 100%; border-radius: 2px; transition: width .5s; }
+.fac-subzone-meta { color: #555; font-size: 0.7em; margin-bottom: 3px; }
+
+/* ── BARRE SECTION USINE ── */
+.fac-section-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px 12px; }
+.fac-section-title { color: #cc44cc; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; }
+.fac-section-stats { color: #777; font-size: 0.76em; display: flex; gap: 16px; }
+.fac-section-stats span { white-space: nowrap; }
+
+/* ── MODAL USINE ── */
+#fac-modal { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.75); align-items: center; justify-content: center; }
+#fac-modal.open { display: flex; }
+#fac-modal-panel { background: #111; border-radius: 8px; border: 1px solid #1a1a1a; width: 500px; max-width: 95vw; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+#fac-modal-panel .fac-bar-bg { margin: 0; border-radius: 0; flex-shrink: 0; }
+
+/* ── CONFIG USINE DnD ── */
+.fac-cfg-layout { display: flex; gap: 16px; align-items: flex-start; }
+.fac-cfg-pool { width: 210px; flex-shrink: 0; position: sticky; top: 88px; max-height: calc(100vh - 120px); overflow-y: auto; align-self: flex-start; scrollbar-width: thin; scrollbar-color: #2a2a2a #0d0d0d; }
+.fac-cfg-pool::-webkit-scrollbar { width: 4px; }
+.fac-cfg-pool::-webkit-scrollbar-track { background: #0d0d0d; }
+.fac-cfg-pool::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.fac-cfg-pool-title { color: #888; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+.fac-cfg-filter { display: block; width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; color: #bbb; font-size: 0.74em; padding: 5px 8px; outline: none; box-sizing: border-box; margin-bottom: 8px; }
+.fac-cfg-filter:focus { border-color: #cc44cc; }
+.fac-cfg-filter::placeholder { color: #555; }
+.fac-cfg-zones { flex: 1; min-width: 0; }
+.fac-zone-card { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+.fac-zone-header { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #141414; border-bottom: 1px solid #1e1e1e; }
+.fac-zone-name-input { background: transparent; border: none; border-bottom: 1px solid transparent; color: #cc44cc; font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; outline: none; flex: 1; min-width: 80px; }
+.fac-zone-name-input:focus { border-bottom-color: #cc44cc; }
+.fac-subzone-name-input-u { background: transparent; border: none; border-bottom: 1px solid transparent; color: #cc44cc; opacity: 0.7; font-size: 0.76em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; outline: none; flex: 1; min-width: 60px; }
+.fac-subzone-name-input-u:focus { border-bottom-color: #cc44cc; opacity: 1; }
+.fac-drop-area { min-height: 44px; padding: 6px; display: flex; flex-wrap: wrap; gap: 5px; transition: background .15s, outline .15s; border-radius: 4px; }
+.fac-drop-area.drag-over { background: #161616; outline: 1px dashed #cc44cc; }
+.fac-drop-hint { color: #666; font-size: 0.7em; font-style: italic; align-self: center; padding: 2px 4px; pointer-events: none; }
+.fac-mach-card { background: #0d0d0d; border: 1px solid #222; border-radius: 5px; padding: 5px 8px; cursor: grab; width: 180px; transition: border-color .15s, opacity .15s; user-select: none; }
+.fac-mach-card:hover { border-color: #444; }
+.fac-mach-card.dragging { opacity: 0.3; cursor: grabbing; }
+.fac-mach-nick { color: #ccc; font-size: 0.78em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.fac-mach-class { color: #aa44aa; font-size: 0.68em; font-weight: 400; margin: 1px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-mach-sat { color: #4499cc; font-size: 0.68em; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-cfg-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.fac-purge-btn { background: none; border: 1px solid #444; outline: none; cursor: pointer; color: #888; font-size: 0.76em; font-weight: 600; letter-spacing: 0.5px; padding: 4px 12px; border-radius: 4px; transition: color .15s, border-color .15s; }
+.fac-purge-btn:hover { color: #cc44cc; border-color: #cc44cc; }
+.fac-btn-collapse { background: none; border: none; color: #777; cursor: pointer; font-size: 0.8em; padding: 0 2px; flex-shrink: 0; line-height: 1; }
+.fac-btn-collapse:hover { color: #ccc; }
+.fac-subzone-card-u { border-top: 1px solid #1a1a1a; }
+.fac-subzone-header-u { display: flex; align-items: center; gap: 6px; padding: 5px 14px 0; }
+.fac-btn-sm { background: #1a1a1a; border: 1px solid #2a2a2a; color: #777; border-radius: 4px; padding: 2px 8px; font-size: 0.72em; cursor: pointer; white-space: nowrap; }
+.fac-btn-sm:hover { color: #cc44cc; border-color: #cc44cc; }
+.fac-btn-del:hover { color: #cc3333 !important; border-color: #cc3333 !important; }

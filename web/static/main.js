@@ -2,8 +2,9 @@ const VERSION = "1.6.4";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
+const _usinePages    = ['page-usine-info', 'page-usine-config'];
 const _dispatchPages = ['page-dispatch-live2', 'page-dispatch-config'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-usine-info', 'page-usine-config', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -17,9 +18,11 @@ const LOG_TAG_COLORS = {
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
     STARTER:    '#cc2222',
+    FAC_CENTRAL:'#cc44cc',
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';
+let _lastUsinePage    = 'page-usine-info';
 let _lastDispatchPage = 'page-dispatch-live2';
 
 function switchSection(name, btn) {
@@ -27,6 +30,7 @@ function switchSection(name, btn) {
     btn.classList.add('active');
     const trainsTabs    = document.getElementById('trains-tabs');
     const stockageTabs  = document.getElementById('stockage-tabs');
+    const usineTabs     = document.getElementById('usine-tabs');
     const dispatchTabs  = document.getElementById('dispatch-tabs');
     // Masquer toutes les pages / Hide all pages
     _trainPages.forEach(id => document.getElementById(id).classList.remove('active'));
@@ -34,21 +38,31 @@ function switchSection(name, btn) {
     if (name === 'trains') {
         trainsTabs.style.display   = '';
         stockageTabs.style.display = 'none';
+        usineTabs.style.display    = 'none';
         dispatchTabs.style.display = 'none';
         document.getElementById(_lastTrainPage).classList.add('active');
     } else if (name === 'stockage') {
         trainsTabs.style.display   = 'none';
         stockageTabs.style.display = '';
+        usineTabs.style.display    = 'none';
         dispatchTabs.style.display = 'none';
         document.getElementById(_lastStockagePage).classList.add('active');
+    } else if (name === 'usine') {
+        trainsTabs.style.display   = 'none';
+        stockageTabs.style.display = 'none';
+        usineTabs.style.display    = '';
+        dispatchTabs.style.display = 'none';
+        document.getElementById(_lastUsinePage).classList.add('active');
     } else if (name === 'dispatch') {
         trainsTabs.style.display   = 'none';
         stockageTabs.style.display = 'none';
+        usineTabs.style.display    = 'none';
         dispatchTabs.style.display = '';
         document.getElementById(_lastDispatchPage).classList.add('active');
     } else {
         trainsTabs.style.display   = 'none';
         stockageTabs.style.display = 'none';
+        usineTabs.style.display    = 'none';
         dispatchTabs.style.display = 'none';
         document.getElementById('page-' + name).classList.add('active');
         if (name === 'logs') refreshLogs();
@@ -64,6 +78,16 @@ function switchDispatchTab(name, btn) {
     btn.classList.add('active');
     if (name === 'config') renderDispatch2();
     if (name === 'live')   _dp2RenderLive();
+}
+
+// ── Navigation onglets (sous USINE) ──────────────────────────
+function switchUsineTab(name, btn) {
+    _usinePages.forEach(id => document.getElementById(id).classList.remove('active'));
+    document.querySelectorAll('#usine-tabs .tab').forEach(t => t.classList.remove('active'));
+    _lastUsinePage = 'page-usine-' + name;
+    document.getElementById(_lastUsinePage).classList.add('active');
+    btn.classList.add('active');
+    if (name === 'config') _facRenderConfig();
 }
 
 // ── Navigation onglets (sous STOCKAGE) ────────────────────────
@@ -1125,6 +1149,348 @@ function _satToggleOutdatedFilter() {
     _prevJson.sat_update = null;  // force re-render
 }
 
+// ── USINE — INFO ─────────────────────────────────────────────
+let _facInfoCache = {};  // {[zoneName]: aggr} pour la modal
+
+function _facProdColor(pct) {
+    return pct >= 90 ? '#22ee22' : pct >= 60 ? '#eeee22' : '#ee3333';
+}
+
+function renderUsineInfo(zoneConfig, centralData) {
+    const grid = document.getElementById('usine-grid');
+    if (!grid) return;
+    const zones = zoneConfig && zoneConfig.zones;
+
+    // Stats globales header / Global stats header
+    const central = centralData || {};
+    const statsEl = document.getElementById('fac-global-stats');
+    if (statsEl && central.total != null) {
+        statsEl.innerHTML =
+            `<span style="color:#22ee22">▶ ${central.producing ?? 0} prod</span>` +
+            `<span style="color:#eeee22">⏸ ${central.standby ?? 0} veille</span>` +
+            `<span style="color:#555">■ ${central.idle ?? 0} inactif</span>` +
+            `<span style="color:#cc44cc">⌀ ${central.avgProd ?? 0}%</span>`;
+    }
+
+    if (!zones || !zones.length) {
+        grid.innerHTML = '<div class="fac-empty">Aucune zone configurée — définissez vos zones dans l\'onglet Configuration</div>';
+        return;
+    }
+
+    // Lookup par UUID depuis les données FAC_CENTRAL / UUID lookup from FAC_CENTRAL data
+    const byUuid = {};
+    for (const m of ((central.machines) || [])) {
+        if (m.uuid) byUuid[m.uuid] = m;
+    }
+
+    const payloadStale = central.server_ts && (Date.now() / 1000 - central.server_ts) > 120;
+
+    function aggr(uuids) {
+        let total = 0, producing = 0, standby = 0, idle = 0, sumProd = 0, hasStale = false;
+        const machines = [];
+        for (const uuid of uuids) {
+            const m = byUuid[uuid];
+            if (!m) continue;
+            if (m.stale) { hasStale = true; continue; }
+            total++;
+            sumProd += (m.productivity || 0) * 100;
+            if (m.status === 'producing') producing++;
+            else if (m.status === 'standby') standby++;
+            else idle++;
+            machines.push(m);
+        }
+        const avgProd = total > 0 ? Math.round(sumProd / total * 10) / 10 : 0;
+        return { total, producing, standby, idle, avgProd, hasStale, machines };
+    }
+
+    _facInfoCache = {};
+    grid.innerHTML = zones.map(zone => {
+        const allUuids = [...(zone.machines || []), ...((zone.subzones || []).flatMap(sz => sz.machines || []))];
+        const za = aggr(allUuids);
+        const subzones = (zone.subzones || []).map(sz => ({ name: sz.name, ...aggr(sz.machines || []) }));
+        const hasStale = za.hasStale || subzones.some(s => s.hasStale);
+        _facInfoCache[zone.name] = { zone: zone.name, ...za, subzones, hasStale };
+
+        const pctColor = _facProdColor(za.avgProd);
+        const offlineBadge = hasStale ? '<span class="fac-offline-badge">Hors ligne</span>' : '';
+
+        let body;
+        if (subzones.length > 0) {
+            body = `<div class="fac-subzones">${subzones.map(sz => {
+                const sc = _facProdColor(sz.avgProd);
+                const szOffline = sz.hasStale ? '<span class="fac-offline-badge">Hors ligne</span>' : '';
+                return `<div class="fac-subzone">
+                    <div class="fac-subzone-header"><span class="fac-subzone-name">${esc(sz.name)}</span>${szOffline}<span class="fac-subzone-pct" style="color:${sc}">${sz.avgProd}%</span></div>
+                    <div class="fac-subzone-bar-bg"><div class="fac-subzone-bar" style="width:${sz.avgProd}%;background:${sc}"></div></div>
+                    <div class="fac-subzone-meta">${sz.producing} prod · ${sz.standby} veille · ${sz.idle} inactif</div>
+                </div>`;
+            }).join('')}</div>`;
+        } else {
+            const top = za.machines.slice(0, 4);
+            body = top.length ? `<div>${top.map(m => {
+                const pc = Math.round((m.productivity || 0) * 1000) / 10;
+                const dot = m.status === 'producing' ? '<span style="color:#22ee22">●</span>' : m.status === 'standby' ? '<span style="color:#eeee22">●</span>' : '<span style="color:#555">●</span>';
+                return `<div class="fac-machine-row">${dot} <span class="fac-machine-name">${esc(m.nick)}</span><span class="fac-machine-recipe">${esc(m.recipe || '—')}</span><span class="fac-machine-pct">${pc}%</span></div>`;
+            }).join('')}</div>` : '<div class="fac-empty">Aucune machine</div>';
+        }
+
+        return `<div class="fac-card${payloadStale ? ' fac-stale' : ''}" onclick="openFacModal('${esc(zone.name)}')" title="Voir toutes les machines" style="cursor:pointer">
+            <div class="fac-card-header"><span class="fac-zone">${esc(zone.name)}</span>${offlineBadge}<span class="fac-pct" style="color:${pctColor}">${za.avgProd}%</span></div>
+            <div class="fac-bar-bg"><div class="fac-bar" style="width:${za.avgProd}%;background:${pctColor}"></div></div>
+            <div class="fac-meta">${za.total} machine${za.total > 1 ? 's' : ''} · ${za.producing} prod · ${za.standby} veille · ${za.idle} inactif</div>
+            ${body}
+        </div>`;
+    }).join('');
+}
+
+function openFacModal(zoneName) {
+    const z = _facInfoCache[zoneName];
+    if (!z) return;
+    const pctColor = _facProdColor(z.avgProd);
+    document.getElementById('fac-modal-title').textContent = zoneName;
+    const pctEl = document.getElementById('fac-modal-pct');
+    pctEl.textContent = z.avgProd + '%';
+    pctEl.style.color = pctColor;
+    document.getElementById('fac-modal-bar').style.cssText = `width:${z.avgProd}%;background:${pctColor}`;
+    document.getElementById('fac-modal-meta').textContent =
+        `${z.total} machine${z.total > 1 ? 's' : ''} · ${z.producing} prod · ${z.standby} veille · ${z.idle} inactif`;
+
+    let bodyHtml;
+    if (z.subzones && z.subzones.length > 0) {
+        bodyHtml = z.subzones.map(sz => {
+            const sc = _facProdColor(sz.avgProd);
+            const mList = sz.machines.sort((a, b) => (b.productivity || 0) - (a.productivity || 0));
+            return `<div style="padding:10px 0;border-bottom:1px solid #1e1e1e">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <span style="color:#993399;font-size:0.8em;font-weight:700;letter-spacing:1px;text-transform:uppercase">${esc(sz.name)}</span>
+                    <span class="fac-pct" style="color:${sc};font-size:1em">${sz.avgProd}%</span>
+                </div>
+                <div class="fac-subzone-meta" style="margin-bottom:6px">${sz.total} machines · ${sz.producing} prod · ${sz.standby} veille</div>
+                ${mList.map(m => _facModalMachineRow(m)).join('')}
+            </div>`;
+        }).join('');
+    } else {
+        const mList = [...z.machines].sort((a, b) => (b.productivity || 0) - (a.productivity || 0));
+        bodyHtml = mList.length ? mList.map(_facModalMachineRow).join('') : '<div class="fac-empty">Aucune machine configurée dans cette zone</div>';
+    }
+    document.getElementById('fac-modal-body').innerHTML = bodyHtml;
+    document.getElementById('fac-modal').classList.add('open');
+}
+
+function _facModalMachineRow(m) {
+    const pc = Math.round((m.productivity || 0) * 1000) / 10;
+    const pctColor = _facProdColor(pc);
+    const dot = m.status === 'producing' ? `<span style="color:#22ee22">●</span>` : m.status === 'standby' ? `<span style="color:#eeee22">●</span>` : `<span style="color:#555">●</span>`;
+    return `<div class="fac-machine-row" style="border-bottom:1px solid #161616;padding:5px 0">
+        ${dot} <span class="fac-machine-name">${esc(m.nick)}</span>
+        <span class="fac-machine-recipe">${esc(m.recipe || '—')}</span>
+        <span class="fac-machine-pct" style="color:${pctColor}">${pc}%</span>
+    </div>`;
+}
+
+function closeFacModal() { document.getElementById('fac-modal').classList.remove('open'); }
+
+// ── USINE — CONFIG DnD ───────────────────────────────────────
+let _facZones    = [];   // [{id, persistId, name, machines:[uuid], subzones:[{id, persistId, name, machines:[uuid]}]}]
+let _facAllMachs = [];   // [{satellite, nick, uuid, key, class, status, productivity}]
+let _facIdCnt    = 0;
+let _facCollapsed  = new Set();
+let _facPoolFilter = '';
+let _facDragKey    = null;
+
+function _facAssigned() {
+    const s = new Set();
+    for (const z of _facZones) {
+        z.machines.forEach(k => s.add(k));
+        z.subzones.forEach(sz => sz.machines.forEach(k => s.add(k)));
+    }
+    return s;
+}
+function _facRemoveKey(key) {
+    for (const z of _facZones) {
+        z.machines = z.machines.filter(k => k !== key);
+        z.subzones.forEach(sz => { sz.machines = sz.machines.filter(k => k !== key); });
+    }
+}
+function _facKeyToNick(key) { const m = _facAllMachs.find(m => m.key === key); return m ? m.nick : key; }
+function _facDragStart(ev, key) { _facDragKey = key; ev.target.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; }
+function _facDragEnd(ev)        { ev.target.classList.remove('dragging'); _facDragKey = null; }
+function _facLeave(ev)          { if (!ev.currentTarget.contains(ev.relatedTarget)) ev.currentTarget.classList.remove('drag-over'); }
+function _facDrop(ev, zoneId, szId) {
+    ev.preventDefault(); ev.currentTarget.classList.remove('drag-over');
+    if (!_facDragKey) return;
+    _facRemoveKey(_facDragKey);
+    if (zoneId >= 0) {
+        const z = _facZones.find(z => z.id === zoneId);
+        if (!z) return;
+        if (szId < 0) z.machines.push(_facDragKey);
+        else { const sz = z.subzones.find(s => s.id === szId); if (sz) sz.machines.push(_facDragKey); }
+    }
+    _facRenderConfig();
+}
+function _facAddZone()                { _facZones.push({ id: _facIdCnt++, persistId: null, name: 'Nouvelle zone', machines: [], subzones: [] }); _facRenderConfig(); }
+function _facRemoveZone(id)           { _facZones = _facZones.filter(z => z.id !== id); _facRenderConfig(); }
+function _facAddSubzone(zid)          { const z = _facZones.find(z => z.id === zid); if (z) z.subzones.push({ id: _facIdCnt++, persistId: null, name: 'Sous-zone', machines: [] }); _facRenderConfig(); }
+function _facRemoveSubzone(zid, sid)  { const z = _facZones.find(z => z.id === zid); if (z) z.subzones = z.subzones.filter(s => s.id !== sid); _facRenderConfig(); }
+function _facRenameZone(id, v)        { const z = _facZones.find(z => z.id === id); if (z) z.name = v; }
+function _facRenameSz(zid, sid, v)    { const z = _facZones.find(z => z.id === zid); if (z) { const s = z.subzones.find(s => s.id === sid); if (s) s.name = v; } }
+function _facToggleZone(id)           { _facCollapsed.has(id) ? _facCollapsed.delete(id) : _facCollapsed.add(id); _facRenderConfig(); }
+
+function _facApplyPoolFilter(v) {
+    _facPoolFilter = v;
+    const drop = document.getElementById('fac-pool-drop');
+    if (!drop) return;
+    const term = v.toLowerCase();
+    drop.querySelectorAll('.fac-mach-card').forEach(card => {
+        const nick = (card.querySelector('.fac-mach-nick') || card).textContent.toLowerCase();
+        card.style.display = !term || nick.includes(term) ? '' : 'none';
+    });
+}
+
+function _facMachCard(m) {
+    const dot = m.status === 'producing' ? '<span style="color:#22ee22;font-size:0.7em">●</span>' : m.status === 'standby' ? '<span style="color:#eeee22;font-size:0.7em">●</span>' : '<span style="color:#555;font-size:0.7em">●</span>';
+    return `<div class="fac-mach-card" draggable="true"
+                 ondragstart="_facDragStart(event,'${esc(m.key)}')" ondragend="_facDragEnd(event)"
+                 title="${esc(m.satellite || '')} — ${esc(m.class || '')}">
+        <div class="fac-mach-nick">${dot} ${esc(m.nick)}</div>
+        ${m.class ? `<div class="fac-mach-class">${esc(m.class)}</div>` : ''}
+        ${m.satellite ? `<div class="fac-mach-sat">${esc(m.satellite)}</div>` : ''}
+    </div>`;
+}
+
+function _facDropArea(zoneId, szId, uuidList) {
+    const sorted = [...uuidList].sort((a, b) =>
+        _facKeyToNick(a).localeCompare(_facKeyToNick(b), undefined, { numeric: true, sensitivity: 'base' }));
+    const cards = sorted.map(key => {
+        const m = _facAllMachs.find(m => m.key === key) || { key, nick: _facKeyToNick(key), satellite: '', class: '', status: '' };
+        return _facMachCard(m);
+    }).join('');
+    return `<div class="fac-drop-area"
+                 ondragover="event.preventDefault()"
+                 ondragenter="this.classList.add('drag-over')"
+                 ondragleave="_facLeave(event)"
+                 ondrop="_facDrop(event,${zoneId},${szId})">
+        ${cards}<div class="fac-drop-hint">${uuidList.length ? '' : 'Glisser ici'}</div>
+    </div>`;
+}
+
+function _facRenderConfig() {
+    const el = document.getElementById('usine-config-content');
+    if (!el) return;
+    const assigned = _facAssigned();
+    const pool = _facAllMachs
+        .filter(m => !assigned.has(m.key))
+        .sort((a, b) => (a.nick || '').localeCompare(b.nick || '', undefined, { numeric: true, sensitivity: 'base' }));
+
+    const zonesHtml = _facZones.map(z => {
+        const collapsed = _facCollapsed.has(z.id);
+        const totalMachs = z.machines.length + z.subzones.reduce((s, sz) => s + sz.machines.length, 0);
+        const body = collapsed ? '' : `
+            ${_facDropArea(z.id, -1, z.machines)}
+            ${z.subzones.map(sz => `
+                <div class="fac-subzone-card-u">
+                    <div class="fac-subzone-header-u">
+                        <input class="fac-subzone-name-input-u" value="${esc(sz.name)}" placeholder="Nom" onchange="_facRenameSz(${z.id},${sz.id},this.value)">
+                        <button class="fac-btn-sm fac-btn-del" onclick="_facRemoveSubzone(${z.id},${sz.id})">✕</button>
+                    </div>
+                    ${_facDropArea(z.id, sz.id, sz.machines)}
+                </div>`).join('')}`;
+        return `
+        <div class="fac-zone-card" data-zone-id="${z.id}">
+            <div class="fac-zone-header">
+                <button class="fac-btn-collapse" onclick="_facToggleZone(${z.id})" title="${collapsed ? 'Développer' : 'Réduire'}">${collapsed ? '▸' : '▾'}</button>
+                <input class="fac-zone-name-input" value="${esc(z.name)}" placeholder="Nom de la zone" onchange="_facRenameZone(${z.id},this.value)">
+                ${collapsed ? `<span style="color:#666;font-size:0.68em;white-space:nowrap">${totalMachs} mach.</span>` : ''}
+                <button class="fac-btn-sm" onclick="_facAddSubzone(${z.id})">+ Sous-zone</button>
+                <button class="fac-btn-sm fac-btn-del" onclick="_facRemoveZone(${z.id})">✕</button>
+            </div>
+            ${body}
+        </div>`;
+    }).join('') || '<div class="fac-empty" style="margin-top:8px">Cliquez sur "+ Zone" pour commencer</div>';
+
+    const poolCards = pool.map(m => _facMachCard(m)).join('') || '<div class="fac-drop-hint">Toutes assignées</div>';
+
+    el.innerHTML = `
+        <div class="fac-cfg-actions">
+            <button class="fac-purge-btn" onclick="_facAddZone()">+ Zone</button>
+            <button class="fac-purge-btn" onclick="_saveFactoryZoneConfig()">Sauvegarder</button>
+            <span id="fac-cfg-status" style="font-size:0.78em;color:#888"></span>
+        </div>
+        <div class="fac-cfg-layout">
+            <div class="fac-cfg-pool">
+                <div class="fac-cfg-pool-title">Disponibles</div>
+                <input class="fac-cfg-filter" id="fac-pool-filter" type="text" placeholder="Filtrer..."
+                       value="${esc(_facPoolFilter)}" oninput="_facApplyPoolFilter(this.value)">
+                <div class="fac-drop-area" id="fac-pool-drop" style="flex-direction:column"
+                     ondragover="event.preventDefault()"
+                     ondragenter="this.classList.add('drag-over')"
+                     ondragleave="_facLeave(event)"
+                     ondrop="_facDrop(event,-1,-1)">${poolCards}</div>
+            </div>
+            <div class="fac-cfg-zones">${zonesHtml}</div>
+        </div>`;
+
+    if (_facPoolFilter) _facApplyPoolFilter(_facPoolFilter);
+}
+
+function renderUsineConfig(discovery, centralData, zoneConfig) {
+    // Construire la liste machines avec statut en temps réel / Build machine list with real-time status
+    const byUuid = {};
+    for (const m of ((centralData && centralData.machines) || [])) {
+        if (m.uuid) byUuid[m.uuid] = m;
+    }
+    if (discovery && discovery.length) {
+        _facAllMachs = discovery.flatMap(d =>
+            (d.machines || []).map(item => {
+                const nick = typeof item === 'object' ? item.nick : item;
+                const uuid = typeof item === 'object' ? item.uuid : null;
+                const key  = uuid || nick;
+                const live = byUuid[uuid] || {};
+                return { satellite: d.satellite, nick, uuid, key, class: item.class || live.class || '?', status: live.status || '', productivity: live.productivity };
+            })
+        );
+    }
+    const cfgZones = zoneConfig && zoneConfig.zones;
+    _facIdCnt = 0; _facZones = [];
+    if (cfgZones && cfgZones.length) {
+        for (const z of cfgZones) {
+            _facZones.push({
+                id: _facIdCnt++, persistId: z.id || null,
+                name: z.name,
+                machines: [...(z.machines || [])],
+                subzones: (z.subzones || []).map(sz => ({
+                    id: _facIdCnt++, persistId: sz.id || null,
+                    name: sz.name, machines: [...(sz.machines || [])]
+                }))
+            });
+        }
+    }
+    _facRenderConfig();
+}
+
+function _saveFactoryZoneConfig() {
+    const config = {
+        zones: _facZones.map(z => ({
+            ...(z.persistId ? { id: z.persistId } : {}),
+            name: z.name,
+            machines: z.machines,
+            subzones: z.subzones.map(sz => ({
+                ...(sz.persistId ? { id: sz.persistId } : {}),
+                name: sz.name,
+                machines: sz.machines
+            }))
+        }))
+    };
+    fetch('/api/factory/zone-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
+        .then(r => {
+            const st = document.getElementById('fac-cfg-status');
+            if (!r.ok) { if (st) st.textContent = `Erreur HTTP ${r.status}`; return; }
+            _prevJson.factory_info = null;  // forcer re-render INFO / force INFO re-render
+            if (st) { st.textContent = 'Sauvegardé ✓'; setTimeout(() => { if (st) st.textContent = ''; }, 2000); }
+        })
+        .catch(() => { const st = document.getElementById('fac-cfg-status'); if (st) st.textContent = 'Erreur réseau'; });
+}
+
 // ── Power ─────────────────────────────────────────────────────
 const _POWER_HIST_MAX = 120;
 const _powerHist = { prod: [], cons: [], cap: [], maxCons: [] };
@@ -1286,7 +1652,7 @@ function _drawPowerChart() {
 
 // ── Diff par section — évite les renders inutiles si les données n'ont pas changé
 // ── Per-section diff — skips renders when data is unchanged
-const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null };
+const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, factory_info: null, factory_discovery: null, power: null, dispatch: null, sat_update: null };
 let _stockageZoneConfig  = [];   // config persistée : [{satellite, zone, label}, ...]
 let _stockageCentralCache = null; // dernières données CENTRAL pour toggleStockView
 
@@ -1366,6 +1732,19 @@ async function refresh() {
         if (_zdj !== _prevJson.stockage_discovery) {
             _prevJson.stockage_discovery = _zdj;
             _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageCentralCache, _stockageZoneConfig));
+        }
+        // Factory USINE / USINE factory
+        const _fij = JSON.stringify({ c: data.factory_central || null, z: data.factory_zone_config || {} });
+        const _fdj = JSON.stringify(data.factory_discovery || []);
+        if (_fij !== _prevJson.factory_info) {
+            _prevJson.factory_info = _fij;
+            rTimes.usine = _t('fac-info', () => renderUsineInfo(data.factory_zone_config || null, data.factory_central || null));
+            // Mettre à jour statuts dans pool config si la page est visible / Update statuses in config pool if page visible
+            if (data.factory_central && document.getElementById('page-usine-config').classList.contains('active')) _facRenderConfig();
+        }
+        if (_fdj !== _prevJson.factory_discovery) {
+            _prevJson.factory_discovery = _fdj;
+            _t('fac-cfg', () => renderUsineConfig(data.factory_discovery || [], data.factory_central || null, data.factory_zone_config || null));
         }
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
         const _uj = JSON.stringify({ v: data.satellite_versions || {}, r: data.sat_update_results || {} });
@@ -1908,7 +2287,7 @@ function _appendLogEntries(entries) {
     if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     entries.forEach(e => {
-        const col = LOG_TAG_COLORS[e.tag] || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : '#888');
+        const col = LOG_TAG_COLORS[e.tag] || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : e.tag && e.tag.startsWith('FAC:') ? '#aa44aa' : '#888');
         const div = document.createElement('div');
         div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
         div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
