@@ -1,4 +1,4 @@
-const VERSION = "1.7.21";
+const VERSION = "1.7.22";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -842,8 +842,8 @@ function _facApplyPoolFilter(v) {
     if (!drop) return;
     const term = v.toLowerCase();
     drop.querySelectorAll('.fac-mach-card').forEach(card => {
-        const nick = (card.querySelector('.fac-mach-nick') || card).textContent.toLowerCase();
-        card.style.display = !term || nick.includes(term) ? '' : 'none';
+        const text = card.textContent.toLowerCase();
+        card.style.display = !term || text.includes(term) ? '' : 'none';
     });
 }
 
@@ -1064,8 +1064,8 @@ function _stkApplyPoolFilter(v) {
     if (!drop) return;
     const term = v.toLowerCase();
     drop.querySelectorAll('.stk-cont-card').forEach(card => {
-        const nick = (card.querySelector('.stk-cont-nick') || card).textContent.toLowerCase();
-        card.style.display = !term || nick.includes(term) ? '' : 'none';
+        const text = card.textContent.toLowerCase();
+        card.style.display = !term || text.includes(term) ? '' : 'none';
     });
 }
 
@@ -2298,20 +2298,26 @@ function renderFactory(fac) {
 
     // Rendu d'un groupe de recette (visuel seul, pas de onclick) / Recipe group (visual only, no onclick)
     function recipeGroupHtml(recipe, machines) {
-        const activeCnt  = machines.filter(m => m.active).length;
-        const prodSum    = machines.reduce((s, m) => s + (m.productivity ?? 0), 0);
-        const avgProd    = activeCnt > 0 ? prodSum / activeCnt : 0;
-        const prodColor  = avgProd >= 80 ? '#99ff00' : avgProd >= 50 ? '#ffcc00' : '#ff4444';
         const totalPow   = machines.reduce((s, m) => s + (m.power ?? 0), 0);
         const inTotal    = machines.reduce((s, m) => s + (m.inputItems  || []).reduce((a, i) => a + (i.count || 0), 0), 0);
         const outTotal   = machines.reduce((s, m) => s + (m.outputItems || []).reduce((a, i) => a + (i.count || 0), 0), 0);
 
+        // Somme des ingrédients consommés (quantité × nb machines) / Sum of ingredients consumed (qty × machine count)
+        const ingMap = {};
+        machines.forEach(m => {
+            (m.ingredients || []).forEach(ing => {
+                ingMap[ing.name] = (ingMap[ing.name] || 0) + (ing.amount || 0);
+            });
+        });
+        const ingHtml = Object.entries(ingMap)
+            .map(([n, a]) => `<span class="fac-ing">${esc(n.replace(/^Desc_|_C$/g, ''))}: ${a}</span>`)
+            .join('');
+
         return `<div class="fac-recipe-group">
             <div class="fac-card-header">
                 <span class="fac-recipe-name">${esc(recipe)}</span>
-                <span class="fac-card-pct" style="color:${prodColor}">${avgProd.toFixed(0)}%</span>
             </div>
-            <div class="fac-bar-bg"><div class="fac-bar" style="width:${Math.min(avgProd,100)}%;background:${prodColor}"></div></div>
+            ${ingHtml ? `<div class="fac-ing-list">${ingHtml}</div>` : ''}
             <div class="fac-card-meta">${machines.length} mach. &nbsp;·&nbsp; <img src="/static/img/IN.png" class="fac-icon"> ${inTotal} &nbsp;·&nbsp; <img src="/static/img/OUT.png" class="fac-icon"> ${outTotal} &nbsp;·&nbsp; <img src="/static/img/POWER.png" class="fac-icon"> ${totalPow.toFixed(1)} MW</div>
         </div>`;
     }
@@ -2338,8 +2344,8 @@ function renderFactory(fac) {
         const outTotal  = (m.outputItems || []).reduce((s, i) => s + (i.count || 0), 0);
         return `<div class="fac-machine ${dimClass}">
             <div class="fac-machine-top">
-                <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(m.nick)}</span>
-                <span class="fac-machine-class">${esc(_facShortClass(m.class))}</span>
+                <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(_facShortClass(m.class))}</span>
+                <span class="fac-machine-class">(${esc(m.nick)})</span>
                 <span style="color:${prodColor};font-size:0.75em;font-weight:700;margin-left:auto">${prod.toFixed(0)}%</span>
             </div>
             <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
