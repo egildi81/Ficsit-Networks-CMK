@@ -1,4 +1,4 @@
-const VERSION = "1.7.24";
+const VERSION = "1.7.25";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2455,13 +2455,12 @@ function renderFactory(fac) {
     if (cfgZones && cfgZones.length) {
         if (zoneCountEl) zoneCountEl.textContent = cfgZones.length + ' zone' + (cfgZones.length > 1 ? 's' : '');
         grid.innerHTML = cfgZones.map(zone => {
-            const allNicks = [...(zone.machines || []), ...((zone.subzones || []).flatMap(sz => sz.machines || []))];
-            const zoneIdx  = _facDetailGroups.length;
-            _facDetailGroups.push({ name: zone.name, directNicks, mainLabel, subzones: hasSubs ? zone.subzones : [] });
-
+            const allNicks    = [...(zone.machines || []), ...((zone.subzones || []).flatMap(sz => sz.machines || []))];
             const directNicks = zone.machines || [];
             const hasSubs     = zone.subzones && zone.subzones.length;
             const mainLabel   = zone.mainLabel && hasSubs ? zone.mainLabel : null;
+            const zoneIdx     = _facDetailGroups.length;
+            _facDetailGroups.push({ name: zone.name, directNicks, mainLabel, subzones: hasSubs ? zone.subzones : [] });
             const directHtml  = directNicks.length
                 ? (mainLabel ? subzoneHtml(mainLabel, directNicks) : `<div class="fac-recipe-list">${sectionHtml(directNicks, false)}</div>`)
                 : '';
