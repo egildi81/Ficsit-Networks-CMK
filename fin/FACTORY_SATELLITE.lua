@@ -9,7 +9,7 @@
 -- Port 58 : données scan → FACTORY_CENTRAL (net:send ciblé) / scan data → FACTORY_CENTRAL (targeted)
 -- Port 59 : FACTORY_SAT ↔ FACTORY_CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 
 -- === CONFIGURATION ===
 -- Classes de machines à monitorer (vanilla uniquement — retirer si non utilisé)
@@ -226,6 +226,17 @@ local function scanMachine(m)
         end
     end
 
+    -- Position monde (x=est/ouest, y=nord/sud, z=altitude) / World position (x=E/W, y=N/S, z=altitude)
+    -- pcall requis : .location sur Trace peut crash GC Lua / pcall required: .location on Trace can crash Lua GC
+    local wx, wy, wz = 0, 0, 0
+    pcall(function()
+        local loc = proxy.location
+        wx = math.floor(loc.x)
+        wy = math.floor(loc.y)
+        wz = math.floor(loc.z)
+    end)
+    event.pull(0)  -- yield pour éviter luaC_fullgc / yield to avoid luaC_fullgc
+
     -- Inventaires entrée / sortie / Input / output inventories
     local inputItems,  inputFill  = {}, 0
     local outputItems, outputFill = {}, 0
@@ -248,6 +259,9 @@ local function scanMachine(m)
         outputItems  = outputItems,    -- inventaire sortie actuel / current output inventory
         inputFill    = inputFill,      -- % slots occupés entrée / input fill %
         outputFill   = outputFill,     -- % slots occupés sortie / output fill %
+        x            = wx,             -- position monde / world position
+        y            = wy,
+        z            = wz,             -- altitude (étages) / altitude (floors)
     }
 end
 

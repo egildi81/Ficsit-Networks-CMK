@@ -1,10 +1,10 @@
-const VERSION = "1.7.27";
+const VERSION = "1.7.28";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
 const _dispatchPages = ['page-dispatch-live2', 'page-dispatch-config'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs', 'page-usine-info', 'page-usine-config', 'page-usine-update'];
-const _usinePages    = ['page-usine-info', 'page-usine-config', 'page-usine-update'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs', 'page-usine-info', 'page-usine-config', 'page-usine-update', 'page-usine-map'];
+const _usinePages    = ['page-usine-info', 'page-usine-config', 'page-usine-update', 'page-usine-map'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -98,6 +98,7 @@ function switchUsineTab(name, btn) {
     btn.classList.add('active');
     if (name === 'config')  _facRenderConfig();
     if (name === 'update')  { _prevJson.factory_sat_update = null; }
+    if (name === 'map' && _lastFactoryData) renderFactoryMap(_lastFactoryData);
 }
 
 // ── Navigation onglets (sous TRAINS) ─────────────────────────
@@ -1328,6 +1329,179 @@ function _satToggleOutdatedFilter() {
     _prevJson.sat_update = null;  // force re-render
 }
 
+// ── Carte USINE ──────────────────────────────────────────────
+let _facMapFloor       = 0;
+let _facMapFloors      = [];
+let _facMapAllMachines = [];
+
+// Détection automatique des étages par clustering Z / Auto floor detection by Z clustering
+function _detectFacFloors(machines) {
+    const withZ = machines.filter(m => typeof m.z === 'number' && m.z !== 0);
+    if (!withZ.length) return [{ label: 'Sol', zMin: -Infinity, zMax: Infinity }];
+    const zUniq = [...new Set(withZ.map(m => m.z))].sort((a, b) => a - b);
+    const THRESH = 500;  // ~1 étage Satisfactory / ~1 Satisfactory floor
+    const clusters = [];
+    let cur = [zUniq[0]];
+    for (let i = 1; i < zUniq.length; i++) {
+        if (zUniq[i] - cur[cur.length - 1] <= THRESH) { cur.push(zUniq[i]); }
+        else { clusters.push(cur); cur = [zUniq[i]]; }
+    }
+    clusters.push(cur);
+    return clusters.map((c, i) => ({
+        label: i === 0 ? 'RDC' : `N+${i}`,
+        zMin:  Math.min(...c) - 100,
+        zMax:  Math.max(...c) + 100,
+    }));
+}
+
+function renderFactoryMap(fac) {
+    const wrap = document.getElementById('usine-map-content');
+    if (!wrap) return;
+    const all = fac.zones.flatMap(z => z.machines || []).filter(m => typeof m.x === 'number');
+    if (!all.length) {
+        wrap.innerHTML = '<div class="fac-map-empty">Aucune position disponible<br><span style="color:#2a2a2a">FACTORY_SATELLITE v1.2.0+ requis</span></div>';
+        return;
+    }
+    _facMapAllMachines = all;
+    const floors = _detectFacFloors(all);
+    if (_facMapFloor >= floors.length) _facMapFloor = 0;
+    // Reconstruire le HTML uniquement si la liste d'étages change / Rebuild HTML only if floors change
+    const floorsKey = floors.map(f => f.label).join('|');
+    if (floorsKey !== _facMapFloors.map(f => f.label).join('|')) {
+        _facMapFloors = floors;
+        const btns = floors.map((f, i) =>
+            `<button class="fac-map-floor-btn${i === _facMapFloor ? ' active' : ''}" onclick="_facMapSelectFloor(${i})">${esc(f.label)}</button>`
+        ).join('');
+        wrap.innerHTML = `
+            <div class="fac-map-floors">
+                <span style="color:#555;font-size:0.72em;font-weight:700;letter-spacing:1px;margin-right:4px">ÉTAGE</span>
+                ${btns}
+            </div>
+            <div class="fac-map-wrap" id="fac-map-wrap">
+                <canvas id="fac-map-canvas" class="fac-map-canvas"></canvas>
+                <div class="fac-map-tooltip" id="fac-map-tooltip"></div>
+            </div>
+            <div class="fac-map-legend">
+                <span><span class="fac-map-legend-dot" style="background:#99ff00"></span>≥80%</span>
+                <span><span class="fac-map-legend-dot" style="background:#ffcc00"></span>≥50%</span>
+                <span><span class="fac-map-legend-dot" style="background:#ff4444"></span>&lt;50%</span>
+                <span><span class="fac-map-legend-dot" style="background:#2a2a2a;border:1px solid #333"></span>Standby</span>
+            </div>`;
+        const cv = document.getElementById('fac-map-canvas');
+        if (cv) {
+            cv.addEventListener('mousemove', _facMapMouseMove);
+            cv.addEventListener('mouseleave', _facMapMouseLeave);
+        }
+    } else {
+        _facMapFloors = floors;
+    }
+    _drawFacMap();
+}
+
+function _facMapSelectFloor(idx) {
+    _facMapFloor = idx;
+    document.querySelectorAll('.fac-map-floor-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+    _drawFacMap();
+}
+
+function _drawFacMap() {
+    const cv = document.getElementById('fac-map-canvas');
+    if (!cv || !_facMapFloors.length) return;
+    cv.width  = cv.offsetWidth  || 800;
+    cv.height = cv.offsetHeight || 520;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height, PAD = 32;
+    ctx.fillStyle = '#0d0d0d';
+    ctx.fillRect(0, 0, W, H);
+
+    const floor = _facMapFloors[_facMapFloor];
+    const machs = _facMapAllMachines.filter(m => m.z >= floor.zMin && m.z <= floor.zMax);
+    if (!machs.length) {
+        ctx.fillStyle = '#333'; ctx.font = '13px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('Aucune machine sur cet étage', W / 2, H / 2);
+        cv._facMachs = []; cv._facToC = null; return;
+    }
+
+    // Bornes + transformation monde → canvas (Y inversé) / Bounds + world→canvas transform (Y flipped)
+    const xs = machs.map(m => m.x), ys = machs.map(m => m.y);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xRng = Math.max(xMax - xMin, 400), yRng = Math.max(yMax - yMin, 400);
+    const cW = W - PAD * 2, cH = H - PAD * 2;
+    const scale = Math.min(cW / xRng, cH / yRng) * 0.85;
+    const dX = PAD + (cW - xRng * scale) / 2;
+    const dY = PAD + (cH - yRng * scale) / 2;
+    const toC = (wx, wy) => ({ cx: dX + (wx - xMin) * scale, cy: dY + (yRng - (wy - yMin)) * scale });
+
+    // Grille / Grid
+    ctx.strokeStyle = '#161616'; ctx.lineWidth = 1;
+    const GRID = 1000;
+    for (let gx = Math.ceil(xMin / GRID) * GRID; gx <= xMax; gx += GRID) {
+        const { cx } = toC(gx, yMin);
+        ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
+    }
+    for (let gy = Math.ceil(yMin / GRID) * GRID; gy <= yMax; gy += GRID) {
+        const { cy } = toC(xMin, gy);
+        ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
+    }
+
+    // Machines
+    const R = Math.max(4, Math.min(9, scale * 180));
+    machs.forEach(m => {
+        const { cx, cy } = toC(m.x, m.y);
+        const prod  = m.productivity ?? 0;
+        const color = !m.active ? '#2a2a2a'
+            : prod >= 80 ? '#99ff00' : prod >= 50 ? '#ffcc00' : '#ff4444';
+        // Halo radial pour machines actives / Radial glow for active machines
+        if (m.active) {
+            const g = ctx.createRadialGradient(cx, cy, R * .4, cx, cy, R * 2.8);
+            g.addColorStop(0, color + '28'); g.addColorStop(1, 'transparent');
+            ctx.beginPath(); ctx.arc(cx, cy, R * 2.8, 0, Math.PI * 2);
+            ctx.fillStyle = g; ctx.fill();
+        }
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+    });
+
+    cv._facMachs = machs;
+    cv._facToC   = toC;
+    cv._facR     = R;
+}
+
+function _facMapMouseMove(e) {
+    const cv      = e.currentTarget;
+    const tooltip = document.getElementById('fac-map-tooltip');
+    if (!tooltip || !cv._facMachs?.length || !cv._facToC) return;
+    const rect = cv.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (cv.width  / rect.width);
+    const my = (e.clientY - rect.top)  * (cv.height / rect.height);
+    const hit = (cv._facR || 8) * 3;
+    let best = null, bestD = Infinity;
+    for (const m of cv._facMachs) {
+        const { cx, cy } = cv._facToC(m.x, m.y);
+        const d = Math.hypot(mx - cx, my - cy);
+        if (d < bestD && d < hit) { bestD = d; best = m; }
+    }
+    if (!best) { tooltip.style.display = 'none'; return; }
+    const prod = best.productivity ?? 0;
+    const pc   = !best.active ? '#555' : prod >= 80 ? '#99ff00' : prod >= 50 ? '#ffcc00' : '#ff4444';
+    tooltip.innerHTML = `
+        <div class="fac-map-tooltip-nick">${esc(best.nick)}</div>
+        <div class="fac-map-tooltip-cls">${esc(_facShortClass(best.class))}</div>
+        ${best.recipe ? `<div style="color:#888;font-size:.88em;font-style:italic;margin-bottom:5px">${esc(best.recipe)}</div>` : ''}
+        <div class="fac-map-tooltip-row"><span class="fac-map-tooltip-lbl">Productivité</span><span class="fac-map-tooltip-val" style="color:${pc}">${prod.toFixed(0)}%</span></div>
+        <div class="fac-map-tooltip-row"><span class="fac-map-tooltip-lbl">Puissance</span><span class="fac-map-tooltip-val">${(best.power ?? 0).toFixed(1)} MW</span></div>`;
+    const wrap  = document.getElementById('fac-map-wrap');
+    const wRect = (wrap || cv).getBoundingClientRect();
+    let tx = e.clientX - wRect.left + 16, ty = e.clientY - wRect.top - 12;
+    if (tx + 175 > wRect.width) tx = e.clientX - wRect.left - 185;
+    tooltip.style.cssText = `display:block;left:${tx}px;top:${ty}px`;
+}
+function _facMapMouseLeave() {
+    const t = document.getElementById('fac-map-tooltip');
+    if (t) t.style.display = 'none';
+}
+
 // ── USINE — Mise à jour satellites factory ────────────────────
 function renderUsineUpdate(satVersions, satUpdateResults, latestVersion) {
     const el = document.getElementById('usine-update-content');
@@ -1693,6 +1867,7 @@ async function refresh() {
                 );
             }
             if (document.getElementById('page-usine-config').classList.contains('active')) _facRenderConfig();
+            if (document.getElementById('page-usine-map').classList.contains('active')) renderFactoryMap(data.factory);
         }
         const _fzcj = JSON.stringify(data.factory_zone_config || null);
         if (_fzcj !== _prevJson.factory_zone_config) {
