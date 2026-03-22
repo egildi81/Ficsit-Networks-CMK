@@ -1,4 +1,4 @@
-__version__ = "1.1.4"
+__version__ = "1.2.0"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -10,7 +10,7 @@ Config  : renseigner config.py (token, channel_id)
 """
 
 from flask import Flask, jsonify, send_from_directory, request
-import json, os, threading, time, logging, re, uuid as _uuid_mod
+import json, os, threading, time, logging, re
 from datetime import datetime, timezone
 
 import discord
@@ -52,24 +52,12 @@ _stockage_order = _load_order()
 
 # ── Zone config stockage (persistée dans stockage_zone_config.json) ────────
 _STOCKAGE_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage_zone_config.json")
-def _ensure_zone_ids(cfg):
-    """Ajoute des IDs stables aux zones/sous-zones sans ID (migration one-shot).
-    Add stable IDs to zones/subzones missing one (one-shot migration)."""
-    for z in cfg.get("zones", []):
-        if not z.get("id"):
-            z["id"] = "z_" + _uuid_mod.uuid4().hex[:8]
-        for sz in z.get("subzones", []):
-            if not sz.get("id"):
-                sz["id"] = "sz_" + _uuid_mod.uuid4().hex[:8]
-    return cfg
-
 def _load_zone_config():
     try:
         with open(_STOCKAGE_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
+            return json.load(f)
     except Exception:
         return {"zones": []}
-    return _ensure_zone_ids(cfg)
 def _save_zone_config(cfg):
     try:
         with open(_STOCKAGE_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -77,39 +65,6 @@ def _save_zone_config(cfg):
     except Exception:
         pass
 _stockage_zone_config = _load_zone_config()
-
-# ── Zone config factory (persistée dans factory_zone_config.json) ─────────
-_FACTORY_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "factory_zone_config.json")
-
-def _ensure_factory_zone_ids(cfg):
-    """Ajoute des IDs stables aux zones/sous-zones factory sans ID.
-    Add stable IDs to factory zones/subzones missing one."""
-    for z in cfg.get("zones", []):
-        if not z.get("id"):
-            z["id"] = "fz_" + _uuid_mod.uuid4().hex[:8]
-        for sz in z.get("subzones", []):
-            if not sz.get("id"):
-                sz["id"] = "fsz_" + _uuid_mod.uuid4().hex[:8]
-    return cfg
-
-def _load_factory_zone_config():
-    try:
-        with open(_FACTORY_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-    except Exception:
-        return {"zones": []}
-    return _ensure_factory_zone_ids(cfg)
-
-def _save_factory_zone_config(cfg):
-    try:
-        with open(_FACTORY_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
-
-_factory_zone_config = _load_factory_zone_config()
-_factory_central     = {}   # données FAC_CENTRAL agrégées
-_factory_discovery   = {}   # satellites FAC découverts : {nick: {satellite, addr, machines, server_ts}}
 
 # ── Dispatch routes (persistées dans dispatch_routes.json) ────
 _DISPATCH_ROUTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch_routes.json")
@@ -132,6 +87,26 @@ def _save_dispatch_routes(routes):
 _dispatch_routes      = _load_dispatch_routes()
 _dispatch_status      = {}    # état temps réel poussé par LOGGER (agrégé depuis DISPATCH port 69)
 _dispatch_pending_cmd = None  # commande web en attente d'être consommée par LOGGER
+
+# ── Factory monitoring (FACTORY_CENTRAL → /api/factory/push) ──
+_factory_data         = {}    # dernières données agrégées de FACTORY_CENTRAL
+_factory_pending_cmd  = None  # commande en attente pour FACTORY_CENTRAL
+
+# ── Factory zone config (persistée dans factory_zone_config.json) ─────────
+_FACTORY_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "factory_zone_config.json")
+def _load_factory_zone_config():
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"zones": []}
+def _save_factory_zone_config(cfg):
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+_factory_zone_config = _load_factory_zone_config()
 
 # ── Persistance logs FIN sur disque / FIN log persistence ────
 _LOG_DIR      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -196,8 +171,7 @@ def _advance_update_queue():
         return
     next_sat = _sat_update_queue.pop(0)
     old_ver  = _satellite_versions.get(next_sat["addr"], {}).get("version", "?")
-    _sat_update_current = {**next_sat, "old_version": old_ver, "started": time.time(),
-                           "reboot_only": next_sat.get("reboot_only", False)}
+    _sat_update_current = {**next_sat, "old_version": old_ver, "started": time.time()}
     _central_pending_cmd = {"cmd": "reboot_satellite", "addr": next_sat["addr"]}
     _sat_update_results[next_sat["addr"]] = {
         "nick": next_sat["nick"], "old_version": old_ver,
@@ -322,17 +296,13 @@ def stockage_central_push():
                 "server_ts": time.time(),
             }
             # Vérifier si ce satellite a terminé sa mise à jour / Check if satellite completed update
-            # reboot_only=True → accepter même version (simple redémarrage, pas de mise à jour)
-            # reboot_only=True → accept same version (simple reboot, not an update)
-            reboot_only = _sat_update_current and _sat_update_current.get("reboot_only", False)
-            version_changed = new_version != _sat_update_current.get("old_version") if _sat_update_current else False
             if (_sat_update_current and _sat_update_current["addr"] == addr
-                    and (version_changed or reboot_only)):
+                    and new_version != _sat_update_current.get("old_version")):
                 _sat_update_results[addr] = {
                     "nick":        _sat_update_current["nick"],
                     "old_version": _sat_update_current.get("old_version"),
                     "new_version": new_version,
-                    "status":      "rebooted" if reboot_only else "updated",
+                    "status":      "updated",
                     "ts":          time.time(),
                 }
                 _sat_update_current = None
@@ -357,7 +327,7 @@ def set_zone_config():
     body = request.get_json(silent=True)
     if not isinstance(body, dict) or "zones" not in body:
         return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
-    _stockage_zone_config = _ensure_zone_ids(body)
+    _stockage_zone_config = body
     _save_zone_config(_stockage_zone_config)
     return jsonify({"status": "ok"})
 
@@ -419,38 +389,18 @@ def central_command_lua():
 
 @app.route("/api/stockage/satellite/reboot", methods=["POST"])
 def satellite_reboot():
-    """Démarre la mise à jour ou le reboot d'un ou plusieurs satellites.
-    reboot_only=true → reboot sans attente de changement de version.
-    Start update or reboot of one or more satellites.
-    reboot_only=true → reboot without waiting for version change."""
+    """Démarre la mise à jour de un ou plusieurs satellites / Start update of one or more satellites."""
     global _sat_update_queue, _sat_update_current, _central_pending_cmd, _sat_update_results
     body = request.get_json(silent=True)
     if not body or not body.get("addrs"):
         return jsonify({"error": "addrs manquant"}), 400
-    addrs       = [a for a in body["addrs"] if a and isinstance(a, str)]
-    reboot_only = bool(body.get("reboot_only", False))
-    latest_ver  = _get_latest_satellite_version()
-
+    addrs = [a for a in body["addrs"] if a and isinstance(a, str)]  # filtre null/undefined / filter null/undefined
     if not addrs:
         return jsonify({"error": "Aucun addr valide"}), 400
-
-    # Si PAS reboot_only (= "Tout mettre à jour") → exclure ceux déjà à jour
-    # If NOT reboot_only (= "Update all") → skip satellites already at latest version
-    if not reboot_only and latest_ver:
-        addrs = [a for a in addrs
-                 if _satellite_versions.get(a, {}).get("version") != latest_ver]
-    if not addrs:
-        return jsonify({"status": "ok", "queued": 0, "skipped": "all_up_to_date"})
-
     entries = []
     for addr in addrs:
         info = _satellite_versions.get(addr, {})
-        entries.append({
-            "addr":        addr,
-            "nick":        info.get("nick", "?"),
-            "old_version": info.get("version", "?"),
-            "reboot_only": reboot_only,
-        })
+        entries.append({"addr": addr, "nick": info.get("nick", "?"), "old_version": info.get("version", "?")})
 
     if not _sat_update_current:
         # Nouveau run — vider les résultats précédents pour repartir propre
@@ -463,7 +413,7 @@ def satellite_reboot():
                 "new_version": None, "status": "en attente", "ts": time.time(),
             }
         first = entries[0]
-        _sat_update_current  = {**first, "started": time.time(), "reboot_only": first.get("reboot_only", False)}
+        _sat_update_current  = {**first, "started": time.time()}
         _central_pending_cmd = {"cmd": "reboot_satellite", "addr": first["addr"]}
         _sat_update_results[first["addr"]]["status"] = "rebooting"
         _sat_update_queue.extend(entries[1:])
@@ -544,41 +494,15 @@ def get_dispatch_command_lua():
     _dispatch_pending_cmd = None
     return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
 
-# ══════════════════════════════════════════════════════════════════════
-# FACTORY — endpoints FAC_CENTRAL + zone config
-# ══════════════════════════════════════════════════════════════════════
-
 @app.route("/api/factory/push", methods=["POST"])
-def factory_central_push():
-    """Reçoit les données agrégées de FAC_CENTRAL (machines)."""
-    global _factory_central
+def factory_push():
+    """Reçoit les données agrégées de FACTORY_CENTRAL (toutes les 15s)."""
+    global _factory_data
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     body["server_ts"] = time.time()
-    _factory_central = body
-    return jsonify({"status": "ok"})
-
-
-@app.route("/api/factory/discovery", methods=["POST"])
-def factory_discovery():
-    """Reçoit la liste des machines découvertes par un FAC_SATELLITE."""
-    global _factory_discovery
-    body = request.get_json(silent=True)
-    if not body:
-        return jsonify({"error": "Body JSON manquant"}), 400
-    addr = body.get("addr", "")
-    sat  = body.get("satellite") or addr or "?"
-    if addr:
-        for old_key in [k for k, v in _factory_discovery.items()
-                        if v.get("addr") == addr and k != sat]:
-            del _factory_discovery[old_key]
-    _factory_discovery[sat] = {
-        "satellite": sat,
-        "addr":      addr,
-        "machines":  body.get("machines", []),  # [{nick, uuid, class}]
-        "server_ts": time.time(),
-    }
+    _factory_data = body
     return jsonify({"status": "ok"})
 
 
@@ -587,29 +511,26 @@ def get_factory_zone_config():
     return jsonify(_factory_zone_config)
 
 
-@app.route("/api/factory/zone-config.lua", methods=["GET"])
-def get_factory_zone_config_lua():
-    """Retourne la zone config factory au format table Lua — pour FAC_CENTRAL."""
-    return _to_lua(_factory_zone_config), 200, {"Content-Type": "text/plain"}
-
-
 @app.route("/api/factory/zone-config", methods=["POST"])
 def set_factory_zone_config():
     global _factory_zone_config
     body = request.get_json(silent=True)
     if not isinstance(body, dict) or "zones" not in body:
         return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
-    _factory_zone_config = _ensure_factory_zone_ids(body)
+    _factory_zone_config = body
     _save_factory_zone_config(_factory_zone_config)
     return jsonify({"status": "ok"})
 
 
 @app.route("/api/factory/central/command.lua", methods=["GET", "POST"])
 def factory_central_command_lua():
-    """FAC_CENTRAL poll cette route pour récupérer la prochaine commande."""
-    # Pas de commandes en attente → nil (FAC_CENTRAL arrête le pcall proprement)
-    # No pending commands → nil (FAC_CENTRAL stops pcall cleanly)
-    return "nil", 200, {"Content-Type": "text/plain"}
+    """FACTORY_CENTRAL poll cette route pour récupérer la prochaine commande."""
+    global _factory_pending_cmd
+    if not _factory_pending_cmd:
+        return "nil", 200, {"Content-Type": "text/plain"}
+    cmd = _factory_pending_cmd
+    _factory_pending_cmd = None
+    return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
 
 
 @app.route("/api/fin/<path:script>", methods=["GET", "POST"])
@@ -638,16 +559,15 @@ def get_data():
         "stockage_discovery":   list(_stockage_discovery.values()),
         "stockage_zone_config": _stockage_zone_config,
         "satellite_versions":   _satellite_versions,
-        "factory_central":      _factory_central or None,
-        "factory_discovery":    list(_factory_discovery.values()),
-        "factory_zone_config":  _factory_zone_config,
         "sat_update_results":   {
             addr: r for addr, r in _sat_update_results.items()
-            # Masquer les badges transitoires après 5 minutes (updated, rebooted, timeout)
-            # Hide transient badges after 5 minutes (updated, rebooted, timeout)
-            if not (r.get("status") in ("updated", "rebooted", "timeout") and now - r.get("ts", 0) > 300)
+            # Masquer les résultats "updated" après 5 minutes (badge transitoire)
+            # Hide "updated" results after 5 minutes (transient badge)
+            if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
         },
         "sat_latest_version":   _get_latest_satellite_version(),
+        "factory":              _factory_data or None,
+        "factory_zone_config":  _factory_zone_config,
     })
 
 
@@ -1142,6 +1062,7 @@ async def discord_update_loop():
 # ════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    print(f"=== train_server.py v{__version__} ===")
     print("Serveur démarré — en attente de données LOGGER via POST /api/push ...")
     print("Historique : session en cours uniquement (pas de persistence fichier)")
 

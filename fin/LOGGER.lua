@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.9.0"
+local VERSION = "1.10.0"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -154,14 +154,16 @@ local function computeStats()
     local avgDur=durCnt>0 and math.floor(durSum/durCnt) or 0
     local avgInv=invN>0 and math.floor(invSum/invN) or 0
 
-    -- Score 3 axes :
-    -- mobilité opérationnelle (20%) : parmi les trains actifs (avec timetable), combien roulent
-    -- activation du parc (30%) : proportion du parc total réellement en service (pénalise les HOLD orphelins)
-    -- consistance des trajets (50%) : régularité des durées de transit par segment (CV par A→B)
-    -- 3-axis score:
-    -- operational mobility (20%): among active trains (with timetable), how many are moving
-    -- fleet activation (30%): proportion of total detected fleet in service (penalizes orphan HOLD)
-    -- trip consistency (50%): regularity of transit durations per segment (CV per A→B)
+    -- Score 4 axes :
+    -- mobilité opérationnelle (15%) : parmi les trains actifs (avec timetable), combien roulent
+    -- activation du parc (20%) : proportion du parc total réellement en service (pénalise les HOLD orphelins)
+    -- consistance des trajets (35%) : régularité des durées de transit par segment (CV par A→B)
+    -- utilité de la flotte (30%) : taux de trajets chargés + taux de livraison (A→B vs B→A)
+    -- 4-axis score:
+    -- operational mobility (15%): among active trains (with timetable), how many are moving
+    -- fleet activation (20%): proportion of total detected fleet in service (penalizes orphan HOLD)
+    -- trip consistency (35%): regularity of transit durations per segment (CV per A→B)
+    -- fleet utility (30%): loaded trip rate + delivery rate (A->B vs B->A comparison)
     local activeCnt=totalCnt  -- trains avec timetable / trains with timetable
     local totalPark=activeCnt+holdCnt  -- parc complet détecté / total detected fleet
     local mobility=activeCnt>0 and (movingCnt/activeCnt) or 0.5
@@ -187,7 +189,49 @@ local function computeStats()
         end
     end
     local consistency=consW>0 and (consSum/consW) or 1.0
-    local score=math.floor((mobility*0.20+parkActivation*0.30+consistency*0.50)*100)
+    -- Taux de chargement : trajets avec inventaire non vide / invN déjà calculé ci-dessus
+    -- Loaded rate: trips with non-empty inventory / invN already computed above
+    local loadedRate=cap>0 and (invN/cap) or 1.0
+    -- Taux de livraison : pour chaque train, compare inventaire moyen A→B vs B→A
+    -- Si B→A aussi chargé que A→B → destination ne consomme pas (pénalité)
+    -- Delivery rate: per train, compare avg inventory A->B vs B->A
+    -- If B->A as loaded as A->B → destination not consuming (penalty)
+    local delivSum,delivW=0,0
+    for _,segs in pairs(saved) do
+        local segAvg,segN={},{}
+        for seg,trips in pairs(segs) do
+            local n=#trips
+            if n>=2 then
+                local s=0
+                for _,tr in ipairs(trips) do
+                    if tr.inv then for _,cnt in pairs(tr.inv) do s=s+cnt end end
+                end
+                segAvg[seg]=s/n segN[seg]=n
+            end
+        end
+        local seen={}
+        for seg,avg in pairs(segAvg) do
+            if not seen[seg] then
+                local fr,to=seg:match("^(.+)->(.+)$")
+                if fr and to then
+                    local rev=to.."->"..fr
+                    local ra=segAvg[rev]
+                    if ra then
+                        local heavy=math.max(avg,ra) local light=math.min(avg,ra)
+                        if heavy>0 then
+                            local w=(segN[seg] or 0)+(segN[rev] or 0)
+                            delivSum=delivSum+(1-light/heavy)*w delivW=delivW+w
+                        end
+                        seen[seg]=true seen[rev]=true
+                    end
+                end
+            end
+        end
+    end
+    local delivRate=delivW>0 and (delivSum/delivW) or 1.0
+    -- Utilité : 60% chargement + 40% livraison / Utility: 60% loaded + 40% delivery
+    local utility=loadedRate*0.6+delivRate*0.4
+    local score=math.floor((mobility*0.15+parkActivation*0.20+consistency*0.35+utility*0.30)*100)
 
     -- Mise à jour historique scores (toutes les 60s)
     local now=computer.millis()

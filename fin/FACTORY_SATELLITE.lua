@@ -1,23 +1,40 @@
--- FACTORY_SATELLITE.lua : satellite de monitoring de machines usine
--- Découvre les machines Manufacturer locales, scanne leur état, envoie à FACTORY_CENTRAL.
--- Factory satellite: discovers local Manufacturer machines, scans their state, sends to FACTORY_CENTRAL.
+-- FACTORY_SATELLITE.lua : satellite de monitoring des machines de production
+-- Se connecte à FACTORY_CENTRAL, découvre les machines FIN locales, envoie les données de scan.
+-- Factory satellite: connects to FACTORY_CENTRAL, discovers local FIN machines, sends scan data.
 --
--- Prérequis : NetworkCard (+ InternetCard dans l'EEPROM uniquement pour le boot)
--- Requirements: NetworkCard (+ InternetCard in EEPROM only for boot)
+-- Prérequis : NetworkCard (+ InternetCard dans l'EEPROM pour le boot)
+-- Requirements: NetworkCard (+ InternetCard in EEPROM for boot)
 -- Port 43 : broadcast logs → GET_LOG
--- Port 61 : SHUTDOWN FACTORY (port dédié — évite cross-reboot avec STARTER port 50)
+-- Port 50 : SHUTDOWN
 -- Port 58 : données scan → FACTORY_CENTRAL (net:send ciblé) / scan data → FACTORY_CENTRAL (targeted)
--- Port 59 : FACTORY_SATELLITE ↔ FACTORY_CENTRAL (découverte + commandes) / discovery + commands
+-- Port 59 : FACTORY_SAT ↔ FACTORY_CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.0"
+local VERSION = "1.0.0"
 
 -- === CONFIGURATION ===
-local SCAN_INTERVAL = 30    -- secondes entre chaque scan normal / seconds between normal scans
-local DISC_TIMEOUT  = 15000 -- ms attente FACTORY_CENTRAL au boot / ms to wait for FACTORY_CENTRAL at boot
+-- Classes de machines à monitorer (vanilla uniquement — retirer si non utilisé)
+-- Machine classes to monitor (vanilla only — remove if not used)
+local MACHINE_CLASSES = {
+    -- Extracteurs / Extractors
+    "Build_MinerMk1_C", "Build_MinerMk2_C", "Build_MinerMk3_C",
+    "Build_OilPump_C", "Build_WaterPump_C",
+    "Build_FrackingExtractor_C",
+    -- Production standard / Standard production
+    "Build_SmelterMk1_C", "Build_FoundryMk1_C",
+    "Build_ConstructorMk1_C", "Build_AssemblerMk1_C",
+    "Build_ManufacturerMk1_C",
+    "Build_OilRefinery_C", "Build_Blender_C",
+    "Build_Packager_C", "Build_HadronCollider_C",
+    -- Mise à jour 8 / Update 8
+    "Build_QuantumEncoder_C", "Build_Converter_C",
+}
+
+local SCAN_INTERVAL = 10    -- secondes entre chaque scan / seconds between scans
+local DISC_TIMEOUT  = 15000 -- ms attente CENTRAL au boot / ms waiting for CENTRAL at boot
 
 -- === PORTS ===
 local PORT_LOG      = 43
-local PORT_SHUTDOWN = 61  -- port dédié FACTORY (évite cross-reboot STARTER port 50) / dedicated FACTORY shutdown port
+local PORT_SHUTDOWN = 50
 local PORT_FAC_DATA = 58
 local PORT_FAC_DISC = 59
 
@@ -32,7 +49,7 @@ net:open(PORT_FAC_DISC)
 
 -- Nick du computer = identifiant du satellite / Computer nick = satellite identifier
 local _inst = computer.getInstance()
-local NICK  = (_inst and _inst.nick ~= "" and _inst.nick) or "FACTORY"
+local NICK  = (_inst and _inst.nick ~= "" and _inst.nick) or "FAC_SAT"
 
 -- Print local AVANT override : confirme visuellement la version en jeu sur l'écran du computer
 -- Local print BEFORE override: visually confirms running version on the computer screen
@@ -43,210 +60,221 @@ print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
     pcall(function() net:broadcast(PORT_LOG,"FACTORY:"..NICK,table.concat(t," ")) end)
 end
-print("=== FACTORY_SATELLITE v"..VERSION.." BOOT — "..NICK.." ===")
+print("=== FACTORY SATELLITE v"..VERSION.." BOOT — "..NICK.." ===")
 
 -- === SÉRIALISATION / SERIALIZATION ===
 local function ser(v)
-    if type(v)=="table" then
-        -- table.concat évite les concaténations O(n²) / table.concat avoids O(n²) concatenations
+    local t = type(v)
+    if t == "table" then
         local parts = {}
         for k,vv in pairs(v) do
             table.insert(parts, (type(k)=="string" and ('["'..k..'"]') or "["..tostring(k).."]").."="..ser(vv))
         end
         return "{"..table.concat(parts,",").."}"
-    elseif type(v)=="number" then
-        return string.format("%.4g",v)
-    elseif type(v)=="boolean" then
-        return v and "true" or "false"
-    elseif v==nil then
-        return "nil"
-    else
-        return '"'..tostring(v)..'"'
-    end
+    elseif t == "number"  then return string.format("%.4g", v)
+    elseif t == "boolean" then return tostring(v)
+    else return '"'..tostring(v):gsub('\\','\\\\'):gsub('"','\\"')..'"' end
 end
 
--- === DÉCOUVERTE FACTORY_CENTRAL / FACTORY_CENTRAL DISCOVERY ===
+-- === DÉCOUVERTE CENTRAL / CENTRAL DISCOVERY ===
 local centralAddr = nil
 local function discoverCentral()
     print("Recherche FACTORY_CENTRAL...")
-    pcall(function() net:broadcast(PORT_FAC_DISC, "FAC_SAT_HERE", NICK) end)
+    pcall(function() net:broadcast(PORT_FAC_DISC, "FACTORY_SAT_HERE", NICK) end)
     local deadline = computer.millis() + DISC_TIMEOUT
     while computer.millis() < deadline do
         local e,_,sndr,prt,a1 = event.pull(1)
         if e=="NetworkMessage" and prt==PORT_FAC_DISC and a1=="FACTORY_CENTRAL_ADDR" then
             centralAddr = sndr
-            print("FACTORY_CENTRAL trouvé: "..sndr)
+            print("CENTRAL trouvé: "..sndr)
             return
         end
     end
-    print("WARN: FACTORY_CENTRAL introuvable — données envoyées dès qu'il apparaît")
+    print("WARN: FACTORY_CENTRAL introuvable — envoi dès qu'il apparaît")
 end
 discoverCentral()
 
 -- === DÉCOUVERTE DES MACHINES / MACHINE DISCOVERY ===
--- Utilise classes.Manufacturer — couvre smelters, constructors, assemblers, foundries, manufacturers, refineries, blenders…
--- Uses classes.Manufacturer — covers smelters, constructors, assemblers, foundries, manufacturers, refineries, blenders...
+-- Scanne le réseau FIN local pour toutes les machines accessibles.
+-- Scans the local FIN network to find all accessible machines.
 local function discoverMachines()
-    local found    = {}   -- liste de {id, nick, class} / list of {id, nick, class}
-    local seen     = {}   -- dédup par id / dedup by id
-    local machineIds = {}
+    local found  = {}
+    local report = {}  -- liste de nicks pour rapport CENTRAL / nick list for CENTRAL report
+    local seen   = {}
 
-    -- Chercher toutes les machines Manufacturer sur le réseau FIN local
-    -- Find all Manufacturer machines on the local FIN network
-    local ok, ids = pcall(function() return component.findComponent(classes.Manufacturer) end)
-    if ok and ids then
-        for _, id in ipairs(ids) do
-            machineIds[#machineIds+1] = id
-        end
-    end
-
-    for _, id in ipairs(machineIds) do
-        local sid = tostring(id)
-        if not seen[sid] then
-            local ok2, proxy = pcall(function() return component.proxy(id) end)
-            if ok2 and proxy then
-                seen[sid] = true
-                local nick = (proxy.nick and proxy.nick ~= "") and proxy.nick or ("ID:"..sid:sub(1,8))
-                -- Nom de la classe pour info / Class name for info
-                local ok3, className = pcall(function() return tostring(proxy.internalName or "") end)
-                className = ok3 and className or "?"
-                table.insert(found, {id=sid, nick=nick, class=className})
-                print("  Machine: "..nick.." ["..className.."]")
+    for _, className in ipairs(MACHINE_CLASSES) do
+        local ok, cls = pcall(function() return classes[className] end)
+        if ok and cls then
+            local ok2, ids = pcall(function() return component.findComponent(cls) end)
+            if ok2 and ids then
+                for _, id in ipairs(ids) do
+                    local sid = tostring(id)
+                    if not seen[sid] then
+                        local ok3, proxy = pcall(function() return component.proxy(id) end)
+                        if ok3 and proxy then
+                            seen[sid] = true
+                            -- Nick : proxy.nick si défini, sinon classe abrégée + ID court
+                            -- Nick: proxy.nick if set, otherwise abbreviated class + short ID
+                            local ok4, pn = pcall(function() return proxy.nick end)
+                            local nick = (ok4 and pn and pn ~= "") and pn
+                                or (className:match("Build_(.-)_C") or "MACHINE").."_"..sid:sub(1,6)
+                            table.insert(found,  {id=sid, nick=nick, class=className})
+                            table.insert(report, nick)
+                        end
+                    end
+                end
             end
         end
+        event.pull(0.01)  -- yield entre classes pour éviter timeout FIN / yield between classes to avoid FIN timeout
     end
-
     print("Discovery: "..#found.." machine(s) trouvée(s)")
-    return found
+    return found, report
 end
 
 print("Scan des machines...")
-local allMachines = discoverMachines()
+local allMachines, allNicks = discoverMachines()
 
--- Table {nick, uuid} pour identification sans collision de nicks
--- {nick, uuid} table for nick-collision-free identification
-local allMachineIds = {}
-for _, m in ipairs(allMachines) do
-    table.insert(allMachineIds, {nick=m.nick, uuid=m.id, class=m.class})
+if centralAddr then
+    pcall(function() net:send(centralAddr, PORT_FAC_DISC, "MACHINES_REPORT", ser(allNicks)) end)
 end
 
--- Rapport au FACTORY_CENTRAL ({nick, uuid, class}) / Report to FACTORY_CENTRAL ({nick, uuid, class})
-if centralAddr then
-    pcall(function() net:send(centralAddr, PORT_FAC_DISC, "MACHINES_REPORT", ser(allMachineIds)) end)
+-- === SCAN D'UN INVENTAIRE / INVENTORY SCAN ===
+local function scanInv(inv)
+    if not inv then return {}, 0, 0 end
+    local ok0, sz = pcall(function() return inv.size end)
+    if not ok0 or not sz or sz == 0 then return {}, 0, 0 end
+    local items = {}
+    local used  = 0
+    for i = 0, sz - 1 do
+        local ok, s = pcall(function() return inv:getStack(i) end)
+        if ok and s and s.count > 0 then
+            used = used + 1
+            local ok2, nm = pcall(function() return s.item.type.name end)
+            if ok2 and nm then items[nm] = (items[nm] or 0) + s.count end
+        end
+    end
+    -- Convertir en array / Convert to array
+    local arr = {}
+    for name, count in pairs(items) do table.insert(arr, {name=name, count=count}) end
+    local fill = math.floor(used / sz * 1000) / 10
+    return arr, fill, sz
 end
 
 -- === SCAN D'UNE MACHINE / MACHINE SCAN ===
-local function scanMachine(proxy)
-    -- Productivité (0.0 = 0%, 1.0 = 100%) / Productivity (0.0=0%, 1.0=100%)
-    local ok1, prod = pcall(function() return proxy.productivity end)
-    local productivity = (ok1 and prod) and (math.floor(prod * 1000) / 10) or 0  -- en % avec 1 décimale / as % with 1 decimal
+local function scanMachine(m)
+    local ok0, proxy = pcall(function() return component.proxy(m.id) end)
+    if not ok0 or not proxy then return nil end
 
-    -- Pause manuelle / Manual standby
-    local ok2, sb = pcall(function() return proxy.standby end)
-    local standby = ok2 and (sb == true) or false
+    -- État / State
+    local standby = true
+    pcall(function() standby = proxy.standby end)
 
-    -- Overclock / Clock speed
-    local ok3, pot = pcall(function() return proxy.potential end)
-    local potential = (ok3 and pot) and math.floor(pot * 100) or 100  -- en % / as %
+    local productivity = 0
+    pcall(function() productivity = math.floor((proxy.productivity or 0) * 1000) / 10 end)  -- → %
 
-    -- Recette courante / Current recipe
-    local recipe = nil
-    local ok4, r = pcall(function() return proxy:getRecipe() end)
-    if ok4 and r then
-        local ok5, rn = pcall(function() return r.name end)
-        if ok5 and rn then recipe = tostring(rn) end
-    end
+    local progress = 0
+    pcall(function() progress = math.floor((proxy.progress or 0) * 1000) / 10 end)  -- → %
 
-    -- Statut dérivé / Derived status
-    -- "producing" si prod > 1% et pas standby / "producing" if prod > 1% and not standby
-    -- "standby"   si pause manuelle / if manually paused
-    -- "idle"      sinon (pas de recette, attente matières) / otherwise (no recipe, waiting for input)
-    local status
-    if standby then
-        status = "standby"
-    elseif productivity > 1 then
-        status = "producing"
-    else
-        status = "idle"
-    end
+    local cycleTime = 0
+    pcall(function() cycleTime = math.floor((proxy.cycleTime or 0) * 10) / 10 end)  -- secondes / seconds
+
+    -- Puissance consommée pendant la production (MW) / Power consumed while producing (MW)
+    local power = 0
+    pcall(function() power = math.floor((proxy.powerConsumProducing or 0) * 10) / 10 end)
+
+    -- Overclock : potential FIN = 0-1 → converti en % / FIN potential = 0-1 → converted to %
+    local potential = 100.0
+    pcall(function() potential = math.floor((proxy.potential or 1) * 1000) / 10 end)
+
+    -- Recette et attendus / Recipe and expected items
+    local recipeName  = nil
+    local ingredients = {}
+    local products    = {}
+    pcall(function()
+        local r = proxy:getRecipe()
+        if r then
+            pcall(function() recipeName = r.name end)
+            pcall(function()
+                for _, ia in ipairs(r:getIngredients() or {}) do
+                    local nm, amt
+                    pcall(function() nm  = ia.type.name end)
+                    pcall(function() amt = ia.amount    end)
+                    if nm then table.insert(ingredients, {name=nm, amount=amt or 0}) end
+                end
+            end)
+            pcall(function()
+                for _, ia in ipairs(r:getProducts() or {}) do
+                    local nm, amt
+                    pcall(function() nm  = ia.type.name end)
+                    pcall(function() amt = ia.amount    end)
+                    if nm then table.insert(products, {name=nm, amount=amt or 0}) end
+                end
+            end)
+        end
+    end)
+
+    -- Inventaires entrée / sortie / Input / output inventories
+    local inputItems,  inputFill  = {}, 0
+    local outputItems, outputFill = {}, 0
+    pcall(function() inputItems,  inputFill  = scanInv(proxy:getInputInv())  end)
+    pcall(function() outputItems, outputFill = scanInv(proxy:getOutputInv()) end)
 
     return {
-        productivity = productivity,
-        standby      = standby,
-        potential    = potential,
-        recipe       = recipe,
-        status       = status,
+        nick         = m.nick,
+        class        = m.class,
+        active       = not standby,
+        productivity = productivity,   -- % efficacité / efficiency %
+        progress     = progress,       -- % cycle en cours / current cycle %
+        cycleTime    = cycleTime,      -- secondes / seconds
+        power        = power,          -- MW
+        potential    = potential,      -- % overclock
+        recipe       = recipeName,
+        ingredients  = ingredients,    -- attendu en entrée par cycle / expected input per cycle
+        products     = products,       -- attendu en sortie par cycle / expected output per cycle
+        inputItems   = inputItems,     -- inventaire entrée actuel / current input inventory
+        outputItems  = outputItems,    -- inventaire sortie actuel / current output inventory
+        inputFill    = inputFill,      -- % slots occupés entrée / input fill %
+        outputFill   = outputFill,     -- % slots occupés sortie / output fill %
     }
 end
 
 -- === SCAN COMPLET / FULL SCAN ===
 local function scanAll()
-    local machineData  = {}  -- détail par machine / per-machine detail
-    local totalMachines   = #allMachines
-    local producing    = 0
-    local idle         = 0
-    local standbyCount = 0
-    local sumProd      = 0   -- somme productivité pour moyenne / sum for average
-
-    for _, m in ipairs(allMachines) do
-        event.pull(0.01)  -- yield pour éviter watchdog / yield to avoid watchdog
-        local ok, proxy = pcall(function() return component.proxy(m.id) end)
-        if ok and proxy then
-            local s = scanMachine(proxy)
-            sumProd = sumProd + s.productivity
-            if s.status == "producing" then
-                producing    = producing    + 1
-            elseif s.status == "standby" then
-                standbyCount = standbyCount + 1
-            else
-                idle         = idle         + 1
+    local machines  = {}
+    local activeCnt = 0
+    local totalPow  = 0
+    for i, m in ipairs(allMachines) do
+        if i > 1 and i % 5 == 1 then event.pull(0.01) end  -- yield tous les 5 / yield every 5
+        local data = scanMachine(m)
+        if data then
+            table.insert(machines, data)
+            if data.active then
+                activeCnt = activeCnt + 1
+                totalPow  = totalPow + (data.power or 0)
             end
-            table.insert(machineData, {
-                uuid         = m.id,     -- UUID FIN interne / internal FIN UUID
-                nick         = m.nick,
-                class        = m.class,
-                productivity = s.productivity,
-                standby      = s.standby,
-                potential    = s.potential,
-                recipe       = s.recipe,
-                status       = s.status,
-            })
-        else
-            print("WARN: machine inaccessible: "..m.nick)
         end
     end
-
-    local avgProd = totalMachines > 0 and math.floor(sumProd / totalMachines * 10) / 10 or 0
-
     return {
-        nick    = NICK,
-        version = VERSION,
-        ts      = computer.millis() / 1000,
-        summary = {
-            total    = totalMachines,
-            producing    = producing,
-            idle         = idle,
-            standby      = standbyCount,
-            avgProd  = avgProd,
-        },
-        machines = machineData,  -- détail par machine pour le web / per-machine detail for web
+        nick       = NICK,
+        version    = VERSION,
+        ts         = computer.millis() / 1000,
+        activeCnt  = activeCnt,
+        totalCnt   = #allMachines,
+        totalPower = math.floor(totalPow * 10) / 10,
+        machines   = machines,
     }
 end
 
 -- === BOUCLE PRINCIPALE / MAIN LOOP ===
-print(string.format("FAC Satellite prêt — %d machine(s) | Scan: %ds", #allMachines, SCAN_INTERVAL))
+print(string.format("Satellite prêt — %d machine(s) | Scan: %ds", #allMachines, SCAN_INTERVAL))
 
 while true do
     local data = scanAll()
-
     if centralAddr then
         pcall(function() net:send(centralAddr, PORT_FAC_DATA, ser(data)) end)
     end
-
-    -- Log périodique / Periodic log
-    local s = data.summary
-    print(string.format("%s : %.1f%% avg | %d prod / %d idle / %d standby (%d total)",
-        NICK, s.avgProd, s.producing, s.idle, s.standby, s.total))
+    print(string.format("%s : %d/%d actives | %.1f MW",
+        NICK, data.activeCnt, data.totalCnt, data.totalPower))
 
     -- Attente événements / Wait for events
     local deadline = computer.millis() + SCAN_INTERVAL * 1000
@@ -254,25 +282,18 @@ while true do
         local remaining = (deadline - computer.millis()) / 1000
         if remaining <= 0 then break end
         local e,_,sndr,prt,a1,a2 = event.pull(remaining)
-
         if e == "NetworkMessage" then
             if prt == PORT_SHUTDOWN then
                 print("SHUTDOWN → arrêt")
                 computer.stop()
-
             elseif prt == PORT_FAC_DISC then
                 if a1 == "FACTORY_CENTRAL_ADDR" then
-                    -- FACTORY_CENTRAL (re)démarré / FACTORY_CENTRAL (re)started
                     centralAddr = sndr
-                    print("FACTORY_CENTRAL (re)détecté: "..sndr)
-                    pcall(function() net:send(centralAddr, PORT_FAC_DISC, "MACHINES_REPORT", ser(allMachineIds)) end)
-
+                    print("CENTRAL (re)détecté: "..sndr)
+                    pcall(function() net:send(centralAddr, PORT_FAC_DISC, "MACHINES_REPORT", ser(allNicks)) end)
                 elseif a1 == "IDENTIFY" then
-                    -- FACTORY_CENTRAL nous a perdus, on se réenregistre / FACTORY_CENTRAL lost us, re-register
-                    pcall(function() net:send(sndr, PORT_FAC_DISC, "FAC_SAT_HERE", NICK) end)
-
+                    pcall(function() net:send(sndr, PORT_FAC_DISC, "FACTORY_SAT_HERE", NICK) end)
                 elseif a1 == "REBOOT" then
-                    -- WEB demande une mise à jour / WEB requests update
                     print("Reboot demandé depuis WEB → redémarrage...")
                     computer.reset()
                 end
