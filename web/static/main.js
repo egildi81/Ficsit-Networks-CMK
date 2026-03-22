@@ -1,4 +1,4 @@
-const VERSION = "1.7.23";
+const VERSION = "1.7.24";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2324,7 +2324,8 @@ function renderFactory(fac) {
         const inTotal    = machines.reduce((s, m) => s + (m.inputItems  || []).reduce((a, i) => a + (i.count || 0), 0), 0);
         const outTotal   = machines.reduce((s, m) => s + (m.outputItems || []).reduce((a, i) => a + (i.count || 0), 0), 0);
 
-        // Somme des ingrédients consommés (quantité × nb machines) / Sum of ingredients consumed (qty × machine count)
+        // Somme des ingrédients consommés en /min (amount / cycleTime * 60) / Consumed ingredients in /min
+        const cycleTime = (machines.find(m => m.cycleTime > 0) || {}).cycleTime || 0;
         const ingMap = {};
         machines.forEach(m => {
             (m.ingredients || []).forEach(ing => {
@@ -2332,7 +2333,10 @@ function renderFactory(fac) {
             });
         });
         const ingHtml = Object.entries(ingMap)
-            .map(([n, a]) => `<span class="fac-ing">${esc(n.replace(/^Desc_|_C$/g, ''))}: ${a}</span>`)
+            .map(([n, a]) => {
+                const perMin = cycleTime > 0 ? (a / cycleTime * 60).toFixed(1) : a;
+                return `<span class="fac-ing">${esc(n.replace(/^Desc_|_C$/g, ''))}: ${perMin}/min</span>`;
+            })
             .join('');
 
         return `<div class="fac-recipe-group">
