@@ -18,7 +18,7 @@ const LOG_TAG_COLORS = {
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
     STARTER:    '#cc2222',
-    FAC_CENTRAL:'#cc44cc',
+    FACTORY_CENTRAL:'#ff33e6',
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';

@@ -3,7 +3,7 @@
 -- Port 50 : SHUTDOWN (STARTER) | Port 52 : SCREEN_ON (STARTER)
 -- Composants requis : GPU T2, écran "MAP_SCREEN", NetworkCard, panel "GETLOG_PANEL" (1 bouton)
 
-local VERSION = "1.2.8"
+local VERSION = "1.2.9"
 -- Throttle dessin : évite le flood GPU quand de nombreux messages arrivent en rafale
 -- Draw throttle: avoids GPU flood when many messages arrive in rapid succession
 local DRAW_INTERVAL = 200  -- ms minimum entre deux draw() / ms minimum between draws
@@ -73,22 +73,25 @@ local CY = {r=0,   g=0.9, b=1,   a=1}  -- cyan
 local PU = {r=0.8, g=0.4, b=1,   a=1}  -- violet / purple
 local MI = {r=0.2, g=1,   b=0.7, a=1}  -- menthe / mint
 local PK = {r=1,   g=0.4, b=0.8, a=1}  -- rose   / pink
-local AM = {r=1,   g=0.78, b=0,   a=1}  -- ambre  / amber   (CENTRAL)
-local TG = {r=1,   g=0.58, b=0.1, a=1}  -- tangerine        (satellites SAT:*)
+local AM = {r=1,   g=0.78, b=0,   a=1}  -- ambre  / amber     (CENTRAL)
+local TG = {r=1,   g=0.58, b=0.1, a=1}  -- tangerine          (satellites SAT:*)
+local FC = {r=1,   g=0.2,  b=0.9, a=1}  -- fuchsia            (FACTORY_CENTRAL)
+local PV = {r=0.6, g=0.7,  b=1,   a=1}  -- pervenche          (satellites FACTORY:*)
 
 -- Couleur par script source (fond noir — ne pas mettre de couleurs sombres)
 -- Color per source script (black background — no dark colors)
 local COLORS = {
-    LOGGER      = GR,  -- vert
-    DETAIL      = BL,  -- bleu
-    TRAIN_TAB   = YE,  -- jaune
-    DISPATCH    = CY,  -- cyan
-    STOCKAGE    = PU,  -- violet
-    TRAIN_STATS = OR,  -- orange
-    TRAIN_MAP   = MI,  -- menthe
-    POWER_MON   = PK,  -- rose
-    STARTER     = RE,  -- rouge
-    CENTRAL     = AM,  -- ambre
+    LOGGER          = GR,  -- vert
+    DETAIL          = BL,  -- bleu
+    TRAIN_TAB       = YE,  -- jaune
+    DISPATCH        = CY,  -- cyan
+    STOCKAGE        = PU,  -- violet
+    TRAIN_STATS     = OR,  -- orange
+    TRAIN_MAP       = MI,  -- menthe
+    POWER_MON       = PK,  -- rose
+    STARTER         = RE,  -- rouge
+    CENTRAL         = AM,  -- ambre
+    FACTORY_CENTRAL = FC,  -- fuchsia
 }
 
 local FONT     = 22
@@ -126,8 +129,9 @@ local function draw()
     -- Lignes de log
     local y = HEADER_H + 6
     for _, l in ipairs(lines) do
-        -- SAT:* = satellites (préfixe dynamique) / SAT:* = satellites (dynamic prefix)
-        local col = COLORS[l.src] or (l.src:sub(1,4)=="SAT:" and TG or WH)
+        -- SAT:* = satellites STOCKAGE, FACTORY:* = satellites FACTORY (préfixes dynamiques)
+        -- SAT:* = STOCKAGE satellites, FACTORY:* = FACTORY satellites (dynamic prefixes)
+        local col = COLORS[l.src] or (l.src:sub(1,4)=="SAT:" and TG or (l.src:sub(1,8)=="FACTORY:" and PV or WH))
         gpu:drawText({x=20,  y=y}, l.ts,              FONT, YE,  false)
         gpu:drawText({x=200, y=y}, "["..l.src.."]",   FONT, col, false)
         gpu:drawText({x=500, y=y}, l.msg,             FONT, WH,  false)
