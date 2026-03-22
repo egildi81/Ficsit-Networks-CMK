@@ -1,10 +1,10 @@
-const VERSION = "1.7.25";
+const VERSION = "1.7.26";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
 const _dispatchPages = ['page-dispatch-live2', 'page-dispatch-config'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs', 'page-usine-info', 'page-usine-config'];
-const _usinePages    = ['page-usine-info', 'page-usine-config'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs', 'page-usine-info', 'page-usine-config', 'page-usine-update'];
+const _usinePages    = ['page-usine-info', 'page-usine-config', 'page-usine-update'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -96,7 +96,8 @@ function switchUsineTab(name, btn) {
     _lastUsinePage = 'page-usine-' + name;
     document.getElementById(_lastUsinePage).classList.add('active');
     btn.classList.add('active');
-    if (name === 'config') _facRenderConfig();
+    if (name === 'config')  _facRenderConfig();
+    if (name === 'update')  { _prevJson.factory_sat_update = null; }
 }
 
 // ── Navigation onglets (sous TRAINS) ─────────────────────────
@@ -1223,11 +1224,17 @@ function _saveStockageZoneConfig() {
         .catch(() => { const st = document.getElementById('stk-cfg-status'); if (st) st.textContent = 'Erreur réseau'; });
 }
 
-// ── Satellite update (MISE À JOUR tab) ───────────────────────
+// ── Satellite update STOCKAGE (MISE À JOUR tab) ──────────────
 let _satVersionsCache      = {};
 let _satUpdateResultsCache = {};
 let _satLatestVersion      = null;
 let _satShowOutdatedOnly   = false;  // filtre "obsolètes seulement" / "outdated only" filter
+
+// ── Satellite update USINE (MISE À JOUR tab) ─────────────────
+let _facSatVersionsCache      = {};
+let _facSatUpdateResultsCache = {};
+let _facSatLatestVersion      = null;
+let _facSatShowOutdatedOnly   = false;
 
 function renderStockageUpdate(satVersions, satUpdateResults, latestVersion) {
     const el = document.getElementById('stockage-update-content');
@@ -1319,6 +1326,99 @@ function _satRebootAll() {
 function _satToggleOutdatedFilter() {
     _satShowOutdatedOnly = !_satShowOutdatedOnly;
     _prevJson.sat_update = null;  // force re-render
+}
+
+// ── USINE — Mise à jour satellites factory ────────────────────
+function renderUsineUpdate(satVersions, satUpdateResults, latestVersion) {
+    const el = document.getElementById('usine-update-content');
+    if (!el) return;
+    _facSatVersionsCache      = satVersions      || {};
+    _facSatUpdateResultsCache = satUpdateResults  || {};
+    _facSatLatestVersion      = latestVersion     || null;
+
+    const satListFull = Object.values(_facSatVersionsCache);
+    const satList = _facSatShowOutdatedOnly
+        ? satListFull.filter(s => !latestVersion || s.version !== latestVersion)
+        : satListFull;
+    if (!satListFull.length) {
+        el.innerHTML = '<div class="stock-empty" style="padding:32px">Aucun satellite FACTORY connu — en attente de données...</div>';
+        return;
+    }
+
+    const outdated = satListFull.filter(s => latestVersion && s.version !== latestVersion);
+
+    const cards = satList.map(sat => {
+        const result     = _facSatUpdateResultsCache[sat.addr] || null;
+        const isUpToDate = latestVersion && sat.version === latestVersion;
+        const status     = result ? result.status : null;
+
+        let badge = '';
+        if (status === 'updated') {
+            badge = `<span class="stk-upd-badge stk-upd-ok">✓ Mis à jour → v${esc(result.new_version)}</span>`;
+        } else if (status === 'rebooting') {
+            badge = `<span class="stk-upd-badge stk-upd-pending">↻ Redémarrage...</span>`;
+        } else if (status === 'en attente') {
+            badge = `<span class="stk-upd-badge stk-upd-pending">⏳ En attente...</span>`;
+        } else if (status === 'timeout') {
+            badge = `<span class="stk-upd-badge stk-upd-timeout">⚠ Timeout</span>`;
+        } else if (isUpToDate) {
+            badge = `<span class="stk-upd-badge stk-upd-ok">✓ À jour</span>`;
+        } else if (latestVersion) {
+            badge = `<span class="stk-upd-badge stk-upd-old">↑ Obsolète</span>`;
+        }
+
+        const busy        = status === 'rebooting' || status === 'en attente';
+        const btnDisabled = isUpToDate || busy;
+        const btnHtml = `<button class="stk-upd-btn" ${btnDisabled ? 'disabled' : `onclick="_facSatReboot('${esc(sat.addr)}')"`}>Mettre à jour</button>`;
+
+        return `<div class="stk-upd-card">
+            <div class="stk-upd-card-header">
+                <span class="stk-upd-nick">${esc(sat.nick)}</span>
+                ${badge}
+            </div>
+            <div class="stk-upd-versions">
+                <span class="stk-upd-ver-cur">v${esc(sat.version)}</span>
+                <span class="stk-upd-ver-arrow">→</span>
+                <span class="stk-upd-ver-latest${isUpToDate ? ' stk-upd-ver-same' : ' stk-upd-ver-new'}">v${esc(latestVersion || '?')}</span>
+            </div>
+            ${btnHtml}
+        </div>`;
+    }).join('');
+
+    el.innerHTML = `
+        <div class="stk-upd-header">
+            <div class="stk-upd-title-row">
+                <span class="stk-upd-latest-label">Dernière version :</span>
+                <span class="stk-upd-latest-ver">v${esc(latestVersion || '?')}</span>
+                <span class="stk-upd-sat-count">${satList.length} satellite${satList.length > 1 ? 's' : ''}</span>
+            </div>
+            <div class="stk-upd-actions">
+                <button class="stock-purge-btn" onclick="_facSatRebootAll()">Tout mettre à jour</button>
+                ${outdated.length > 0
+                    ? `<button class="stock-purge-btn${_facSatShowOutdatedOnly ? ' stk-upd-filter-active' : ''}" onclick="_facSatToggleOutdatedFilter()">Obsolètes (${outdated.length})</button>`
+                    : ''}
+            </div>
+        </div>
+        <div class="stk-upd-grid">${cards}</div>`;
+}
+
+function _facSatReboot(addr) {
+    fetch('/api/factory/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs: [addr] })
+    }).then(() => { _prevJson.factory_sat_update = null; }).catch(e => console.error('fac reboot', e));
+}
+function _facSatRebootAll() {
+    const addrs = Object.keys(_facSatVersionsCache);
+    if (!addrs.length) return;
+    fetch('/api/factory/satellite/reboot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addrs })
+    }).then(() => { _prevJson.factory_sat_update = null; }).catch(e => console.error('fac reboot all', e));
+}
+function _facSatToggleOutdatedFilter() {
+    _facSatShowOutdatedOnly = !_facSatShowOutdatedOnly;
+    _prevJson.factory_sat_update = null;
 }
 
 // ── Power ─────────────────────────────────────────────────────
@@ -1482,7 +1582,7 @@ function _drawPowerChart() {
 
 // ── Diff par section — évite les renders inutiles si les données n'ont pas changé
 // ── Per-section diff — skips renders when data is unchanged
-const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null, factory: null, factory_zone_config: null };
+const _prevJson = { trains: null, trips: null, stats: null, stockage_info: null, stockage_discovery: null, power: null, dispatch: null, sat_update: null, factory: null, factory_zone_config: null, factory_sat_update: null };
 let _factoryZoneConfig   = { zones: [] };  // config zones usine persistée / persisted factory zone config
 let _lastFactoryData     = null;           // dernier snapshot factory reçu / last factory snapshot received
 let _facCompact          = true;           // true=vue agrégée recettes / false=vue machines individuelles
@@ -1571,6 +1671,11 @@ async function refresh() {
         if (_uj !== _prevJson.sat_update) {
             _prevJson.sat_update = _uj;
             rTimes.sat_update = _t('sat-upd', () => renderStockageUpdate(data.satellite_versions || {}, data.sat_update_results || {}, data.sat_latest_version || null));
+        }
+        const _fuj = JSON.stringify({ v: data.factory_satellite_versions || {}, r: data.factory_sat_update_results || {} });
+        if (_fuj !== _prevJson.factory_sat_update) {
+            _prevJson.factory_sat_update = _fuj;
+            rTimes.fac_sat_upd = _t('fac-sat-upd', () => renderUsineUpdate(data.factory_satellite_versions || {}, data.factory_sat_update_results || {}, data.factory_sat_latest_version || null));
         }
         _dpUpdateLists(data);
         if (_dj !== _prevJson.dispatch) { _prevJson.dispatch = _dj;  rTimes.dispatch = _t('dispatch', () => renderDispatch(data.dispatch || null, data.dispatch_routes ?? null)); }
