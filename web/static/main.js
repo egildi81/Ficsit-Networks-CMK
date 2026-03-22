@@ -847,8 +847,9 @@ function _stkApplyPoolFilter(v) {
     if (!drop) return;
     const term = v.toLowerCase();
     drop.querySelectorAll('.stk-cont-card').forEach(card => {
-        const nick = (card.querySelector('.stk-cont-nick') || card).textContent.toLowerCase();
-        card.style.display = !term || nick.includes(term) ? '' : 'none';
+        // Cherche dans nick ET satellite / Search in nick AND satellite
+        const text = card.textContent.toLowerCase();
+        card.style.display = !term || text.includes(term) ? '' : 'none';
     });
 }
 
@@ -1342,8 +1343,9 @@ function _facApplyPoolFilter(v) {
     if (!drop) return;
     const term = v.toLowerCase();
     drop.querySelectorAll('.fac-mach-card').forEach(card => {
-        const nick = (card.querySelector('.fac-mach-nick') || card).textContent.toLowerCase();
-        card.style.display = !term || nick.includes(term) ? '' : 'none';
+        // Cherche dans nick ET satellite / Search in nick AND satellite
+        const text = card.textContent.toLowerCase();
+        card.style.display = !term || text.includes(term) ? '' : 'none';
     });
 }
 
@@ -1730,10 +1732,11 @@ async function refresh() {
         }
         const stkCfgActive = document.getElementById('page-stockage-config').classList.contains('active');
         if (_zdj !== _prevJson.stockage_discovery) {
+            const stkFirstLoad = _prevJson.stockage_discovery === null;
             _prevJson.stockage_discovery = _zdj;
-            // Ne pas réinitialiser les zones si la page config est ouverte (écraserait les éditions en cours)
-            // Do not reinit zones if config page is open (would overwrite in-progress edits)
-            if (!stkCfgActive) _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageCentralCache, _stockageZoneConfig));
+            // Bloquer re-init si la page est ouverte SAUF au premier chargement (zones pas encore initialisées)
+            // Block re-init if page is open EXCEPT on first load (zones not yet initialized)
+            if (!stkCfgActive || stkFirstLoad) _t('stk-cfg', () => renderStockageConfig(data.stockage_discovery || [], _stockageCentralCache, _stockageZoneConfig));
         }
         // Factory USINE / USINE factory
         const _fij = JSON.stringify({ c: data.factory_central || null, z: data.factory_zone_config || {} });
@@ -1744,9 +1747,10 @@ async function refresh() {
         }
         const facCfgActive = document.getElementById('page-usine-config').classList.contains('active');
         if (_fdj !== _prevJson.factory_discovery) {
+            const facFirstLoad = _prevJson.factory_discovery === null;
             _prevJson.factory_discovery = _fdj;
-            // Ne pas réinitialiser si la page config est ouverte / Do not reinit while config page is open
-            if (!facCfgActive) _t('fac-cfg', () => renderUsineConfig(data.factory_discovery || [], data.factory_central || null, data.factory_zone_config || null));
+            // Bloquer re-init si la page est ouverte SAUF au premier chargement / Block re-init except on first load
+            if (!facCfgActive || facFirstLoad) _t('fac-cfg', () => renderUsineConfig(data.factory_discovery || [], data.factory_central || null, data.factory_zone_config || null));
         }
         if (_pj !== _prevJson.power)    { _prevJson.power    = _pj;  rTimes.power    = _t('power',    () => renderPower(data.power || null, data.logger_updated_at)); }
         const _uj = JSON.stringify({ v: data.satellite_versions || {}, r: data.sat_update_results || {} });
