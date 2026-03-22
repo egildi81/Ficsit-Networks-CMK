@@ -1,4 +1,4 @@
-const VERSION = "1.7.22";
+const VERSION = "1.7.23";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -796,6 +796,7 @@ let _facIdCnt      = 0;
 let _facCollapsed  = new Set();
 let _facPoolFilter = '';
 let _facZonesSrch  = '';
+let _facByNick     = {};     // lookup live par nick, mis à jour à chaque render / live nick lookup, updated each render
 
 function _facAssigned() {
     const s = new Set();
@@ -2167,6 +2168,31 @@ async function refreshLogs() {
 let _facDetailGroups = [];  // groupes stockés pour le modal / groups stored for modal
 function _facShortClass(cls) { return (cls || '').replace(/^Build_/, '').replace(/Mk\d+_C$/, '').replace(/_C$/, ''); }
 
+// Rendu carte machine dans le modal (utilise _facByNick) / Machine card in modal (uses _facByNick)
+function _facModalMachineHtml(m) {
+    if (!m) return '';
+    const prod      = m.productivity ?? 0;
+    const prodColor = prod >= 80 ? '#99ff00' : prod >= 50 ? '#ffcc00' : '#ff4444';
+    const dimClass  = !m.active ? 'fac-machine-dim' : '';
+    const inTotal   = (m.inputItems  || []).reduce((s, i) => s + (i.count || 0), 0);
+    const outTotal  = (m.outputItems || []).reduce((s, i) => s + (i.count || 0), 0);
+    return `<div class="fac-machine ${dimClass}" style="margin-bottom:5px">
+        <div class="fac-machine-top">
+            <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(_facShortClass(m.class))}</span>
+            <span class="fac-machine-class">(${esc(m.nick)})</span>
+            <span style="color:${prodColor};font-size:0.75em;font-weight:700;margin-left:auto">${prod.toFixed(0)}%</span>
+        </div>
+        <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
+        <div class="fac-machine-bottom">
+            <span title="Inventaire entrée"><img src="/static/img/IN.png" class="fac-icon"> ${inTotal}</span>
+            <span title="Inventaire sortie"><img src="/static/img/OUT.png" class="fac-icon"> ${outTotal}</span>
+            <span title="Puissance"><img src="/static/img/POWER.png" class="fac-icon"> ${(m.power ?? 0).toFixed(1)} MW</span>
+            ${m.cycleTime ? `<span title="Durée cycle">⏱ ${m.cycleTime.toFixed(1)}s</span>` : ''}
+            ${m.potential != null && m.potential !== 100 ? `<span title="Overclock" style="color:#ffaa00">${m.potential.toFixed(0)}%⚡</span>` : ''}
+        </div>
+    </div>`;
+}
+
 function openFacDetail(idx) {
     const g = _facDetailGroups[idx];
     if (!g) return;
@@ -2174,32 +2200,27 @@ function openFacDetail(idx) {
     const title = document.getElementById('fac-detail-title');
     const body  = document.getElementById('fac-detail-body');
     if (!modal) return;
-    title.textContent = g.recipe || 'Sans recette';
+    title.textContent = g.name || 'Zone';
 
-    body.innerHTML = g.machines.map(m => {
-        if (!m) return '';
-        const prod      = m.productivity ?? 0;
-        const prodColor = prod >= 80 ? '#99ff00' : prod >= 50 ? '#ffcc00' : '#ff4444';
-        const dimClass  = !m.active ? 'fac-machine-dim' : '';
-        const inTotal   = (m.inputItems  || []).reduce((s, i) => s + (i.count || 0), 0);
-        const outTotal  = (m.outputItems || []).reduce((s, i) => s + (i.count || 0), 0);
-        return `<div class="fac-machine ${dimClass}" style="margin-bottom:5px">
-            <div class="fac-machine-top">
-                <span class="fac-machine-nick" title="${esc(m.nick)}">${esc(m.nick)}</span>
-                <span class="fac-machine-class">${esc(_facShortClass(m.class))}</span>
-                <span style="color:${prodColor};font-size:0.75em;font-weight:700;margin-left:auto">${prod.toFixed(0)}%</span>
-            </div>
-            <div class="fac-prod-bar-bg"><div class="fac-prod-bar" style="width:${Math.min(prod,100)}%;background:${prodColor}"></div></div>
-            <div class="fac-machine-bottom">
-                <span title="Inventaire entrée"><img src="/static/img/IN.png" class="fac-icon"> ${inTotal}</span>
-                <span title="Inventaire sortie"><img src="/static/img/OUT.png" class="fac-icon"> ${outTotal}</span>
-                <span title="Puissance"><img src="/static/img/POWER.png" class="fac-icon"> ${(m.power ?? 0).toFixed(1)} MW</span>
-                ${m.cycleTime ? `<span title="Durée cycle">⏱ ${m.cycleTime.toFixed(1)}s</span>` : ''}
-                ${m.potential != null && m.potential !== 100 ? `<span title="Overclock" style="color:#ffaa00">${m.potential.toFixed(0)}%⚡</span>` : ''}
-            </div>
-        </div>`;
-    }).join('');
+    // Rendu d'un groupe de nicks avec header optionnel / Render a nick group with optional header
+    function sectionBlock(headerName, nicks) {
+        if (!nicks || !nicks.length) return '';
+        const header = headerName
+            ? `<div class="fac-detail-section-title">${esc(headerName)}</div>`
+            : '';
+        const cards = nicks.map(n => _facModalMachineHtml(_facByNick[n])).join('');
+        return header + `<div class="fac-machine-list">${cards}</div>`;
+    }
 
+    let html = '';
+    // Machines directes de la zone / Direct zone machines
+    html += sectionBlock(g.mainLabel || null, g.directNicks || []);
+    // Sous-zones / Subzones
+    for (const sz of (g.subzones || [])) {
+        html += sectionBlock(sz.name, sz.machines || []);
+    }
+
+    body.innerHTML = html || '<div style="color:#666;font-size:0.85em">Aucune machine</div>';
     modal.classList.add('open');
 }
 
@@ -2281,6 +2302,7 @@ function renderFactory(fac) {
         if (!Array.isArray(m.outputItems)) m.outputItems = [];
         byNick[m.nick] = m;
     }
+    _facByNick = byNick;  // exposer pour le modal / expose for modal
 
     // Groupe les machines par recette — OFF séparé / Group machines by recipe — OFF separate
     function groupByRecipe(nicks) {
@@ -2431,7 +2453,7 @@ function renderFactory(fac) {
         grid.innerHTML = cfgZones.map(zone => {
             const allNicks = [...(zone.machines || []), ...((zone.subzones || []).flatMap(sz => sz.machines || []))];
             const zoneIdx  = _facDetailGroups.length;
-            _facDetailGroups.push({ recipe: zone.name, machines: allNicks.map(n => byNick[n]).filter(Boolean) });
+            _facDetailGroups.push({ name: zone.name, directNicks, mainLabel, subzones: hasSubs ? zone.subzones : [] });
 
             const directNicks = zone.machines || [];
             const hasSubs     = zone.subzones && zone.subzones.length;
@@ -2450,7 +2472,7 @@ function renderFactory(fac) {
         grid.innerHTML = fac.zones.map(zone => {
             const nicks   = (zone.machines || []).map(m => m.nick);
             const zoneIdx = _facDetailGroups.length;
-            _facDetailGroups.push({ recipe: zone.name, machines: zone.machines || [] });
+            _facDetailGroups.push({ name: zone.name, directNicks: nicks, mainLabel: null, subzones: [] });
             const staleTag = zone.stale ? ' <span class="fac-stale">HORS LIGNE</span>' : '';
             return zoneCardHtml(zone.name, nicks, zoneIdx, staleTag, true, `<div class="fac-recipe-list">${sectionHtml(nicks, !!zone.stale)}</div>`);
         }).join('');
