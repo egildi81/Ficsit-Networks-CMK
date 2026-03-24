@@ -1,4 +1,4 @@
-const VERSION = "1.7.31";
+const VERSION = "1.7.32";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -8,19 +8,21 @@ const _usinePages    = ['page-usine-info', 'page-usine-config', 'page-usine-upda
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
-    LOGGER:     '#33cc55',
-    DETAIL:     '#4488ff',
-    TRAIN_TAB:  '#cccc00',
-    DISPATCH:   '#00cccc',
-    STOCKAGE:   '#aa44aa',
-    STOCKAGE_C: '#ffc800',
-    STOCKAGE_S: '#ff9419',
-    TRAIN_STATS:'#ff8800',
-    TRAIN_MAP:  '#44cc99',
-    POWER_MON:  '#ff66aa',
-    STARTER:    '#cc2222',
-    FACTORY_C:  '#ff00bf',
-    FACTORY_S:  '#8080ff',
+    LOGGER:          '#33cc55',  // vert
+    DETAIL:          '#4488ff',  // bleu
+    TRAIN_TAB:       '#cccc00',  // jaune
+    DISPATCH:        '#00cccc',  // cyan
+    STOCKAGE:        '#aa44aa',  // violet
+    STOCKAGE_C:      '#ffc800',  // ambre      (nouveau / new)
+    CENTRAL:         '#ffc800',  // ambre      (compat / old)
+    STOCKAGE_S:      '#ff9419',  // tangerine  (nouveau / new)
+    TRAIN_STATS:     '#ff8800',  // orange
+    TRAIN_MAP:       '#44cc99',  // menthe
+    POWER_MON:       '#ff66aa',  // rose
+    STARTER:         '#cc2222',  // rouge
+    FACTORY_C:       '#ff00bf',  // fuchsia    (nouveau / new)
+    FACTORY_CENTRAL: '#ff00bf',  // fuchsia    (compat / old)
+    FACTORY_S:       '#8080ff',  // pervenche  (nouveau / new)
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';
@@ -2440,7 +2442,10 @@ function _appendLogEntries(entries) {
     if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     entries.forEach(e => {
-        const col = LOG_TAG_COLORS[e.tag] || '#888';
+        const col = LOG_TAG_COLORS[e.tag]
+            || (e.tag?.startsWith('SAT:')     ? '#ff9419' : null)  // compat STOCKAGE_S ancien / old compat
+            || (e.tag?.startsWith('FACTORY:') ? '#8080ff' : null)  // compat FACTORY_S ancien / old compat
+            || '#888';
         const div = document.createElement('div');
         const tagLower = (e.tag || '').toLowerCase();
         const msgLower = (e.msg || '').toLowerCase();
