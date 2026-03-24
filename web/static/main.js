@@ -1,4 +1,4 @@
-const VERSION = "1.7.35";
+const VERSION = "1.7.36";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -1664,7 +1664,7 @@ function renderUpdates(data) {
                          : busy ? `<span class="upd-tag upd-tag-pending">${esc(status)}</span>`
                          : status === 'updated' ? `<span class="upd-tag upd-tag-ok">UPDATED</span>`
                          : `<span class="upd-tag upd-tag-old">OBSOLÈTE</span>`;
-            const btnDis = isOk || busy;
+            const btnDis = busy;
             return `<div class="upd-sat-card">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span class="upd-sat-nick">${esc(sat.nick)}</span>${b}
