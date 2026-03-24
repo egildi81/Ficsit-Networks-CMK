@@ -9,7 +9,7 @@
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
@@ -50,7 +50,7 @@ print("SATELLITE v"..VERSION.." — "..NICK)
 -- print → GET_LOG (tag "SAT:NICK" pour identifier la source) / print → GET_LOG (tag "SAT:NICK" to identify source)
 print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
-    pcall(function() net:broadcast(PORT_LOG,"SAT:"..NICK,table.concat(t," ")) end)
+    pcall(function() net:broadcast(PORT_LOG,"STOCKAGE_S",table.concat(t," ")) end)
 end
 -- Annonce version sur GET_LOG : permet de savoir à distance quelle version tourne sur chaque satellite
 -- Version announcement on GET_LOG: allows remote check of which version runs on each satellite

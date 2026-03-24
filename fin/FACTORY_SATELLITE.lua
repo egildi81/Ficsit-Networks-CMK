@@ -9,7 +9,7 @@
 -- Port 58 : données scan → FACTORY_CENTRAL (net:send ciblé) / scan data → FACTORY_CENTRAL (targeted)
 -- Port 59 : FACTORY_SAT ↔ FACTORY_CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 -- === CONFIGURATION ===
 -- Classes de machines à monitorer (vanilla uniquement — retirer si non utilisé)
@@ -58,7 +58,7 @@ print("FACTORY_SATELLITE v"..VERSION.." — "..NICK)
 -- print → GET_LOG (tag "FACTORY:NICK" pour identifier la source) / print → GET_LOG (tag "FACTORY:NICK" to identify source)
 print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
-    pcall(function() net:broadcast(PORT_LOG,"FACTORY:"..NICK,table.concat(t," ")) end)
+    pcall(function() net:broadcast(PORT_LOG,"FACTORY_S",table.concat(t," ")) end)
 end
 print("=== FACTORY SATELLITE v"..VERSION.." BOOT — "..NICK.." ===")
 

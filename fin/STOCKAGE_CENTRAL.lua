@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 
 -- === CONFIGURATION ===
 local WEB_URL          = "http://127.0.0.1:8081"
@@ -52,7 +52,7 @@ print("CENTRAL v"..VERSION)
 -- print → GET_LOG (port 43 broadcast) / print → GET_LOG (port 43 broadcast)
 print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
-    pcall(function() net:broadcast(PORT_LOG,"CENTRAL",table.concat(t," ")) end)
+    pcall(function() net:broadcast(PORT_LOG,"STOCKAGE_C",table.concat(t," ")) end)
 end
 print("=== STOCKAGE CENTRAL v"..VERSION.." BOOT ===")
 

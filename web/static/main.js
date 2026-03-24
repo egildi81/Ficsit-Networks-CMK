@@ -1,4 +1,4 @@
-const VERSION = "1.7.30";
+const VERSION = "1.7.31";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -13,12 +13,14 @@ const LOG_TAG_COLORS = {
     TRAIN_TAB:  '#cccc00',
     DISPATCH:   '#00cccc',
     STOCKAGE:   '#aa44aa',
-    CENTRAL:    '#ffc800',
+    STOCKAGE_C: '#ffc800',
+    STOCKAGE_S: '#ff9419',
     TRAIN_STATS:'#ff8800',
     TRAIN_MAP:  '#44cc99',
     POWER_MON:  '#ff66aa',
-    STARTER:     '#cc2222',
-    FAC_CENTRAL: '#ff00bf',
+    STARTER:    '#cc2222',
+    FACTORY_C:  '#ff00bf',
+    FACTORY_S:  '#8080ff',
 };
 let _lastTrainPage    = 'page-monitor';
 let _lastStockagePage = 'page-stockage-info';
@@ -2438,10 +2440,7 @@ function _appendLogEntries(entries) {
     if (!el || !entries.length) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     entries.forEach(e => {
-        const col = LOG_TAG_COLORS[e.tag]
-            || (e.tag && e.tag.startsWith('SAT:') ? '#ff9419' : null)
-            || (e.tag && e.tag.startsWith('FAC:') ? '#8080ff' : null)
-            || '#888';
+        const col = LOG_TAG_COLORS[e.tag] || '#888';
         const div = document.createElement('div');
         const tagLower = (e.tag || '').toLowerCase();
         const msgLower = (e.msg || '').toLowerCase();
