@@ -1,10 +1,10 @@
-const VERSION = "1.7.33";
+const VERSION = "1.7.34";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
-const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
+const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
 const _dispatchPages = ['page-dispatch-live2', 'page-dispatch-config'];
-const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs', 'page-usine-info', 'page-usine-config', 'page-usine-update', 'page-usine-map', 'page-updates'];
-const _usinePages    = ['page-usine-info', 'page-usine-config', 'page-usine-update', 'page-usine-map'];
+const _sectionPages  = ['page-stockage-info', 'page-stockage-config', 'page-power', 'page-dispatch-live2', 'page-dispatch-config', 'page-logs', 'page-usine-info', 'page-usine-config', 'page-usine-map', 'page-updates'];
+const _usinePages    = ['page-usine-info', 'page-usine-config', 'page-usine-map'];
 
 // Couleurs tags FIN / FIN tag colors
 const LOG_TAG_COLORS = {
@@ -101,8 +101,7 @@ function switchUsineTab(name, btn) {
     _lastUsinePage = 'page-usine-' + name;
     document.getElementById(_lastUsinePage).classList.add('active');
     btn.classList.add('active');
-    if (name === 'config')  _facRenderConfig();
-    if (name === 'update')  { _prevJson.factory_sat_update = null; }
+    if (name === 'config') _facRenderConfig();
     if (name === 'map' && _lastFactoryData) renderFactoryMap(_lastFactoryData);
 }
 
