@@ -237,8 +237,13 @@
 
 <!-- ── SECTION LOGS ── -->
 <div id="page-logs" class="page">
-    <div class="dp-header">
+    <div class="dp-header" style="gap:10px">
         <span class="dp-status-title">LOGS FIN</span>
+        <input id="log-filter-input" type="text" placeholder="Filtrer (tag ou message)…"
+            oninput="_onLogFilterChange(this.value)"
+            style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;color:#ccc;font-size:0.78em;padding:4px 10px;outline:none;width:220px;font-family:monospace">
+        <span id="log-filter-count" style="color:#555;font-size:0.74em;white-space:nowrap"></span>
+        <button class="stock-purge-btn" onclick="_clearLogs()" style="margin-left:auto">Vider</button>
     </div>
     <div id="logs-list" style="font-family:monospace;font-size:0.78em;padding:6px 10px;display:flex;flex-direction:column;gap:2px;height:calc(100vh - 90px);overflow-y:auto;"></div>
 </div>

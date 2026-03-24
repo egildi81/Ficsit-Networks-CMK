@@ -1,4 +1,4 @@
-const VERSION = "1.7.28";
+const VERSION = "1.7.29";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];
@@ -2402,6 +2402,36 @@ function _dp2RenderLive() {
 // ── LOGS FIN ─────────────────────────────────────────────────
 let _logSeenTotal = 0;   // nb total d'entrées vues depuis le serveur / total entries seen from server
 let _logFetching  = false;
+let _logFilter    = '';  // filtre actif (tag ou message) / active filter (tag or message)
+
+function _onLogFilterChange(val) {
+    _logFilter = val.trim().toLowerCase();
+    _applyLogFilter();
+}
+
+function _applyLogFilter() {
+    const el = document.getElementById('logs-list');
+    const countEl = document.getElementById('log-filter-count');
+    if (!el) return;
+    const divs = el.querySelectorAll('div[data-tag]');
+    let visible = 0;
+    divs.forEach(d => {
+        const match = !_logFilter
+            || d.dataset.tag.toLowerCase().includes(_logFilter)
+            || d.dataset.msg.toLowerCase().includes(_logFilter);
+        d.style.display = match ? '' : 'none';
+        if (match) visible++;
+    });
+    if (countEl) countEl.textContent = _logFilter ? `${visible} / ${divs.length}` : '';
+}
+
+function _clearLogs() {
+    const el = document.getElementById('logs-list');
+    if (el) el.innerHTML = '';
+    _logSeenTotal = 0;
+    const countEl = document.getElementById('log-filter-count');
+    if (countEl) countEl.textContent = '';
+}
 
 function _appendLogEntries(entries) {
     const el = document.getElementById('logs-list');
@@ -2413,12 +2443,18 @@ function _appendLogEntries(entries) {
             || (e.tag && e.tag.startsWith('FAC:') ? '#8080ff' : null)
             || '#888';
         const div = document.createElement('div');
-        div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0';
+        const tagLower = (e.tag || '').toLowerCase();
+        const msgLower = (e.msg || '').toLowerCase();
+        const hidden = _logFilter && !tagLower.includes(_logFilter) && !msgLower.includes(_logFilter);
+        div.dataset.tag = e.tag || '';
+        div.dataset.msg = e.msg || '';
+        div.style.cssText = 'border-bottom:1px solid #181818;padding:2px 0' + (hidden ? ';display:none' : '');
         div.innerHTML = `<span style="color:#fff;margin-right:8px">${e.ts}</span>`
             + `<span style="color:${col};font-weight:700;min-width:100px;display:inline-block" title="${e.tag}">${e.tag.slice(0,17)}</span> `
             + `<span style="color:#fff">${e.msg.replace(/</g,'&lt;')}</span>`;
         el.appendChild(div);
     });
+    if (_logFilter) _applyLogFilter();
     if (atBottom) el.scrollTop = el.scrollHeight;
 }
 
