@@ -1,4 +1,4 @@
-const VERSION = "1.7.34";
+const VERSION = "1.7.35";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config'];
@@ -1691,32 +1691,16 @@ function renderUpdates(data) {
             <div class="upd-group-body">${body}</div>
         </div>`;
 
-    const satCountStkOld = Object.values(satVers).filter(s => s.version && satLatest && s.version !== satLatest).length;
-    const satCountFacOld = Object.values(facSatVers).filter(s => s.version && facSatLatest && s.version !== facSatLatest).length;
-
-    const rebootAllStkBtn = Object.keys(satVers).length
-        ? `<button class="upd-reboot-btn" style="margin-top:8px;width:auto"
-            onclick="_scriptSatRebootAll('/api/stockage/satellite/reboot', ${JSON.stringify(Object.keys(satVers))})">
-            Tout rebootter (STOCKAGE)${satCountStkOld ? ` — ${satCountStkOld} obsolète(s)` : ''}
-           </button>` : '';
-    const rebootAllFacBtn = Object.keys(facSatVers).length
-        ? `<button class="upd-reboot-btn" style="margin-top:8px;width:auto"
-            onclick="_scriptSatRebootAll('/api/factory/satellite/reboot', ${JSON.stringify(Object.keys(facSatVers))})">
-            Tout rebootter (USINE)${satCountFacOld ? ` — ${satCountFacOld} obsolète(s)` : ''}
-           </button>` : '';
-
     const html = `<div class="upd-page">
         ${group('#ffc800', 'STOCKAGE',
             centralRow('STOCKAGE_CENTRAL', 'stockage_central', 'stockage_central', stkcLatest)
             + `<div style="color:#888;font-size:0.75em;padding:4px 0 2px">Satellites (${Object.keys(satVers).length})</div>`
             + satGrid(satVers, satResults, satLatest, '/api/stockage/satellite/reboot')
-            + rebootAllStkBtn
         )}
         ${group('#ff00bf', 'USINE',
             centralRow('FACTORY_CENTRAL', 'factory_central', 'factory_central', facCLatest)
             + `<div style="color:#888;font-size:0.75em;padding:4px 0 2px">Satellites (${Object.keys(facSatVers).length})</div>`
             + satGrid(facSatVers, facSatRes, facSatLatest, '/api/factory/satellite/reboot')
-            + rebootAllFacBtn
         )}
         ${group('#33cc55', 'TRAINS',
             centralRow('LOGGER', 'logger', 'logger', loggerLatest)
@@ -1739,14 +1723,6 @@ function _scriptSatReboot(endpoint, addr) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ addrs: [addr] }),
     }).then(() => { _prevJson_updates = null; }).catch(e => console.error('sat reboot', e));
-}
-function _scriptSatRebootAll(endpoint, addrs) {
-    if (!addrs.length) return;
-    if (!confirm(`Rebootter ${addrs.length} satellite(s) ?`)) return;
-    fetch(endpoint, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addrs }),
-    }).then(() => { _prevJson_updates = null; }).catch(e => console.error('sat reboot all', e));
 }
 
 // ── Power ─────────────────────────────────────────────────────
