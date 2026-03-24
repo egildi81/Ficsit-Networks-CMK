@@ -11,7 +11,7 @@
 -- Port 53 : config dispatch broadcast → DISPATCH
 -- Port 69 : réception status DISPATCH + envoi commandes web → DISPATCH
 
-local VERSION = "1.10.0"
+local VERSION = "1.10.1"
 
 -- === INITIALISATION MATÉRIEL ===
 local net=computer.getPCIDevices(classes.NetworkCard)[1]
@@ -309,12 +309,28 @@ local function startFetchConfig()
 end
 
 -- Poll commande web (bloquant ~50ms sur HTTP local) — f:await() obligatoire en FIN
+-- Web command poll (~50ms blocking on local HTTP) — f:await() required in FIN
 local function startPollCmd()
-    if not inetCmd or not dispatchAddr then return end
+    if not inetCmd then return end
     local ok,f=pcall(function()return inetCmd:request(WEB_URL.."/api/dispatch/command.lua","GET","")end)
     if not ok or not f then return end
     local ok2,code,body=pcall(function()return f:await()end)
     if not ok2 or type(body)~="string" or body=="" or body=="nil" then return end
+    -- Commandes ciblées LOGGER (traitées avant relai DISPATCH) / LOGGER-targeted commands (handled before DISPATCH relay)
+    local ok3,cmd=pcall(function()return (load("return "..body))()end)
+    if ok3 and type(cmd)=="table" then
+        if cmd.cmd=="reboot_logger" then
+            log("Reboot LOGGER depuis WEB → redémarrage...")
+            computer.reset()
+        elseif cmd.cmd=="reboot_dispatch" then
+            if dispatchAddr then
+                pcall(function()net:send(dispatchAddr,69,"CMD:{cmd=\"reboot_self\"}")end)
+                log("DISPATCH: reboot envoyé")
+            end
+            return
+        end
+    end
+    if not dispatchAddr then return end
     pcall(function()net:send(dispatchAddr,69,"CMD:"..body)end)
     log("DISPATCH: commande forwardée → "..body:sub(1,60))
 end
@@ -398,7 +414,7 @@ local function postState(cs)
     for i=_logRingSentIdx+1,#_logRing do table.insert(newLogs,_logRing[i]) end
     _logRingSentIdx=#_logRing
     local ok,body=pcall(function()
-        return toJson({trains=trainArr,stats=cs,stockage=stockArr,power=powerData,dispatch=dispatchStatus,logs=newLogs})
+        return toJson({version=VERSION,trains=trainArr,stats=cs,stockage=stockArr,power=powerData,dispatch=dispatchStatus,logs=newLogs})
     end)
     if not ok or not body then return end
     local ok2,f=pcall(function()return inetPush:request(WEB_URL.."/api/push","POST",body,"Content-Type","application/json")end)

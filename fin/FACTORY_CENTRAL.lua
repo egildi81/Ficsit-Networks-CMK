@@ -9,7 +9,7 @@
 -- Port 58 : FACTORY_SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 59 : FACTORY_SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 
 -- === CONFIGURATION ===
 local WEB_URL           = "http://127.0.0.1:8081"
@@ -149,7 +149,8 @@ local function pushWeb()
     for addr, sat in pairs(satellites) do
         table.insert(satList, {nick=sat.nick, addr=addr, version=sat.version or "?"})
     end
-    stats.satellites = satList
+    stats.satellites      = satList
+    stats.central_version = VERSION  -- version CENTRAL pour le WEB / CENTRAL version for WEB
 
     local ok, f = pcall(function()
         return inet:request(WEB_URL.."/api/factory/push", "POST", toJson(stats),
@@ -182,6 +183,9 @@ local function pollCommand()
             print("WEB reboot → "..satellites[addr].nick.." ("..addr..")")
             pcall(function() net:send(addr, PORT_FAC_DISC, "REBOOT") end)
         end
+    elseif cmd.cmd == "reboot_self" then
+        print("Reboot FACTORY_CENTRAL depuis WEB → redémarrage...")
+        computer.reset()
     end
 end
 

@@ -12,7 +12,7 @@
 -- Port 56 : SATELLITE → CENTRAL (données scan) / scan data from satellites
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 
 -- === CONFIGURATION ===
 local WEB_URL          = "http://127.0.0.1:8081"
@@ -205,6 +205,9 @@ local function pollCommand()
             print("WEB reboot → "..satellites[addr].nick.." ("..addr..")")
             pcall(function() net:send(addr, PORT_SAT_DISC, "REBOOT") end)
         end
+    elseif cmd.cmd == "reboot_self" then
+        print("Reboot STOCKAGE_CENTRAL depuis WEB → redémarrage...")
+        computer.reset()
     end
 end
 
@@ -261,6 +264,7 @@ local function pushWeb()
     end
     local payload = {
         ts         = computer.millis() / 1000,
+        version    = VERSION,  -- version CENTRAL pour le WEB / CENTRAL version for WEB
         slotsTotal = totalSlots,
         slotsUsed  = usedSlots,
         fillRate   = fillRate,

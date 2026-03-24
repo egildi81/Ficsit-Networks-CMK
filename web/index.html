@@ -20,6 +20,7 @@
         <button class="section-btn" onclick="switchSection('power', this)">ÉNERGIE</button>
         <button class="section-btn" onclick="switchSection('logs', this)">LOGS</button>
         <button class="section-btn" onclick="switchSection('usine', this)">USINE</button>
+        <button class="section-btn" onclick="switchSection('updates', this)">MISES À JOUR</button>
     </div>
     <nav class="tabs" id="trains-tabs">
         <button class="tab active" onclick="switchTab('monitor', this)">EN DIRECT</button>
@@ -246,6 +247,11 @@
         <button class="stock-purge-btn" onclick="_clearLogs()" style="margin-left:auto">Vider</button>
     </div>
     <div id="logs-list" style="font-family:monospace;font-size:0.78em;padding:6px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;"></div>
+</div>
+
+<!-- ── SECTION MISES À JOUR ── -->
+<div id="page-updates" class="page">
+    <div id="updates-content"></div>
 </div>
 
 <!-- ── MODAL CHECK PERF ── -->

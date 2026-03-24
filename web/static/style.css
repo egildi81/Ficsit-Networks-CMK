@@ -732,3 +732,50 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .fac-mach-bar { height: 100%; border-radius: 2px; }
 .fac-cfg-actions { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
 #usine-config-content { padding: 0 14px 14px; }
+
+/* ── MISES À JOUR — page centralisée ── */
+.upd-page { padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+.upd-group {
+    background: #111; border: 1px solid #1e1e1e; border-radius: 8px; overflow: hidden;
+}
+.upd-group-header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 2px solid var(--group-color, #555);
+    background: color-mix(in srgb, var(--group-color, #555) 7%, #0b0b0b);
+}
+.upd-group-title {
+    color: var(--group-color, #aaa); font-size: 0.82em; font-weight: 700; letter-spacing: 1.5px;
+}
+.upd-group-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.upd-script-row {
+    background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 6px;
+    padding: 10px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.upd-script-name { color: #ddd; font-size: 0.85em; font-weight: 700; min-width: 140px; }
+.upd-ver-current { color: #888; font-size: 0.78em; }
+.upd-ver-arrow   { color: #333; font-size: 0.78em; }
+.upd-ver-new     { color: #33cc55; font-size: 0.78em; font-weight: 700; }
+.upd-ver-same    { color: #777; font-size: 0.78em; }
+.upd-ver-unknown { color: #555; font-size: 0.78em; font-style: italic; }
+.upd-tag { font-size: 0.68em; font-weight: 600; border-radius: 10px; padding: 2px 9px; white-space: nowrap; }
+.upd-tag-ok      { background: rgba(51,204,85,0.15);  color: #33cc55; border: 1px solid rgba(51,204,85,0.3); }
+.upd-tag-old     { background: rgba(255,68,68,0.15);  color: #ff4444; border: 1px solid rgba(255,68,68,0.3); }
+.upd-tag-pending { background: rgba(0,180,255,0.12);  color: #44aaff; border: 1px solid rgba(0,180,255,0.3); }
+.upd-tag-offline { background: rgba(100,100,100,0.12); color: #666; border: 1px solid rgba(100,100,100,0.3); }
+.upd-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.upd-reboot-btn {
+    background: rgba(255,100,0,0.1); border: 1px solid rgba(255,100,0,0.35); color: #ff6400;
+    padding: 5px 14px; font-size: 0.74em; font-weight: 600; border-radius: 4px;
+    cursor: pointer; transition: background .15s; white-space: nowrap;
+}
+.upd-reboot-btn:hover:not(:disabled) { background: rgba(255,100,0,0.22); }
+.upd-reboot-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+.upd-sat-subgrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-top: 4px;
+}
+.upd-sat-card {
+    background: #111; border: 1px solid #1e1e1e; border-radius: 6px;
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.upd-sat-nick { color: #ccc; font-size: 0.82em; font-weight: 700; }
+.upd-sat-actions { display: flex; gap: 6px; }

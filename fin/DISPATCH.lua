@@ -2,7 +2,7 @@
 -- Port 43: logs→GET_LOG | 44: snapshot trains←LOGGER | 53: config←LOGGER
 -- Port 55: priorité buffers→STOCKAGE | 69: status→LOGGER / cmds←LOGGER
 
-local VERSION = "4.3.6"
+local VERSION = "4.3.7"
 print("=== DISPATCH v"..VERSION.." BOOT ===")
 
 -- === MATÉRIEL ===
@@ -726,6 +726,9 @@ local function handleCommand(cmdStr)
     elseif c=="reload" then
         pcall(function()net:broadcast(69,"DISPATCH_HELLO")end)
         print("CMD reload : DISPATCH_HELLO envoyé")
+    elseif c=="reboot_self" then
+        print("Reboot DISPATCH depuis WEB → redémarrage...")
+        computer.reset()
     else
         print("CMD inconnue: "..c)
     end
