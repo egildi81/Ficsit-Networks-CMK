@@ -1,4 +1,4 @@
-const VERSION = "1.7.29";
+const VERSION = "1.7.30";
 // ── Navigation sections ───────────────────────────────────────
 const _trainPages    = ['page-monitor', 'page-history', 'page-stats'];
 const _stockagePages = ['page-stockage-info', 'page-stockage-config', 'page-stockage-update'];

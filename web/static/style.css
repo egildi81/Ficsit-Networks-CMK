@@ -48,6 +48,11 @@ header h1 { color: #ff8800; font-size: 1.25em; letter-spacing: 3px; font-weight:
 .page { display: none; padding: 16px; }
 .page.active { display: block; }
 
+/* ── Page LOGS — header collant, liste scrollable / sticky header, scrollable list ── */
+#page-logs.active { display: flex; flex-direction: column; height: calc(100vh - 90px); padding: 0; overflow: hidden; }
+#page-logs .dp-header { padding: 8px 16px; flex-shrink: 0; border-bottom: 1px solid #1a1a1a; }
+#logs-list { flex: 1; overflow-y: auto; }
+
 /* ── COLONNES TRAINS ── */
 .columns {
     display: grid; grid-template-columns: 1fr 1fr 1fr;
