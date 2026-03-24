@@ -1,4 +1,4 @@
-__version__ = "1.1.4"
+__version__ = "1.3.1"
 
 """
 train_server.py : serveur web + bot Discord pour Train Monitor — Satisfactory
@@ -88,6 +88,35 @@ _dispatch_routes      = _load_dispatch_routes()
 _dispatch_status      = {}    # état temps réel poussé par LOGGER (agrégé depuis DISPATCH port 69)
 _dispatch_pending_cmd = None  # commande web en attente d'être consommée par LOGGER
 
+# ── Versions scripts centraux (LOGGER, DISPATCH, STOCKAGE_CENTRAL, FACTORY_CENTRAL) ──
+_script_versions: dict = {}  # {script_name: {version, server_ts}}
+
+# ── Factory monitoring (FACTORY_CENTRAL → /api/factory/push) ──
+_factory_data         = {}    # dernières données agrégées de FACTORY_CENTRAL
+_factory_pending_cmd  = None  # commande en attente pour FACTORY_CENTRAL
+
+# ── Update satellites factory (MISE À JOUR tab) ───────────────
+_factory_satellite_versions = {}  # {addr: {nick, version, server_ts}}
+_factory_sat_update_queue   = []
+_factory_sat_update_current = None
+_factory_sat_update_results = {}  # {addr: {nick, old_version, new_version, status, ts}}
+
+# ── Factory zone config (persistée dans factory_zone_config.json) ─────────
+_FACTORY_ZONE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "factory_zone_config.json")
+def _load_factory_zone_config():
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"zones": []}
+def _save_factory_zone_config(cfg):
+    try:
+        with open(_FACTORY_ZONE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+_factory_zone_config = _load_factory_zone_config()
+
 # ── Persistance logs FIN sur disque / FIN log persistence ────
 _LOG_DIR      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 _LOG_FILE     = os.path.join(_LOG_DIR, "fin_logs.jsonl")
@@ -143,6 +172,50 @@ def _get_latest_satellite_version():
     return None
 
 
+def _get_latest_factory_satellite_version():
+    """Parse FACTORY_SATELLITE.lua pour extraire la VERSION / Parse FACTORY_SATELLITE.lua to extract VERSION."""
+    try:
+        fin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fin")
+        with open(os.path.join(fin_dir, "FACTORY_SATELLITE.lua"), "r", encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r'local VERSION\s*=\s*"([^"]+)"', line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _get_script_version(filename):
+    """Parse un fichier Lua FIN pour extraire VERSION / Parse a FIN Lua file to extract VERSION."""
+    try:
+        fin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fin")
+        with open(os.path.join(fin_dir, filename), "r", encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r'local VERSION\s*=\s*"([^"]+)"', line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _advance_factory_update_queue():
+    """Passe au satellite factory suivant dans la file de reboot / Move to next factory satellite in reboot queue."""
+    global _factory_sat_update_queue, _factory_sat_update_current, _factory_pending_cmd
+    if not _factory_sat_update_queue:
+        _factory_sat_update_current = None
+        return
+    next_sat = _factory_sat_update_queue.pop(0)
+    old_ver  = _factory_satellite_versions.get(next_sat["addr"], {}).get("version", "?")
+    _factory_sat_update_current = {**next_sat, "old_version": old_ver, "started": time.time()}
+    _factory_pending_cmd = {"cmd": "reboot_satellite", "addr": next_sat["addr"]}
+    _factory_sat_update_results[next_sat["addr"]] = {
+        "nick": next_sat["nick"], "old_version": old_ver,
+        "new_version": None, "status": "rebooting", "ts": time.time(),
+    }
+
+
 def _advance_update_queue():
     """Passe au satellite suivant dans la file de reboot / Move to next satellite in reboot queue."""
     global _sat_update_queue, _sat_update_current, _central_pending_cmd
@@ -187,12 +260,15 @@ app = Flask(__name__)
 @app.route("/api/push", methods=["POST"])
 def receive_push():
     """Reçoit le snapshot trains + trips + stats + stockage de LOGGER (toutes les 2s)."""
-    global _cache, _cache_updated_at, _trips, _stats, _stockage, _log_ring, _log_total_ever
+    global _cache, _cache_updated_at, _trips, _stats, _stockage, _log_ring, _log_total_ever, _script_versions
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     _cache = body
     _cache_updated_at = time.time()
+    # Version LOGGER / LOGGER version
+    if body.get("version"):
+        _script_versions["logger"] = {"version": body["version"], "server_ts": time.time()}
     if isinstance(body.get("trips"), dict) and body["trips"]:
         _trips = body["trips"]
     if isinstance(body.get("stats"), dict):
@@ -205,6 +281,9 @@ def receive_push():
     if isinstance(body.get("dispatch"), dict):
         _dispatch_status.update(body["dispatch"])
         _dispatch_status["server_ts"] = time.time()
+        # Version DISPATCH extraite du status broadcast (champ "v") / DISPATCH version from status broadcast (field "v")
+        if body["dispatch"].get("v"):
+            _script_versions["dispatch"] = {"version": body["dispatch"]["v"], "server_ts": time.time()}
     new_logs = body.get("logs") or []
     if new_logs:
         ts = datetime.now().strftime("%d/%m %H:%M:%S")
@@ -256,12 +335,15 @@ def purge_stockage():
 @app.route("/api/stockage/push", methods=["POST"])
 def stockage_central_push():
     """Reçoit les données agrégées de STOCKAGE_CENTRAL (toutes les 30s)."""
-    global _stockage_central, _satellite_versions, _sat_update_current, _sat_update_results
+    global _stockage_central, _satellite_versions, _sat_update_current, _sat_update_results, _script_versions
     body = request.get_json(silent=True)
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     body["server_ts"] = time.time()
     _stockage_central = body
+    # Version STOCKAGE_CENTRAL / STOCKAGE_CENTRAL version
+    if body.get("version"):
+        _script_versions["stockage_central"] = {"version": body["version"], "server_ts": time.time()}
     # Mettre à jour les versions satellites / Update satellite versions
     if isinstance(body.get("satellites"), list):
         for sat in body["satellites"]:
@@ -408,6 +490,28 @@ def satellite_reboot():
     return jsonify({"status": "ok", "queued": len(addrs)})
 
 
+@app.route("/api/scripts/reboot", methods=["POST"])
+def scripts_reboot():
+    """Envoie une commande reboot_self au script cible / Send reboot_self command to target script.
+    Body: { "script": "logger" | "dispatch" | "stockage_central" | "factory_central" }
+    Pour les satellites → utiliser /api/stockage/satellite/reboot ou /api/factory/satellite/reboot.
+    """
+    global _dispatch_pending_cmd, _central_pending_cmd, _factory_pending_cmd
+    body = request.get_json(silent=True)
+    script = body.get("script") if body else None
+    if script == "logger":
+        _dispatch_pending_cmd = {"cmd": "reboot_logger", "ts": time.time()}
+    elif script == "dispatch":
+        _dispatch_pending_cmd = {"cmd": "reboot_dispatch", "ts": time.time()}
+    elif script == "stockage_central":
+        _central_pending_cmd = {"cmd": "reboot_self", "ts": time.time()}
+    elif script == "factory_central":
+        _factory_pending_cmd = {"cmd": "reboot_self", "ts": time.time()}
+    else:
+        return jsonify({"error": f"script inconnu: {script}"}), 400
+    return jsonify({"status": "queued", "script": script})
+
+
 @app.route("/api/dispatch/routes", methods=["GET"])
 def get_dispatch_routes():
     """Retourne la config des routes dispatch (JSON ou ?format=lua pour la web UI)."""
@@ -474,6 +578,125 @@ def get_dispatch_command_lua():
     _dispatch_pending_cmd = None
     return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
 
+@app.route("/api/factory/push", methods=["POST"])
+def factory_push():
+    """Reçoit les données agrégées de FACTORY_CENTRAL (toutes les 15s)."""
+    global _factory_data, _factory_satellite_versions, _factory_sat_update_current, _factory_sat_update_results, _script_versions
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    body["server_ts"] = time.time()
+    _factory_data = body
+    # Version FACTORY_CENTRAL / FACTORY_CENTRAL version
+    if body.get("central_version"):
+        _script_versions["factory_central"] = {"version": body["central_version"], "server_ts": time.time()}
+    # Mettre à jour les versions satellites / Update satellite versions
+    if isinstance(body.get("satellites"), list):
+        for sat in body["satellites"]:
+            addr = sat.get("addr")
+            if not addr:
+                continue
+            new_version = sat.get("version", "?")
+            _factory_satellite_versions[addr] = {
+                "addr":      addr,
+                "nick":      sat.get("nick", "?"),
+                "version":   new_version,
+                "server_ts": time.time(),
+            }
+            # Vérifier si ce satellite a terminé sa mise à jour / Check if satellite completed update
+            if (_factory_sat_update_current and _factory_sat_update_current["addr"] == addr
+                    and new_version != _factory_sat_update_current.get("old_version")):
+                _factory_sat_update_results[addr] = {
+                    "nick":        _factory_sat_update_current["nick"],
+                    "old_version": _factory_sat_update_current.get("old_version"),
+                    "new_version": new_version,
+                    "status":      "updated",
+                    "ts":          time.time(),
+                }
+                _factory_sat_update_current = None
+                _advance_factory_update_queue()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/factory/zone-config", methods=["GET"])
+def get_factory_zone_config():
+    return jsonify(_factory_zone_config)
+
+
+@app.route("/api/factory/zone-config", methods=["POST"])
+def set_factory_zone_config():
+    global _factory_zone_config
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "zones" not in body:
+        return jsonify({"error": "Format invalide — {zones:[...]} attendu"}), 400
+    _factory_zone_config = body
+    _save_factory_zone_config(_factory_zone_config)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/factory/central/command.lua", methods=["GET", "POST"])
+def factory_central_command_lua():
+    """FACTORY_CENTRAL poll cette route pour récupérer la prochaine commande."""
+    global _factory_pending_cmd, _factory_sat_update_current, _factory_sat_update_results
+    # Vérification timeout (60s sans retour version) / Timeout check (60s without version update)
+    if _factory_sat_update_current:
+        elapsed = time.time() - _factory_sat_update_current["started"]
+        if elapsed > 60:
+            addr = _factory_sat_update_current["addr"]
+            _factory_sat_update_results[addr] = {
+                "nick":        _factory_sat_update_current["nick"],
+                "old_version": _factory_sat_update_current.get("old_version"),
+                "new_version": None,
+                "status":      "timeout",
+                "ts":          time.time(),
+            }
+            _factory_sat_update_current = None
+            _advance_factory_update_queue()
+    if not _factory_pending_cmd:
+        return "nil", 200, {"Content-Type": "text/plain"}
+    cmd = _factory_pending_cmd
+    _factory_pending_cmd = None
+    return _to_lua(cmd), 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/api/factory/satellite/reboot", methods=["POST"])
+def factory_satellite_reboot():
+    """Démarre la mise à jour d'un ou plusieurs satellites factory / Start update of one or more factory satellites."""
+    global _factory_sat_update_queue, _factory_sat_update_current, _factory_pending_cmd, _factory_sat_update_results
+    body = request.get_json(silent=True)
+    if not body or not body.get("addrs"):
+        return jsonify({"error": "addrs manquant"}), 400
+    addrs = [a for a in body["addrs"] if a and isinstance(a, str)]
+    if not addrs:
+        return jsonify({"error": "Aucun addr valide"}), 400
+    entries = []
+    for addr in addrs:
+        info = _factory_satellite_versions.get(addr, {})
+        entries.append({"addr": addr, "nick": info.get("nick", "?"), "old_version": info.get("version", "?")})
+
+    if not _factory_sat_update_current:
+        _factory_sat_update_results.clear()
+        _factory_sat_update_queue.clear()
+        for e in entries:
+            _factory_sat_update_results[e["addr"]] = {
+                "nick": e["nick"], "old_version": e["old_version"],
+                "new_version": None, "status": "en attente", "ts": time.time(),
+            }
+        first = entries[0]
+        _factory_sat_update_current = {**first, "started": time.time()}
+        _factory_pending_cmd = {"cmd": "reboot_satellite", "addr": first["addr"]}
+        _factory_sat_update_results[first["addr"]]["status"] = "rebooting"
+        _factory_sat_update_queue.extend(entries[1:])
+    else:
+        for e in entries:
+            _factory_sat_update_results[e["addr"]] = {
+                "nick": e["nick"], "old_version": e["old_version"],
+                "new_version": None, "status": "en attente", "ts": time.time(),
+            }
+        _factory_sat_update_queue.extend(entries)
+    return jsonify({"status": "ok", "queued": len(addrs)})
+
+
 @app.route("/api/fin/<path:script>", methods=["GET", "POST"])
 def get_fin_script(script):
     """Sert les scripts FIN Lua depuis fin/ — utilisé par les EEPROM bootstrap."""
@@ -506,7 +729,20 @@ def get_data():
             # Hide "updated" results after 5 minutes (transient badge)
             if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
         },
-        "sat_latest_version":   _get_latest_satellite_version(),
+        "sat_latest_version":          _get_latest_satellite_version(),
+        "factory":                     _factory_data or None,
+        "factory_zone_config":         _factory_zone_config,
+        "factory_satellite_versions":  _factory_satellite_versions,
+        "factory_sat_update_results":  {
+            addr: r for addr, r in _factory_sat_update_results.items()
+            if not (r.get("status") == "updated" and now - r.get("ts", 0) > 300)
+        },
+        "factory_sat_latest_version":        _get_latest_factory_satellite_version(),
+        "script_versions":                   _script_versions,
+        "logger_latest_version":             _get_script_version("LOGGER.lua"),
+        "dispatch_latest_version":           _get_script_version("DISPATCH.lua"),
+        "stockage_central_latest_version":   _get_script_version("STOCKAGE_CENTRAL.lua"),
+        "factory_central_latest_version":    _get_script_version("FACTORY_CENTRAL.lua"),
     })
 
 
@@ -1001,6 +1237,7 @@ async def discord_update_loop():
 # ════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    print(f"=== train_server.py v{__version__} ===")
     print("Serveur démarré — en attente de données LOGGER via POST /api/push ...")
     print("Historique : session en cours uniquement (pas de persistence fichier)")
 

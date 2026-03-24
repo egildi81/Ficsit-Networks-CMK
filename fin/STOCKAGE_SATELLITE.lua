@@ -5,11 +5,11 @@
 -- Prérequis : NetworkCard (+ InternetCard dans l'EEPROM uniquement pour le boot)
 -- Requirements: NetworkCard (+ InternetCard in EEPROM only for boot)
 -- Port 43 : broadcast logs → GET_LOG
--- Port 50 : SHUTDOWN
+-- Port 60 : SHUTDOWN STOCKAGE (port dédié — évite cross-reboot avec STARTER port 50)
 -- Port 56 : données scan → CENTRAL (net:send ciblé) / scan data → CENTRAL (targeted)
 -- Port 57 : SATELLITE ↔ CENTRAL (découverte + commandes) / discovery + commands
 
-local VERSION = "1.1.6"
+local VERSION = "1.2.2"
 
 -- === CONFIGURATION ===
 local SCAN_INTERVAL = 60    -- secondes entre chaque scan normal / seconds between normal scans
@@ -26,7 +26,7 @@ local CONTAINER_CLASSES = {
 
 -- === PORTS ===
 local PORT_LOG      = 43
-local PORT_SHUTDOWN = 50
+local PORT_SHUTDOWN = 60  -- port dédié STOCKAGE (évite cross-reboot STARTER port 50) / dedicated STOCKAGE shutdown port
 local PORT_SAT_DATA = 56
 local PORT_SAT_DISC = 57
 
@@ -50,7 +50,7 @@ print("SATELLITE v"..VERSION.." — "..NICK)
 -- print → GET_LOG (tag "SAT:NICK" pour identifier la source) / print → GET_LOG (tag "SAT:NICK" to identify source)
 print = function(...)
     local t={} for i=1,select('#',...)do t[i]=tostring(select(i,...))end
-    pcall(function() net:broadcast(PORT_LOG,"SAT:"..NICK,table.concat(t," ")) end)
+    pcall(function() net:broadcast(PORT_LOG,"STOCKAGE_S",table.concat(t," ")) end)
 end
 -- Annonce version sur GET_LOG : permet de savoir à distance quelle version tourne sur chaque satellite
 -- Version announcement on GET_LOG: allows remote check of which version runs on each satellite
@@ -130,9 +130,16 @@ end
 print("Scan des containers...")
 local allContainers, allNicks = discoverContainers()
 
--- Rapport au CENTRAL (liste des nicks) / Report to CENTRAL (nick list)
+-- Table {nick, uuid} pour identification sans collision de nicks
+-- {nick, uuid} table for nick-collision-free identification
+local allContainerIds = {}
+for _, c in ipairs(allContainers) do
+    table.insert(allContainerIds, {nick=c.nick, uuid=c.id})
+end
+
+-- Rapport au CENTRAL ({nick, uuid}) / Report to CENTRAL ({nick, uuid})
 if centralAddr then
-    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allNicks)) end)
+    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allContainerIds)) end)
 end
 
 -- === SCAN D'UN INVENTAIRE / INVENTORY SCAN ===
@@ -172,7 +179,7 @@ local function scanAll(onlyNicks)
 
     for _, c in ipairs(allContainers) do
         -- En mode rapide : ignorer les containers non prioritaires / In fast mode: skip non-priority containers
-        if onlyNicks and not onlyNicks[c.nick] then goto continue end
+        if onlyNicks and not onlyNicks[c.id] then goto continue end
         -- Pause réelle entre chaque conteneur / Real pause between containers
         event.pull(0.01)
         local ok, proxy = pcall(function() return component.proxy(c.id) end)
@@ -191,6 +198,7 @@ local function scanAll(onlyNicks)
                 for _, d in pairs(items) do cTotal = cTotal + d.count end
                 local cFill = total > 0 and math.floor(used / total * 1000) / 10 or 0
                 table.insert(containerData, {
+                    uuid       = c.id,    -- UUID FIN interne — différenciation sans collision / internal FIN UUID — collision-free identification
                     nick       = c.nick,
                     slotsTotal = total,
                     slotsUsed  = used,
@@ -284,7 +292,7 @@ while true do
                     -- CENTRAL (re)démarré / CENTRAL (re)started
                     centralAddr = sndr
                     print("CENTRAL (re)détecté: "..sndr)
-                    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allNicks)) end)
+                    pcall(function() net:send(centralAddr, PORT_SAT_DISC, "CONTAINERS_REPORT", ser(allContainerIds)) end)
 
                 elseif a1 == "IDENTIFY" then
                     -- CENTRAL nous a perdus, on se réenregistre / CENTRAL lost us, re-register

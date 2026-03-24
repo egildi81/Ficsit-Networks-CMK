@@ -17,9 +17,10 @@
         <button class="section-btn active" onclick="switchSection('trains', this)">TRAINS</button>
         <button class="section-btn" onclick="switchSection('dispatch', this)">DISPATCH</button>
         <button class="section-btn" onclick="switchSection('stockage', this)">STOCKAGE</button>
+        <button class="section-btn" onclick="switchSection('usine', this)">USINE</button>
         <button class="section-btn" onclick="switchSection('power', this)">ÉNERGIE</button>
         <button class="section-btn" onclick="switchSection('logs', this)">LOGS</button>
-        <button class="section-btn" style="opacity:0.35;cursor:not-allowed" disabled title="Bientôt disponible">USINE <span style="font-size:0.75em;color:#aaa">(Soon)</span></button>
+        <button class="section-btn" onclick="switchSection('updates', this)">MISES À JOUR</button>
     </div>
     <nav class="tabs" id="trains-tabs">
         <button class="tab active" onclick="switchTab('monitor', this)">EN DIRECT</button>
@@ -30,11 +31,15 @@
     <nav class="tabs" id="stockage-tabs" style="display:none">
         <button class="tab active" id="stockage-tab-info" onclick="switchStockTab('info', this)">INFO</button>
         <button class="tab" id="stockage-tab-config" onclick="switchStockTab('config', this)">CONFIGURATION</button>
-        <button class="tab" id="stockage-tab-update" onclick="switchStockTab('update', this)">MISE À JOUR</button>
     </nav>
     <nav class="tabs" id="dispatch-tabs" style="display:none">
         <button class="tab active" onclick="switchDispatchTab('live', this)">LIVE</button>
         <button class="tab" onclick="switchDispatchTab('config', this)">CONFIGURATION</button>
+    </nav>
+    <nav class="tabs" id="usine-tabs" style="display:none">
+        <button class="tab active" id="usine-tab-info" onclick="switchUsineTab('info', this)">INFO</button>
+        <button class="tab" id="usine-tab-config" onclick="switchUsineTab('config', this)">CONFIGURATION</button>
+        <button class="tab" id="usine-tab-map" onclick="switchUsineTab('map', this)">CARTE</button>
     </nav>
 </header>
 
@@ -201,12 +206,50 @@
     </div>
 </div>
 
+<!-- ── SECTION USINE — INFO ── -->
+<div id="page-usine-info" class="page">
+    <div class="stock-section-bar">
+        <span class="fac-section-title">USINE</span>
+        <div style="display:flex;gap:8px;align-items:center">
+            <span id="fac-stale" style="font-size:0.72em;color:#ff4444"></span>
+            <button id="fac-view-btn" class="stock-purge-btn" onclick="toggleFacView()">Vue détaillée</button>
+            <button class="stock-purge-btn" onclick="purgeFacInactifs()" title="Supprime les machines absentes des satellites">Purger les inactifs</button>
+        </div>
+    </div>
+    <div id="fac-grid" class="fac-grid"></div>
+</div>
+
+<!-- ── SECTION USINE — CONFIGURATION ── -->
+<div id="page-usine-config" class="page">
+    <div id="usine-config-content"></div>
+</div>
+
+<!-- ── SECTION USINE — MISE À JOUR ── -->
+<div id="page-usine-update" class="page">
+    <div id="usine-update-content"></div>
+</div>
+
+<!-- ── SECTION USINE — CARTE ── -->
+<div id="page-usine-map" class="page">
+    <div id="usine-map-content"></div>
+</div>
+
 <!-- ── SECTION LOGS ── -->
 <div id="page-logs" class="page">
-    <div class="dp-header">
+    <div class="dp-header" style="gap:10px">
         <span class="dp-status-title">LOGS FIN</span>
+        <input id="log-filter-input" type="text" placeholder="Filtrer (tag ou message)…"
+            oninput="_onLogFilterChange(this.value)"
+            style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;color:#ccc;font-size:0.78em;padding:4px 10px;outline:none;width:220px;font-family:monospace">
+        <span id="log-filter-count" style="color:#555;font-size:0.74em;white-space:nowrap"></span>
+        <button class="stock-purge-btn" onclick="_clearLogs()" style="margin-left:auto">Vider</button>
     </div>
-    <div id="logs-list" style="font-family:monospace;font-size:0.78em;padding:6px 10px;display:flex;flex-direction:column;gap:2px;height:calc(100vh - 90px);overflow-y:auto;"></div>
+    <div id="logs-list" style="font-family:monospace;font-size:0.78em;padding:6px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;"></div>
+</div>
+
+<!-- ── SECTION MISES À JOUR ── -->
+<div id="page-updates" class="page">
+    <div id="updates-content"></div>
 </div>
 
 <!-- ── MODAL CHECK PERF ── -->
@@ -251,6 +294,17 @@
         <div class="stock-bar-bg"><div class="stock-bar" id="stock-modal-bar"></div></div>
         <div class="stock-meta" id="stock-modal-meta"></div>
         <div class="stock-items" id="stock-modal-body"></div>
+    </div>
+</div>
+
+<!-- ── MODAL DÉTAIL USINE ── -->
+<div id="fac-detail-modal" onclick="if(event.target===this)closeFacDetail()">
+    <div id="fac-detail-panel">
+        <div class="fac-detail-header">
+            <span id="fac-detail-title">—</span>
+            <button class="stock-modal-close" onclick="closeFacDetail()">✕</button>
+        </div>
+        <div id="fac-detail-body"></div>
     </div>
 </div>
 
